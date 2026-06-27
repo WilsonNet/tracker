@@ -4,6 +4,8 @@ A minimal multitrack audio recorder for the desktop. No timeline, no grid — ju
 
 Built with **Tauri** (Rust + React/TypeScript) with a keyboard-first, Vim-native interface inspired by the Zoom R4 MultiTrak.
 
+![Tracker screenshot](docs/screenshot-app.png)
+
 ## Features
 
 - **4-track recording** with 32-bit float WAV output
