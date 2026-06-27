@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+src-tauri/target/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Playwright
+.playwright-mcp/
+.playwright-report/
+test-results/
+
+# Tauri (generated artifacts only)
+src-tauri/gen/
+## Build artifacts
+tsconfig.tsbuildinfo
+*.tsbuildinfo

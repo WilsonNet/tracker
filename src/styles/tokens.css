@@ -1,0 +1,78 @@
+:root {
+  /* ── Background & Surface ── */
+  --bg: oklch(0.07 0.000 0);
+  --surface: oklch(0.125 0.000 0);
+  --surface-raised: oklch(0.175 0.000 0);
+  --surface-hover: oklch(0.15 0.000 0);
+
+  /* ── Text ── */
+  --ink: oklch(0.93 0.000 0);
+  --ink-dim: oklch(0.65 0.000 0);
+  --ink-muted: oklch(0.48 0.000 0);
+
+  /* ── Primary Brand: Amber Signal (hue 57°) ── */
+  --amber: oklch(0.73 0.157 57);
+  --amber-bright: oklch(0.80 0.18 57);
+  --amber-dim: oklch(0.50 0.09 57);
+  --amber-bg: oklch(0.20 0.04 57);
+
+  /* ── Semantic ── */
+  --red: oklch(0.50 0.20 20);
+  --red-bright: oklch(0.55 0.22 20);
+  --red-bg: oklch(0.18 0.06 20);
+  --teal: oklch(0.55 0.12 200);
+  --teal-bg: oklch(0.18 0.04 200);
+
+  /* ── Borders ── */
+  --border: oklch(0.22 0.000 0);
+  --border-subtle: oklch(0.15 0.000 0);
+  --border-amber: oklch(0.40 0.06 57);
+
+  /* ── Motion ── */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 200ms;
+  --duration-slow: 350ms;
+
+  /* ── Z-Index Scale ── */
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 300;
+  --z-modal-backdrop: 400;
+  --z-modal: 500;
+  --z-toast: 600;
+  --z-tooltip: 700;
+
+  /* ── Font ── */
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+
+  /* ── Spacing (4pt base) ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* ── Radius ── */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+
+  /* ── Typography Scale (rem-based) ── */
+  --text-caption: 0.6875rem;
+  --text-label: 0.75rem;
+  --text-data: 0.8125rem;
+  --text-body: 0.875rem;
+  --text-heading: 1.25rem;
+  --text-title: 1.5rem;
+
+  --tracking-label: 0.04em;
+  --tracking-data: 0;
+  --tracking-body: 0;
+
+  --lh-tight: 1.15;
+  --lh-normal: 1.4;
+  --lh-loose: 1.6;
+}

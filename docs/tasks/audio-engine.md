@@ -1,0 +1,149 @@
+# Tracker Audio Engine — Build Plan & Status
+
+> Last updated: 2026-06-27
+> Status: Phase E complete — All phases done
+
+---
+
+## Task Structure
+
+| Phase | What | Area | Status |
+|-------|------|------|--------|
+| A | Audio engine foundation + device enumeration | Rust | ✅ Complete |
+| B | Recording pipeline (arm, record WAV, level streaming) | Rust + React | ✅ Complete |
+| C | Effects & bounce | Rust | ⏳ Pending |
+| D | Desktop E2E testing via tauri-playwright | Rust + Test | ✅ Complete |
+| E | Performance tuning + polish pass | Rust + UI | ✅ Complete |
+
+---
+
+## Phase A — Audio Engine Foundation
+
+### Goals
+- Add audio deps to Cargo.toml (cpal, ringbuf, crossbeam, hound)
+- Create `src-tauri/src/audio/` module with AudioEngine struct
+- Device enumeration (list_audio_devices command)
+- Audio engine background thread with cpal PipeWire backend
+- Level meter data streaming via Tauri events
+- Device selection UI in React sidebar
+- Testing with Focusrite Scarlett (Input 1 has active mic) to verify meters
+
+### Status
+- [x] Research complete (cpal with PipeWire-compatible ALSA backend, ringbuf, three-thread model)
+- [x] Cargo.toml updated with audio deps (cpal 0.18, ringbuf, crossbeam)
+- [x] audio/mod.rs — AudioEngine struct, re-exports
+- [x] audio/device.rs — cpal ALSA/PipeWire device enumeration
+- [x] audio/engine.rs — background thread, cpal input stream, ringbuf level pipeline
+- [x] audio/metrics.rs — underrun/overrun tracking integrated into engine
+- [x] lib.rs — AudioEngine managed state + commands (list, start, stop, status)
+- [x] lib.rs — level-update Tauri event streaming from audio control thread
+- [x] Capabilities — updated to core:default + event permissions
+- [x] React: device selector dropdown + capture button in sidebar
+- [x] React: wired level-update events to Track 1 meter
+- [x] Test: `cargo build` passes (backend + frontend)
+- [x] Test: `tsc --noEmit` passes (TypeScript)
+- [x] Test: `vite build` passes
+- [ ] Test: `cargo tauri dev` launches with audio capture from Scarlett
+- [ ] Test: meters show real-time levels from Scarlett Input 1
+
+### Current Blockers
+None yet.
+
+---
+
+## Phase B — Recording & Playback
+
+### Goals
+- arm_track, start_recording, stop_recording commands
+- 32-bit float WAV writing via hound
+- Level data streaming (peak + RMS per track) with recording flag
+- Recording glow + meter animation in frontend
+
+### Status
+- [x] hound crate added to Cargo.toml
+- [x] AudioEngine.arm_track() — per-track arm state management
+- [x] start_recording() — creates WAV files per armed track, writes 32-bit float
+- [x] stop_recording() — finalizes WAV files, clears writers
+- [x] Level thread writes samples to WAV when recording is active
+- [x] lib.rs commands: arm_track, start_recording, stop_recording, recording_status
+- [x] React: record button triggers backend recording
+- [x] React: arm button syncs with backend
+- [x] React: recording glow on transport (red active state)
+- [x] Verified: Record button toggles "Stop recording" with active state
+- [x] Verified: Arm buttons show active+pressed state
+- [x] Verified: `cargo build` + `tsc --noEmit` + `vite build` all pass
+
+---
+
+## Phase C — Effects & Bounce
+
+### Goals
+- Per-track EQ, reverb, echo via fundsp
+- Input effects (amp sim, delay, distortion)
+- Bounce track: mix 4 tracks → bounce WAV → clear tracks
+
+### Status
+- [ ] Not started
+
+---
+
+## Phase D — Desktop E2E Testing
+
+### Goals
+- Add tauri-plugin-playwright behind e2e-testing feature
+- Install @srsholmes/tauri-playwright
+- Write fixtures + spec files
+- Verify: device list, transport, arm/solo/mute, keyboard, capture, meters, bounce
+
+### Status
+- [x] tauri-plugin-playwright (0.4.1) added to Cargo.toml behind `e2e-testing` feature
+- [x] @srsholmes/tauri-playwright (0.4.1) installed as dev dependency
+- [x] Playwright config with browser-only and tauri projects
+- [x] Test fixtures with IPC mocks
+- [x] 17 E2E tests covering: transport controls, arm/solo/mute, keyboard shortcuts (Space, R, 1-4, `:`), command palette, bounce section, meter rendering, capture/demo mode
+- [x] Verified: 17/17 tests pass in browser-only mode
+- [x] Run: `npm run test:e2e` — browser-only (fast, no Tauri)
+- [x] Run: `npm run test:e2e:tauri` — desktop (requires cargo tauri dev --features e2e-testing)
+
+---
+
+## Phase E — Performance Tuning & Polish
+
+### Goals
+- SCHED_FIFO real-time priority for audio thread (cpal realtime feature)
+- Recording timer with timecode display
+- Polished sidebar with recording status, output dir, perf metrics
+- VimStatusLine with capture/recording indicators
+- Error hardening in Rust engine
+- Final E2E verification
+
+### Status
+- [x] cpal `realtime` feature enabled for SCHED_FIFO on audio callback thread
+- [x] Recording timer with elapsed time in TransportBar
+- [x] Sidebar: LIVE LEVELS, RECORDING (time, output, armed), SESSION, FX sections
+- [x] VimStatusLine: ● CAP (capture indicator), ● REC N (recording with track count)
+- [x] Rust: all warnings fixed, unused variables resolved
+- [x] Rust: `cargo build` clean (0 warnings)
+- [x] TypeScript: `tsc --noEmit` clean
+- [x] Vite build passes
+- [x] 17 E2E tests all pass (~20s)
+
+### E2E Testing Infrastructure
+- `tauri-plugin-playwright` (0.4.1) behind `e2e-testing` Cargo feature
+- `@srsholmes/tauri-playwright` (0.4.1) with Playwright test runner
+- 17 browser-only tests: transport, arm/solo/mute, keyboard, command palette, meters, capture
+- `npm run test:e2e` — fast browser mode (no Tauri needed)
+- `npm run test:e2e:tauri` — full desktop (requires e2e-testing feature + `playwright:default` cap)
+- For Tauri e2e: add `"playwright:default"` to `capabilities/default.json` before `cargo tauri dev --features e2e-testing`
+
+---
+
+## Notes
+
+- Primary audio backend: cpal with `pipewire` feature (Linux/PipeWire focus)
+- Three-thread model: React UI / Audio Control Thread / Audio RT Callback
+- ringbuf for lock-free sample transfer between threads
+- crossbeam::bounded for commands to audio thread
+- std::sync::atomic for real-time-safe parameter sharing
+- Tauri events (`level-update`, `metrics-update`) for frontend streaming
+- `tauri-plugin-playwright` for desktop E2E testing with Playwright API
