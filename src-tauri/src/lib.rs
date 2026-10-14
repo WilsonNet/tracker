@@ -35,9 +35,9 @@ fn capture_status(state: tauri::State<'_, Mutex<AudioEngine>>) -> Result<bool, S
 }
 
 #[tauri::command]
-fn arm_track(id: usize, armed: bool, state: tauri::State<'_, Mutex<AudioEngine>>) -> Result<(), String> {
+fn arm_track(id: usize, armed: bool, channel: usize, state: tauri::State<'_, Mutex<AudioEngine>>) -> Result<(), String> {
     let engine = state.lock().map_err(|e| e.to_string())?;
-    engine.arm_track(id, armed);
+    engine.arm_track(id, armed, channel);
     Ok(())
 }
 

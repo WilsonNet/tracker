@@ -21,6 +21,7 @@ cpal = { version = "0.18", features = ["realtime"] }
 ringbuf = "0.4"
 crossbeam-channel = "0.5"
 hound = "3.5"
+jack = "0.13"
 tauri-plugin-playwright = { version = "0.4", optional = true }
 
 [features]

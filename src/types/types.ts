@@ -10,7 +10,7 @@ export interface TrackData {
   muted: boolean;
   level: number;
   pan: number;
-  input: string;
+  inputChannel: number;
   eqLow: number;
   eqMid: number;
   eqHigh: number;
@@ -51,10 +51,8 @@ export interface AudioDeviceInfo {
 }
 
 export interface LevelUpdate {
-  input_a_peak: number;
-  input_a_rms: number;
-  input_b_peak: number;
-  input_b_rms: number;
+  input_peaks: number[];
+  input_rms: number[];
   recording: boolean;
   armed_tracks: boolean[];
   metrics: {
@@ -80,7 +78,7 @@ export function defaultTrack(id: number): TrackData {
     muted: false,
     level: 0.75,
     pan: 0.5,
-    input: id === 0 ? "A" : id === 1 ? "B" : "Off",
+    inputChannel: id,
     eqLow: 0.5,
     eqMid: 0.5,
     eqHigh: 0.5,

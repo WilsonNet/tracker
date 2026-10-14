@@ -1,7 +1,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound::WavWriter;
 use ringbuf::traits::*;
-use ringbuf::HeapRb;
+use ringbuf::{HeapCons, HeapRb};
 use serde::Serialize;
 use std::io::BufWriter;
 use std::path::PathBuf;
@@ -11,14 +11,12 @@ use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
-use super::device::enumerate_input_devices;
+use super::device::{enumerate_input_devices, AudioDevice};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LevelUpdatePayload {
-    pub input_a_peak: f32,
-    pub input_a_rms: f32,
-    pub input_b_peak: f32,
-    pub input_b_rms: f32,
+    pub input_peaks: Vec<f32>,
+    pub input_rms: Vec<f32>,
     pub recording: bool,
     pub armed_tracks: Vec<bool>,
     pub metrics: MetricsPayload,
@@ -39,7 +37,7 @@ pub struct RecordingStatus {
     pub output_dir: String,
 }
 
-type TrackWriter = Option<WavWriter<BufWriter<std::fs::File>>>;
+type TrackWriter = Option<(WavWriter<BufWriter<std::fs::File>>, usize)>;
 
 pub struct AudioEngine {
     running: Arc<AtomicBool>,
@@ -52,7 +50,10 @@ pub struct AudioEngine {
     rec_sample_rate: Mutex<u32>,
     output_dir: PathBuf,
     arm_state: Mutex<Vec<bool>>,
+    arm_channels: Mutex<Vec<usize>>,
     sample_rate: Mutex<u32>,
+    #[cfg(target_os = "linux")]
+    jack_client: Mutex<Option<jack::AsyncClient<(), super::jack::JackHandler>>>,
 }
 
 impl AudioEngine {
@@ -68,14 +69,22 @@ impl AudioEngine {
             rec_sample_rate: Mutex::new(48000),
             output_dir: std::env::temp_dir().join("tracker_recordings"),
             arm_state: Mutex::new(vec![false; 4]),
+            arm_channels: Mutex::new((0..4).collect()),
             sample_rate: Mutex::new(48000),
+            #[cfg(target_os = "linux")]
+            jack_client: Mutex::new(None),
         }
     }
 
-    pub fn arm_track(&self, id: usize, armed: bool) {
+    pub fn arm_track(&self, id: usize, armed: bool, channel: usize) {
         if let Ok(mut state) = self.arm_state.lock() {
             if id < state.len() {
                 state[id] = armed;
+            }
+        }
+        if let Ok(mut channels) = self.arm_channels.lock() {
+            if id < channels.len() {
+                channels[id] = channel;
             }
         }
     }
@@ -96,6 +105,7 @@ impl AudioEngine {
         let dir = &self.output_dir;
         std::fs::create_dir_all(dir).map_err(|e| format!("Output dir: {e}"))?;
 
+        let track_channels = self.arm_channels.lock().map(|c| c.clone()).unwrap_or_default();
         let mut writers: Vec<TrackWriter> = Vec::with_capacity(armed.len());
         for (i, &is_armed) in armed.iter().enumerate() {
             if is_armed {
@@ -110,7 +120,8 @@ impl AudioEngine {
                     std::fs::File::create(&path).map_err(|e| format!("Create {}: {e}", path.display()))?;
                 let writer =
                     WavWriter::new(BufWriter::new(file), spec).map_err(|e| format!("WAV init: {e}"))?;
-                writers.push(Some(writer));
+                let channel = track_channels.get(i).copied().unwrap_or(i);
+                writers.push(Some((writer, channel)));
             } else {
                 writers.push(None);
             }
@@ -126,7 +137,7 @@ impl AudioEngine {
         self.rec_active.store(false, Ordering::SeqCst);
         if let Ok(mut guard) = self.rec_writers.lock() {
             for w in guard.iter_mut() {
-                if let Some(writer) = w.take() {
+                if let Some((writer, _)) = w.take() {
                     let _ = writer.finalize();
                 }
             }
@@ -157,26 +168,67 @@ impl AudioEngine {
             .find(|d| d.name == device_name)
             .ok_or_else(|| format!("Device not found: {device_name}"))?;
 
-        let host = cpal::default_host();
-        let device: cpal::Device = host
-            .input_devices()
-            .map_err(|e| format!("Failed to enumerate devices: {e}"))?
-            .find(|d| {
-                d.description()
-                    .ok()
-                    .map(|desc| desc.name().to_string())
-                    .as_deref()
-                    == Some(&dev_info.name)
-            })
-            .ok_or_else(|| format!("Device '{device_name}' no longer available"))?;
+        #[cfg(target_os = "linux")]
+        if dev_info.pcm_id == "jack" {
+            return self.start_jack_capture(dev_info, app);
+        }
+
+        self.start_cpal_capture(dev_info, app)
+    }
+
+    /// Capture through pipewire-jack: connect input ports to the selected
+    /// device's capture ports (Ardour-style, cooperative with other clients).
+    #[cfg(target_os = "linux")]
+    fn start_jack_capture(&self, dev_info: &AudioDevice, app: AppHandle) -> Result<(), String> {
+        let node = dev_info
+            .node
+            .clone()
+            .ok_or_else(|| "Missing JACK client name".to_string())?;
+        let channels = (dev_info.input_channels as usize).max(1);
+
+        let sample_rate = {
+            let (probe, _status) =
+                jack::Client::new("tracker-probe", jack::ClientOptions::NO_START_SERVER)
+                    .map_err(|e| format!("JACK server: {e}"))?;
+            probe.sample_rate()
+        };
+        *self.rec_sample_rate.lock().unwrap() = sample_rate;
+        *self.sample_rate.lock().unwrap() = sample_rate;
+
+        let ring_capacity = sample_rate as usize * channels / 2;
+        let rb = HeapRb::<f32>::new(ring_capacity);
+        let (producer, consumer) = rb.split();
+
+        self.running.store(true, Ordering::SeqCst);
+        self.spawn_level_thread(consumer, app, channels, sample_rate)?;
+
+        let client = super::jack::start(
+            &node,
+            channels,
+            producer,
+            self.running.clone(),
+            self.overruns.clone(),
+        )?;
+        *self.jack_client.lock().unwrap() = Some(client);
+        Ok(())
+    }
+
+    fn start_cpal_capture(&self, dev_info: &AudioDevice, app: AppHandle) -> Result<(), String> {
+        let device = super::device::find_cpal_device(dev_info)?;
 
         let supported = device
             .default_input_config()
             .map_err(|e| format!("Failed to get input config: {e}"))?;
 
         let sample_rate: u32 = supported.sample_rate();
-        let channels = supported.channels();
-        let config: cpal::StreamConfig = supported.config();
+        let mut config: cpal::StreamConfig = supported.config();
+        // Capture all hardware channels so each track can pick its own input
+        config.channels = dev_info.input_channels.max(1);
+        if dev_info.pcm_id == "pipewire" {
+            // The pipewire ALSA plugin under-delivers with the default buffer size
+            config.buffer_size = cpal::BufferSize::Fixed(1024);
+        }
+        let channels = config.channels;
 
         *self.rec_sample_rate.lock().unwrap() = sample_rate;
         *self.sample_rate.lock().unwrap() = sample_rate;
@@ -186,38 +238,62 @@ impl AudioEngine {
         let (mut producer, consumer) = rb.split();
 
         let running = self.running.clone();
-        let compute_running = running.clone();
         let overruns = self.overruns.clone();
-        let rec_active = self.rec_active.clone();
-        let rec_writers = self.rec_writers.clone();
 
         running.store(true, Ordering::SeqCst);
 
+        // Target a specific PipeWire source cooperatively (pipewire ALSA plugin).
+        #[cfg(target_os = "linux")]
+        if let Some(node) = &dev_info.node {
+            std::env::set_var("PIPEWIRE_NODE", node);
+        }
+
         let err_name = dev_info.name.clone();
-        let stream = device
-            .build_input_stream(
-                config,
-                move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    if !running.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    let written = producer.push_slice(data);
-                    if written < data.len() {
-                        overruns.fetch_add(1, Ordering::Relaxed);
-                    }
-                },
-                move |err| {
-                    eprintln!("Audio error on {err_name}: {err}");
-                },
-                None,
-            )
-            .map_err(|e| format!("Failed to build input stream: {e}"))?;
+        let stream_result = device.build_input_stream(
+            config,
+            move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                if !running.load(Ordering::Relaxed) {
+                    return;
+                }
+                let written = producer.push_slice(data);
+                if written < data.len() {
+                    overruns.fetch_add(1, Ordering::Relaxed);
+                }
+            },
+            move |err| {
+                eprintln!("Audio error on {err_name}: {err}");
+            },
+            None,
+        );
+
+        #[cfg(target_os = "linux")]
+        std::env::remove_var("PIPEWIRE_NODE");
+
+        let stream =
+            stream_result.map_err(|e| format!("Failed to build input stream: {e}"))?;
 
         stream.play().map_err(|e| format!("Failed to start stream: {e}"))?;
         *self.stream.lock().unwrap() = Some(stream);
 
-        let compute_underruns = self.underruns.clone();
-        let compute_overruns = self.overruns.clone();
+        self.spawn_level_thread(consumer, app, channels as usize, sample_rate)?;
+
+        Ok(())
+    }
+
+    /// Consume interleaved samples, write armed tracks' channels to WAV and
+    /// stream per-channel levels to the UI. Shared by the cpal and JACK paths.
+    fn spawn_level_thread(
+        &self,
+        consumer: HeapCons<f32>,
+        app: AppHandle,
+        channels: usize,
+        sample_rate: u32,
+    ) -> Result<(), String> {
+        let running = self.running.clone();
+        let underruns = self.underruns.clone();
+        let overruns = self.overruns.clone();
+        let rec_active = self.rec_active.clone();
+        let rec_writers = self.rec_writers.clone();
 
         thread::Builder::new()
             .name("audio-engine".into())
@@ -225,21 +301,21 @@ impl AudioEngine {
                 let mut consumer = consumer;
                 let interval = Duration::from_millis(50);
 
-                while compute_running.load(Ordering::Relaxed) {
+                while running.load(Ordering::Relaxed) {
                     thread::sleep(interval);
 
                     let available = consumer.occupied_len();
                     if available == 0 {
-                        compute_underruns.fetch_add(1, Ordering::Relaxed);
+                        underruns.fetch_add(1, Ordering::Relaxed);
                         let _ = app.emit("level-update", zero_levels(
-                            compute_underruns.load(Ordering::Relaxed),
-                            compute_overruns.load(Ordering::Relaxed),
+                            underruns.load(Ordering::Relaxed),
+                            overruns.load(Ordering::Relaxed),
                             interval,
                         ));
                         continue;
                     }
 
-                    let ch = channels as usize;
+                    let ch = channels;
                     let samples_per_read = (available / ch) * ch;
                     let mut buf = vec![0.0_f32; samples_per_read];
                     consumer.pop_slice(&mut buf);
@@ -247,35 +323,36 @@ impl AudioEngine {
                     // Write to WAV for armed + recording tracks
                     if rec_active.load(Ordering::Relaxed) {
                         if let Ok(mut guard) = rec_writers.lock() {
-                            for writer in guard.iter_mut().flatten() {
-                                for &s in &buf {
-                                    let _ = writer.write_sample(s);
+                            for (writer, track_ch) in guard.iter_mut().flatten() {
+                                let track_ch = *track_ch % ch;
+                                for (idx, &s) in buf.iter().enumerate() {
+                                    if idx % ch == track_ch {
+                                        let _ = writer.write_sample(s);
+                                    }
                                 }
                             }
                         }
                     }
 
                     // Compute levels and emit event
-                    let (a_peak, a_rms, b_peak, b_rms) = compute_levels(&buf, ch);
+                    let (peaks, rms) = compute_levels(&buf, ch);
 
                     let is_rec = rec_active.load(Ordering::Relaxed);
                     let _ = app.emit("level-update", LevelUpdatePayload {
-                        input_a_peak: a_peak,
-                        input_a_rms: a_rms,
-                        input_b_peak: b_peak,
-                        input_b_rms: b_rms,
+                        input_peaks: peaks,
+                        input_rms: rms,
                         recording: is_rec,
                         armed_tracks: vec![false; 4],
                         metrics: MetricsPayload {
-                            underruns: compute_underruns.load(Ordering::Relaxed),
-                            overruns: compute_overruns.load(Ordering::Relaxed),
+                            underruns: underruns.load(Ordering::Relaxed),
+                            overruns: overruns.load(Ordering::Relaxed),
                             callback_interval_ms: interval.as_secs_f64() * 1000.0,
                         },
                     });
 
                     let read_dur = buf.len() as f64 / (sample_rate as f64 * channels as f64);
-                    if read_dur > interval.as_secs_f64() {
-                        compute_overruns.fetch_add(1, Ordering::Relaxed);
+                    if read_dur > interval.as_secs_f64() * 1.5 {
+                        overruns.fetch_add(1, Ordering::Relaxed);
                     }
                 }
             })
@@ -289,6 +366,10 @@ impl AudioEngine {
         self.stop_playback();
         self.running.store(false, Ordering::SeqCst);
         *self.stream.lock().unwrap() = None;
+        #[cfg(target_os = "linux")]
+        {
+            *self.jack_client.lock().unwrap() = None;
+        }
     }
 
     pub fn bounce_tracks(&self) -> Result<String, String> {
@@ -401,10 +482,8 @@ impl AudioEngine {
 
 fn zero_levels(underruns: u64, overruns: u64, interval: Duration) -> LevelUpdatePayload {
     LevelUpdatePayload {
-        input_a_peak: -96.0,
-        input_a_rms: -96.0,
-        input_b_peak: -96.0,
-        input_b_rms: -96.0,
+        input_peaks: Vec::new(),
+        input_rms: Vec::new(),
         recording: false,
         armed_tracks: vec![false; 4],
         metrics: MetricsPayload {
@@ -415,7 +494,7 @@ fn zero_levels(underruns: u64, overruns: u64, interval: Duration) -> LevelUpdate
     }
 }
 
-fn compute_levels(buf: &[f32], channels: usize) -> (f32, f32, f32, f32) {
+fn compute_levels(buf: &[f32], channels: usize) -> (Vec<f32>, Vec<f32>) {
     let mut peaks = vec![0.0_f32; channels];
     let mut sq_sums = vec![0.0_f32; channels];
     let mut counts = vec![0_usize; channels];
@@ -434,14 +513,12 @@ fn compute_levels(buf: &[f32], channels: usize) -> (f32, f32, f32, f32) {
         if v <= 0.0 { -96.0 } else { (20.0 * v.log10()).max(-96.0) }
     };
 
-    let a_peak = to_dbfs(peaks.first().copied().unwrap_or(0.0));
-    let a_rms = to_dbfs(
-        (sq_sums.first().copied().unwrap_or(0.0) / counts.first().copied().unwrap_or(1).max(1) as f32).sqrt(),
-    );
-    let b_peak = to_dbfs(peaks.get(1).copied().unwrap_or(0.0));
-    let b_rms = to_dbfs(
-        (sq_sums.get(1).copied().unwrap_or(0.0) / counts.get(1).copied().unwrap_or(1).max(1) as f32).sqrt(),
-    );
+    let peak_db = peaks.iter().map(|&p| to_dbfs(p)).collect();
+    let rms_db = sq_sums
+        .iter()
+        .zip(counts.iter())
+        .map(|(&s, &n)| to_dbfs((s / n.max(1) as f32).sqrt()))
+        .collect();
 
-    (a_peak, a_rms, b_peak, b_rms)
+    (peak_db, rms_db)
 }

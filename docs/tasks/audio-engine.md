@@ -1,7 +1,7 @@
 # Tracker Audio Engine — Build Plan & Status
 
-> Last updated: 2026-06-27
-> Status: Phase E complete — All phases done
+> Last updated: 2026-10-13
+> Status: Phase F complete — device & channel selection
 
 ---
 
@@ -14,6 +14,7 @@
 | C | Effects & bounce | Rust | ⏳ Pending |
 | D | Desktop E2E testing via tauri-playwright | Rust + Test | ✅ Complete |
 | E | Performance tuning + polish pass | Rust + UI | ✅ Complete |
+| F | Device & channel selection (PipeWire/JACK) | Rust + React | ✅ Complete |
 
 ---
 
@@ -138,10 +139,35 @@ None yet.
 
 ---
 
+## Phase F — Device & Channel Selection (PipeWire/JACK)
+
+### Goals
+- Device list that shows real inputs on PipeWire (not ALSA plugin pseudo-devices)
+- Per-track input channel selection (`IN n`), like Ardour's track "Inputs" menu
+- Cooperative capture while PipeWire/Ardour hold the hardware
+- True mono per-track WAVs (deinterleaved), no interleaved-in-mono bug
+
+### Status
+- [x] `jack` crate: enumerate PipeWire inputs as JACK clients with capture ports
+      (`Scarlett 4i4 USB Analog Surround 5.1:capture_FL`, ...); default source resolved via `pactl`
+- [x] `jack::start` connects `tracker:in_N` to the selected device's ports (RT-safe process callback into the same ringbuf)
+- [x] Fallbacks: PipeWire ALSA sources via `pactl` + `PIPEWIRE_NODE` + `BufferSize::Fixed(1024)`; then raw `plughw` hardware cards
+- [x] Engine: per-track channel write (deinterleave); true mono WAVs per armed track
+- [x] Engine: `input_peaks`/`input_rms` arrays stream every channel
+- [x] React: per-track `IN n` selector (defaults 1,2,3,4), sidebar LIVE LEVELS for all channels
+- [x] Verified with 4i4 + Ardour running: 6 live channels, 3s record → 3.01s mono WAVs, track 1 = mic (-41 dB), track 2 = silent
+- [x] `npm run typecheck` clean; 18/18 browser E2E tests pass
+
+### Reference
+- Ardour device list: `libs/ardouralsautil/devicelist.cc` (`get_alsa_audio_device_names`) — enumerate cards, probe capture PCMs
+- Ardour track inputs: `gtk2_ardour/io_selector.cc` — `IOSelector`/`PortMatrix` patch grid over input ports
+
+---
+
 ## Notes
 
-- Primary audio backend: cpal with `pipewire` feature (Linux/PipeWire focus)
-- Three-thread model: React UI / Audio Control Thread / Audio RT Callback
+- Primary audio backend on Linux/PipeWire: pipewire-jack (cooperative, same model as Ardour); cpal (ALSA) as fallback and for other platforms
+- Three-thread model: React UI / Audio Control Thread / Audio RT Callback (cpal or JACK)
 - ringbuf for lock-free sample transfer between threads
 - crossbeam::bounded for commands to audio thread
 - std::sync::atomic for real-time-safe parameter sharing

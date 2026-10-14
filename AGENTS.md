@@ -42,11 +42,23 @@ One-shot means: prompt in, working feature out. The feedback loop closes the gap
 - `npm run test:e2e` — browser-only E2E tests (fast, no Tauri needed)
 - `npm run test:e2e:tauri` — full desktop E2E tests (requires `npm run tauri dev` with e2e-testing feature)
 
+### Running the Tauri app (herdr)
+
+Run the app in a herdr pane so it is easy to inspect and kill. Never leave it as an orphaned background process.
+
+1. `herdr pane split --current --direction right --cwd "$PWD" --no-focus` — note the returned `pane_id`
+2. `herdr pane run <pane-id> "npm run tauri -- dev --features e2e-testing"`
+3. `herdr pane wait-output <pane-id> --match "listening on unix"` — wait for the app + playwright socket
+4. `herdr pane read <pane-id> --source recent-unwrapped --lines 80` — read logs
+5. `herdr pane close <pane-id>` — kills the app and its child processes
+
+The `e2e-testing` feature exposes the tauri-playwright socket bridge at `/tmp/tauri-playwright.sock` for driving the real webview (screenshots, clicks, IPC). It requires temporarily adding `"playwright:default"` to `src-tauri/capabilities/default.json`; **remove it afterwards** — plain `cargo build` fails on the unknown permission once the feature is off.
+
 ### Testing audio with real input device
-1. `npm run tauri dev` — launches the full Tauri app
-2. Hover sidebar on right → select your Focusrite Scarlett (or other input device)
-3. Click **CAPTURE** — meters on Track 1 should show live level
-4. Speak/sing into the mic on Input 1 to verify the LevelMeter responds
+1. Launch the app via herdr with `--features e2e-testing` (see above)
+2. Open the sidebar on the right → the device list shows the PipeWire inputs (JACK clients, Ardour-style); the default source is marked with `*`
+3. Each track header has an **IN n** selector for the input channel it records (defaults to 1, 2, 3, 4)
+4. Click **CAPTURE** — live levels appear for every channel; speak/sing into the mic on Input 1 to verify Track 1's meter responds
 
 ### E2E Testing (18 tests passing)
 - `cd e2e && npx playwright test --project=browser-only` — 18 tests in ~20s
@@ -57,9 +69,13 @@ One-shot means: prompt in, working feature out. The feedback loop closes the gap
 ### Architecture: Audio Engine (Rust, real-time safe)
 
 - **cpal 0.18** with ALSA backend (compatible with PipeWire on modern Linux)
-- Three-thread model: React UI / Audio Control Thread / cpal RT Callback
+- **Capture device selection on Linux** (three tiers):
+  1. **JACK** (`jack` crate, pipewire-jack): device list = PipeWire inputs as JACK clients with per-port capture (`Scarlett ...:capture_FL`); capture connects `tracker:in_N` ports to the selected device's ports. Cooperative — works while Ardour/PipeWire hold the hardware. This is Ardour's model.
+  2. **PipeWire ALSA** fallback: `pactl` sources, captured through the `pipewire` PCM with `PIPEWIRE_NODE` targeting and `BufferSize::Fixed(1024)`.
+  3. **Raw hardware** fallback (pure ALSA): `plughw:CARD=n,DEV=n` cards only, no ALSA plugin pseudo-devices.
+- **Per-track input channel**: each track records one channel (`IN n` in the track header); WAVs are true mono, deinterleaved from the capture stream
+- Three-thread model: React UI / Audio Control Thread / audio RT callback (cpal or JACK)
 - **ringbuf** for lock-free sample transfer (no allocs in audio callback)
 - **crossbeam-channel** for commands to audio control thread
-- `level-update` Tauri events (50ms interval) stream RMS/peak per channel
+- `level-update` Tauri events (50ms interval) stream peak/RMS for every channel
 - Device enumeration via `list_audio_devices` Tauri command
-- Track meters driven by live level data when capture is active

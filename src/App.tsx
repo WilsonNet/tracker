@@ -53,6 +53,10 @@ export default function App() {
   const [recordingTime, setRecordingTime] = useState(0);
   const recStartRef = useRef(0);
 
+  const channelCount = tauriMode
+    ? devices.find((d) => d.name === selectedDevice)?.input_channels ?? 2
+    : 2;
+
   useEffect(() => {
     setTauriMode(isTauri());
   }, []);
@@ -84,10 +88,8 @@ export default function App() {
       const a = Math.max(0, Math.sin(now * 4) * 0.5 + 0.5) * 0.85 + 0.05;
       const b = Math.max(0, Math.sin(now * 3 + 1) * 0.4 + 0.5) * 0.7 + 0.05;
       setLevels({
-        input_a_peak: linearToDb(a),
-        input_a_rms: linearToDb(a * 0.7),
-        input_b_peak: linearToDb(b),
-        input_b_rms: linearToDb(b * 0.6),
+        input_peaks: [linearToDb(a), linearToDb(b)],
+        input_rms: [linearToDb(a * 0.7), linearToDb(b * 0.6)],
         recording: transport === "recording",
         armed_tracks: tracks.map((t) => t.armed),
         metrics: { underruns: 0, overruns: 0, callback_interval_ms: 50 },
@@ -107,6 +109,16 @@ export default function App() {
     }
     setRecordingTime(0);
   }, [transport]);
+
+  // Clamp per-track input channel when the selected device has fewer channels
+  useEffect(() => {
+    if (!tauriMode || !selectedDevice) return;
+    setTracks((ts) =>
+      ts.map((t) =>
+        t.inputChannel >= channelCount ? { ...t, inputChannel: channelCount - 1 } : t,
+      ),
+    );
+  }, [channelCount, tauriMode, selectedDevice]);
 
   const showMsg = useCallback((msg: string) => {
     setStatusMsg(msg);
@@ -198,7 +210,25 @@ export default function App() {
       const updated = ts.map((t) => (t.id === id ? { ...t, armed: !t.armed } : t));
       if (tauriMode) {
         const track = updated.find((t) => t.id === id);
-        tauriInvoke("arm_track", { id, armed: track?.armed ?? false }).catch(() => {});
+        tauriInvoke("arm_track", {
+          id,
+          armed: track?.armed ?? false,
+          channel: track?.inputChannel ?? 0,
+        }).catch(() => {});
+      }
+      return updated;
+    });
+  }
+  function handleChannel(id: number, channel: number) {
+    setTracks((ts) => {
+      const updated = ts.map((t) => (t.id === id ? { ...t, inputChannel: channel } : t));
+      if (tauriMode) {
+        const track = updated.find((t) => t.id === id);
+        tauriInvoke("arm_track", {
+          id,
+          armed: track?.armed ?? false,
+          channel,
+        }).catch(() => {});
       }
       return updated;
     });
@@ -290,11 +320,10 @@ export default function App() {
 
         <div className="app__tracks">
           {tracks.map((track, i) => {
-            const isArmed = track.armed;
-            const showLive = captureActive && isArmed && levels;
+            const showLive = captureActive && levels;
             let meterLevel = track.level;
             if (showLive) {
-              const raw = i === 0 ? levels!.input_a_peak : i === 1 ? levels!.input_b_peak : track.level;
+              const raw = levels!.input_peaks[track.inputChannel] ?? -96;
               meterLevel = Math.max(dbToLinear(raw), 0);
             }
             const liveTrack = { ...track, level: meterLevel };
@@ -305,11 +334,13 @@ export default function App() {
                 index={i}
                 selected={selectedTrack === i}
                 transportState={transport}
+                channelCount={channelCount}
                 onArm={handleArm}
                 onSolo={handleSolo}
                 onMute={handleMute}
                 onLevelChange={handleLevel}
                 onPanChange={handlePan}
+                onChannelChange={handleChannel}
                 onSelect={setSelectedTrack}
               />
             );
@@ -357,20 +388,14 @@ export default function App() {
           {captureActive && levels && (
             <div className="sidebar__section">
               <span className="sidebar__title">LIVE LEVELS</span>
-              <div className="sidebar__item">
-                <span className="sidebar__label">IN A</span>
-                <span className={`sidebar__value sidebar__value--mono ${levels.input_a_peak > -3 ? "sidebar__value--warn" : ""}`}>
-                  {levels.input_a_peak.toFixed(1)} dB
-                </span>
-              </div>
-              {levels.input_b_peak > -96 && (
-                <div className="sidebar__item">
-                  <span className="sidebar__label">IN B</span>
-                  <span className="sidebar__value sidebar__value--mono">
-                    {levels.input_b_peak.toFixed(1)} dB
+              {levels.input_peaks.map((peak, i) => (
+                <div className="sidebar__item" key={i}>
+                  <span className="sidebar__label">IN {i + 1}</span>
+                  <span className={`sidebar__value sidebar__value--mono ${peak > -3 ? "sidebar__value--warn" : ""}`}>
+                    {peak.toFixed(1)} dB
                   </span>
                 </div>
-              )}
+              ))}
             </div>
           )}
         </div>
@@ -543,14 +568,27 @@ export default function App() {
         .sidebar__select {
           font-family: var(--font-mono);
           font-size: var(--text-caption);
-          padding: var(--space-1);
-          background: var(--bg);
+          padding: var(--space-1) var(--space-5) var(--space-1) var(--space-1);
+          background-color: var(--bg);
+          background-image:
+            linear-gradient(45deg, transparent 50%, var(--amber) 50%),
+            linear-gradient(135deg, var(--amber) 50%, transparent 50%);
+          background-position: calc(100% - 11px) calc(50% + 1px), calc(100% - 7px) calc(50% + 1px);
+          background-size: 4px 4px;
+          background-repeat: no-repeat;
           border: 1px solid var(--border);
           border-radius: var(--radius-sm);
           color: var(--ink);
           width: 100%;
+          appearance: none;
+          -webkit-appearance: none;
+          cursor: pointer;
+          text-overflow: ellipsis;
         }
-        .sidebar__select:disabled { opacity: 0.5; }
+        .sidebar__select:hover:not(:disabled) { border-color: var(--amber-dim); }
+        .sidebar__select:focus-visible { outline: 1px solid var(--amber); outline-offset: 1px; }
+        .sidebar__select option { background: var(--surface-raised); color: var(--ink); }
+        .sidebar__select:disabled { opacity: 0.5; cursor: default; }
         .sidebar__btn {
           font-family: var(--font-mono);
           font-size: var(--text-label);

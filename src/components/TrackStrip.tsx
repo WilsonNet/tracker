@@ -7,11 +7,13 @@ interface TrackStripProps {
   index: number;
   selected: boolean;
   transportState: "stopped" | "playing" | "recording";
+  channelCount: number;
   onArm: (id: number) => void;
   onSolo: (id: number) => void;
   onMute: (id: number) => void;
   onLevelChange: (id: number, level: number) => void;
   onPanChange: (id: number, pan: number) => void;
+  onChannelChange: (id: number, channel: number) => void;
   onSelect: (id: number) => void;
 }
 
@@ -20,11 +22,13 @@ export function TrackStrip({
   index,
   selected,
   transportState,
+  channelCount,
   onArm,
   onSolo,
   onMute,
   onLevelChange,
   onPanChange,
+  onChannelChange,
   onSelect,
 }: TrackStripProps) {
   const isActive = !track.muted && (selected || track.armed || transportState !== "stopped");
@@ -42,7 +46,21 @@ export function TrackStrip({
       <div className="track__header">
         <span className="track__number">{String(index + 1).padStart(2, "0")}</span>
         <span className="track__name">{track.name}</span>
-        <span className="track__input">{track.input === "Off" ? "—" : `IN ${track.input}`}</span>
+        <label className="track__input" onClick={(e) => e.stopPropagation()}>
+          IN
+          <select
+            className="track__input-select"
+            value={track.inputChannel}
+            onChange={(e) => onChannelChange(track.id, Number(e.target.value))}
+            aria-label={`Input channel track ${index + 1}`}
+          >
+            {Array.from({ length: Math.max(channelCount, 1) }, (_, i) => (
+              <option key={i} value={i}>
+                {i + 1}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <div className="track__controls">
@@ -163,7 +181,32 @@ export function TrackStrip({
           font-size: var(--text-caption);
           color: var(--ink-muted);
           margin-left: auto;
+          display: flex;
+          align-items: center;
+          gap: var(--space-1);
+          letter-spacing: var(--tracking-label);
         }
+        .track__input-select {
+          font-family: var(--font-mono);
+          font-size: var(--text-caption);
+          color: var(--amber);
+          background-color: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0 var(--space-4) 0 var(--space-1);
+          appearance: none;
+          -webkit-appearance: none;
+          cursor: pointer;
+          background-image:
+            linear-gradient(45deg, transparent 50%, var(--amber-dim) 50%),
+            linear-gradient(135deg, var(--amber-dim) 50%, transparent 50%);
+          background-position: calc(100% - 9px) calc(50% + 1px), calc(100% - 5px) calc(50% + 1px);
+          background-size: 4px 4px;
+          background-repeat: no-repeat;
+        }
+        .track__input-select:hover { border-color: var(--amber-dim); }
+        .track__input-select:focus-visible { outline: 1px solid var(--amber); outline-offset: 1px; }
+        .track__input-select option { background: var(--surface-raised); color: var(--ink); }
         .track__controls {
           display: flex;
           align-items: flex-end;
