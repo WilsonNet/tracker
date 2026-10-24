@@ -44,16 +44,20 @@ One-shot means: prompt in, working feature out. The feedback loop closes the gap
 
 ### Running the Tauri app (herdr)
 
-Run the app in a herdr pane so it is easy to inspect and kill. Never leave it as an orphaned background process.
+See the project skill `.opencode/skills/herdr` for the full workflow.
 
-The window opens **silently on the Hyprland special workspace `special:tracker`** (window rule + `SUPER+SHIFT+X` toggle in `~/.dotfiles/.config/hypr/hyprland.lua`). It never steals focus from the active workspace. Because the workspace is hidden, the window is neither composited (screenshots are blank) nor reachable by native mouse injection — verify UI in the Vite dev server with Playwright instead.
+**Never split the pane/tab holding the agent conversation** — it steals width from the user's terminal. Run every dev server in its own tab.
 
-1. `herdr pane split --current --direction right --cwd "$PWD" --no-focus` — note the returned `pane_id`
-2. `herdr pane run <pane-id> "npm run tauri -- dev --features e2e-testing"`
-3. `herdr pane wait-output <pane-id> --match "listening on unix"` — wait for the app + playwright socket
+The window opens **silently on the Hyprland special workspace `special:tracker`** (window rule with the required ` silent` suffix, no keybind). It never switches the active workspace or steals focus. Because the workspace is hidden, the window is neither composited (screenshots are blank) nor reachable by native mouse injection — verify UI in the Vite dev server with Playwright instead.
+
+1. `herdr tab create --cwd "$PWD" --label "tracker dev"` — note `.result.root_pane.pane_id` and `.result.tab.tab_id` (no `--focus`)
+2. `herdr pane run <pane-id> "npm run tauri -- dev"`
+3. `herdr pane wait-output <pane-id> --match 'Running \`target/debug/tracker\`' --source recent-unwrapped --timeout 300000`
 4. `herdr pane read <pane-id> --source recent-unwrapped --lines 80` — read logs
-5. `herdr pane close <pane-id>` — kills the app and its child processes
-6. `SUPER+SHIFT+X` — show/hide the app window
+5. `herdr tab close <tab-id>` — kills the app and its children
+6. `hyprctl dispatch 'hl.dsp.workspace.toggle_special("tracker")'` — show/hide the app window
+
+Only one Vite can bind port 1420. If `tauri dev` reports the port in use, a previous dev-server tab is still alive.
 
 The `e2e-testing` feature exposes the tauri-playwright socket bridge at `/tmp/tauri-playwright.sock` for driving the real webview (screenshots, clicks, IPC). It requires temporarily adding `"playwright:default"` to `src-tauri/capabilities/default.json`; **remove it afterwards** — plain `cargo build` fails on the unknown permission once the feature is off.
 
