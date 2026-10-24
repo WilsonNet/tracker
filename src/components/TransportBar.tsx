@@ -11,6 +11,8 @@ interface TransportBarProps {
   onRecord: () => void;
   onBpmChange: (bpm: number) => void;
   recordingTime?: number;
+  ioOpen: boolean;
+  onToggleIo: () => void;
 }
 
 export function TransportBar({
@@ -23,6 +25,8 @@ export function TransportBar({
   onRecord,
   onBpmChange,
   recordingTime,
+  ioOpen,
+  onToggleIo,
 }: TransportBarProps) {
   const isRecording = state === "recording";
   const isPlaying = state === "playing";
@@ -82,6 +86,19 @@ export function TransportBar({
             onChange={(e) => onBpmChange(Number((e.target as HTMLInputElement).value))}
             aria-label="Tempo in BPM"
           />
+        </div>
+
+        <div className="transport__section transport__section--io">
+          <button
+            className={`transport-btn transport-btn--io ${ioOpen ? "transport-btn--io-open" : ""}`}
+            onClick={onToggleIo}
+            aria-pressed={ioOpen}
+            aria-label={ioOpen ? "Close audio input panel" : "Audio input and devices"}
+            title="Audio input & devices (i)"
+          >
+            <span className="transport-btn__icon">⌁</span>
+            <span className="transport-btn__label">I/O</span>
+          </button>
         </div>
       </div>
 
@@ -148,6 +165,22 @@ export function TransportBar({
         .transport-btn--stop:hover {
           background: var(--surface-hover);
           color: var(--ink);
+        }
+
+        .transport__section--io { margin-left: var(--space-3); }
+        .transport-btn--io {
+          color: var(--ink-dim);
+          border: 1px solid var(--border);
+        }
+        .transport-btn--io:hover {
+          color: var(--ink);
+          border-color: var(--ink-muted);
+          background: var(--surface-hover);
+        }
+        .transport-btn--io-open {
+          color: var(--amber);
+          border-color: var(--border-amber);
+          background: var(--amber-bg);
         }
 
         .bpm-label {

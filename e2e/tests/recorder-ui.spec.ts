@@ -104,6 +104,31 @@ test("sidebar expands on open class and shows capture button", async ({ tauriPag
   expect(txt).toContain("CAPTURE");
 });
 
+test("I/O button and i shortcut open the device panel", async ({ tauriPage }) => {
+  await tauriPage.goto("/");
+  await tauriPage.waitForSelector(".track");
+  await tauriPage.locator('[aria-label="Audio input and devices"]').click();
+  await new Promise((r) => setTimeout(r, 350));
+  await expect(tauriPage.locator('[aria-label="Select audio input device"]')).toBeVisible();
+  const openWidth = await tauriPage.evaluate(() =>
+    document.querySelector(".app__sidebar")!.getBoundingClientRect().width
+  );
+  expect(openWidth).toBeGreaterThan(200);
+  // The panel starts below the transport, never covering the I/O toggle.
+  const belowTransport = await tauriPage.evaluate(() => {
+    const side = document.querySelector(".app__sidebar")!.getBoundingClientRect();
+    const bar = document.querySelector(".transport")!.getBoundingClientRect();
+    return side.top >= bar.bottom - 1;
+  });
+  expect(belowTransport).toBe(true);
+  await tauriPage.keyboard.press("i");
+  await new Promise((r) => setTimeout(r, 350));
+  const closedWidth = await tauriPage.evaluate(() =>
+    document.querySelector(".app__sidebar")!.getBoundingClientRect().width
+  );
+  expect(closedWidth).toBeLessThan(20);
+});
+
 test("capture activates demo meter segments", async ({ tauriPage }) => {
   await tauriPage.goto("/");
   await new Promise((r) => setTimeout(r, 500));

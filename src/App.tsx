@@ -64,6 +64,7 @@ export default function App() {
   const [fx, setFx] = useState<FxState>(() => defaultFxState(4));
   const [fxOpen, setFxOpen] = useState(false);
   const [fxTab, setFxTab] = useState<FxTab>(0);
+  const [ioOpen, setIoOpen] = useState(false);
   const [renderInfo, setRenderInfo] = useState<MixRenderResult | null>(null);
   const [playhead, setPlayhead] = useState(0);
 
@@ -246,6 +247,10 @@ export default function App() {
           setFxOpen((open) => !open);
           return;
         }
+        if (key === "i" && !mods.shift) {
+          setIoOpen((open) => !open);
+          return;
+        }
         if (key === "[" || key === "]") {
           const order: FxTab[] = [0, 1, 2, 3, "master"];
           setFxOpen(true);
@@ -307,8 +312,7 @@ export default function App() {
           return;
         }
       },
-      [cmdOpen, selectedTrack, tracks, transport, showMsg, fxOpen],
-    ),
+      [cmdOpen, selectedTrack, tracks, transport, showMsg, fxOpen],    ),
   );
 
   function handleArm(id: number) {
@@ -405,7 +409,7 @@ export default function App() {
         ts.map((t) => (t.solo ? { ...t, solo: false } : { ...t, solo: true, armed: false })),
       );
       showMsg("Solo toggled");
-    } else if (cmd === "h") showMsg("Help: j/k nav, J/K vol, 1-4 arm, Space play, R rec, x fx rack");
+    } else if (cmd === "h") showMsg("Help: j/k nav, J/K vol, 1-4 arm, Space play, R rec, x fx rack, i input");
     else showMsg(`Unknown: ${cmd}`);
   }
 
@@ -435,188 +439,204 @@ export default function App() {
             showMsg(next === "recording" ? "Recording" : "Stopped");
           }}
           onBpmChange={setBpm}
+          ioOpen={ioOpen}
+          onToggleIo={() => setIoOpen((open) => !open)}
         />
-
-        <div className="app__tracks">
-          {tracks.map((track, i) => {
-            const showLive = captureActive && levels;
-            let meterLevel = track.level;
-            if (showLive) {
-              const raw = levels!.input_peaks[track.inputChannel] ?? -96;
-              meterLevel = Math.max(dbToLinear(raw), 0);
-            }
-            const liveTrack = { ...track, level: meterLevel };
-            return (
-              <TrackStrip
-                key={track.id}
-                track={liveTrack}
-                index={i}
-                selected={selectedTrack === i}
-                transportState={transport}
-                channelCount={channelCount}
-                fx={fx.tracks[i]}
-                onArm={handleArm}
-                onSolo={handleSolo}
-                onMute={handleMute}
-                onLevelChange={handleLevel}
-                onPanChange={handlePan}
-                onChannelChange={handleChannel}
-                onSelect={setSelectedTrack}
-                onOpenFx={(id) => {
-                  setSelectedTrack(id);
-                  setFxTab(id);
-                  setFxOpen(true);
-                }}
-              />
-            );
-          })}
-        </div>
-
-        <FxRack
-          open={fxOpen}
-          tab={fxTab}
-          state={fx}
-          tracks={tracks}
-          bpm={bpm}
-          meters={meters}
-          onTabChange={setFxTab}
-          onChange={setFx}
-          onClose={() => setFxOpen(false)}
-        />
-
-        <BounceSection
-          canUndo={bounce.canUndo}
-          inProgress={bounce.inProgress}
-          playing={playbackActive}
-          onBounce={handleBounce}
-          onUndo={handleUndo}
-          onPlay={handlePlayback}
-          onStopPlayback={handleStopPlayback}
-        />
-      </div>
-
-      <aside className="app__sidebar">
-        <div className="sidebar__section">
-          <span className="sidebar__title">AUDIO INPUT</span>
-          <div className="sidebar__item">
-            <select
-              className="sidebar__select"
-              value={selectedDevice}
-              onChange={(e) => setSelectedDevice(e.target.value)}
-              disabled={captureActive || !tauriMode}
-              aria-label="Select audio input device"
-            >
-              <option value="">{tauriMode ? "Select..." : "Browser mode"}</option>
-              {devices.map((d) => (
-                <option key={d.id} value={d.name}>
-                  {d.name}{d.is_default ? " *" : ""} ({d.input_channels}ch)
-                </option>
-              ))}
-            </select>
+        <div className="app__workspace">
+          <div className="app__tracks">
+            {tracks.map((track, i) => {
+              const showLive = captureActive && levels;
+              let meterLevel = track.level;
+              if (showLive) {
+                const raw = levels!.input_peaks[track.inputChannel] ?? -96;
+                meterLevel = Math.max(dbToLinear(raw), 0);
+              }
+              const liveTrack = { ...track, level: meterLevel };
+              return (
+                <TrackStrip
+                  key={track.id}
+                  track={liveTrack}
+                  index={i}
+                  selected={selectedTrack === i}
+                  transportState={transport}
+                  channelCount={channelCount}
+                  fx={fx.tracks[i]}
+                  onArm={handleArm}
+                  onSolo={handleSolo}
+                  onMute={handleMute}
+                  onLevelChange={handleLevel}
+                  onPanChange={handlePan}
+                  onChannelChange={handleChannel}
+                  onSelect={setSelectedTrack}
+                  onOpenFx={(id) => {
+                    setSelectedTrack(id);
+                    setFxTab(id);
+                    setFxOpen(true);
+                  }}
+                />
+              );
+            })}
           </div>
-          <button
-            className={`sidebar__btn ${captureActive ? "sidebar__btn--active" : ""}`}
-            onClick={toggleCapture}
-            disabled={tauriMode && !captureActive && !selectedDevice}
-            aria-label={captureActive ? "Stop capture" : "Start capture"}
-          >
-            {captureActive ? "■ STOP" : "● CAPTURE"}
-          </button>
-          {captureActive && levels && (
+
+          <FxRack
+            open={fxOpen}
+            tab={fxTab}
+            state={fx}
+            tracks={tracks}
+            bpm={bpm}
+            meters={meters}
+            onTabChange={setFxTab}
+            onChange={setFx}
+            onClose={() => setFxOpen(false)}
+          />
+
+          <BounceSection
+            canUndo={bounce.canUndo}
+            inProgress={bounce.inProgress}
+            playing={playbackActive}
+            onBounce={handleBounce}
+            onUndo={handleUndo}
+            onPlay={handlePlayback}
+            onStopPlayback={handleStopPlayback}
+          />
+          <aside className={`app__sidebar ${ioOpen ? "sidebar--open" : ""}`}>
+            {ioOpen ? (
+              <div className="sidebar__top">
+                <span className="sidebar__title">I/O</span>
+                <button
+                  type="button"
+                  className="sidebar__close"
+                  onClick={() => setIoOpen(false)}
+                  aria-label="Close input panel"
+                  title="Close (i)"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : null}
             <div className="sidebar__section">
-              <span className="sidebar__title">LIVE LEVELS</span>
-              {levels.input_peaks.map((peak, i) => (
-                <div className="sidebar__item" key={i}>
-                  <span className="sidebar__label">IN {i + 1}</span>
-                  <span className={`sidebar__value sidebar__value--mono ${peak > -3 ? "sidebar__value--warn" : ""}`}>
-                    {peak.toFixed(1)} dB
+              <span className="sidebar__title">AUDIO INPUT</span>
+              <div className="sidebar__item">
+                <select
+                  className="sidebar__select"
+                  value={selectedDevice}
+                  onChange={(e) => setSelectedDevice(e.target.value)}
+                  disabled={captureActive || !tauriMode}
+                  aria-label="Select audio input device"
+                >
+                  <option value="">{tauriMode ? "Select..." : "Browser mode"}</option>
+                  {devices.map((d) => (
+                    <option key={d.id} value={d.name}>
+                      {d.name}{d.is_default ? " *" : ""} ({d.input_channels}ch)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                className={`sidebar__btn ${captureActive ? "sidebar__btn--active" : ""}`}
+                onClick={toggleCapture}
+                disabled={tauriMode && !captureActive && !selectedDevice}
+                aria-label={captureActive ? "Stop capture" : "Start capture"}
+              >
+                {captureActive ? "■ STOP" : "● CAPTURE"}
+              </button>
+              {captureActive && levels && (
+                <div className="sidebar__section">
+                  <span className="sidebar__title">LIVE LEVELS</span>
+                  {levels.input_peaks.map((peak, i) => (
+                    <div className="sidebar__item" key={i}>
+                      <span className="sidebar__label">IN {i + 1}</span>
+                      <span className={`sidebar__value sidebar__value--mono ${peak > -3 ? "sidebar__value--warn" : ""}`}>
+                        {peak.toFixed(1)} dB
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {(captureActive || transport === "recording") && (
+              <div className="sidebar__section">
+                <span className="sidebar__title">RECORDING</span>
+                <div className="sidebar__item">
+                  <span className="sidebar__label">Time</span>
+                  <span className="sidebar__value">
+                    {transport === "recording" ? fmtTime(recordingTime) : "—"}
                   </span>
                 </div>
-              ))}
+                <div className="sidebar__item">
+                  <span className="sidebar__label">Output</span>
+                  <span className="sidebar__value">{"/tmp/tracker_recordings/"}</span>
+                </div>
+                <div className="sidebar__item">
+                  <span className="sidebar__label">Armed</span>
+                  <span className="sidebar__value">
+                    {tracks.filter((t) => t.armed).map((t) => t.id + 1).join(", ") || "none"}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {levels && (levels.metrics.underruns > 0 || levels.metrics.overruns > 0) && (
+              <div className="sidebar__section">
+                <span className="sidebar__title">PERF</span>
+                <div className="sidebar__item">
+                  <span className="sidebar__label">Xruns</span>
+                  <span className="sidebar__value sidebar__value--warn">
+                    {levels.metrics.underruns}u · {levels.metrics.overruns}o
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="sidebar__section">
+              <span className="sidebar__title">SESSION</span>
+              <div className="sidebar__item">
+                <span className="sidebar__label">Format</span>
+                <span className="sidebar__value">WAV 48k 32-bit</span>
+              </div>
+              <div className="sidebar__item">
+                <span className="sidebar__label">Armed tracks</span>
+                <span className="sidebar__value">{tracks.filter((t) => t.armed).length}/4</span>
+              </div>
             </div>
-          )}
+
+            <div className="sidebar__section">
+              <span className="sidebar__title">FX</span>
+              <button
+                className={`sidebar__btn ${fxOpen ? "sidebar__btn--active" : ""}`}
+                onClick={() => setFxOpen((open) => !open)}
+                aria-pressed={fxOpen}
+              >
+                {fxOpen ? "■ CLOSE RACK" : "▤ OPEN RACK · x"}
+              </button>
+              <div className="sidebar__item">
+                <span className="sidebar__label">Track {selectedTrack + 1}</span>
+                <span className="sidebar__value">
+                  {trackFxBadges(fx.tracks[selectedTrack]).join(" · ") || "clean"}
+                </span>
+              </div>
+              <div className="sidebar__item">
+                <span className="sidebar__label">Master</span>
+                <span className="sidebar__value">
+                  {fx.limiter.enabled ? "LIM" : "—"}
+                  {fx.reverb.enabled ? " · REV" : ""}
+                  {fx.delay.enabled ? " · DLY" : ""}
+                  {fx.width.enabled ? " · WIDTH" : ""}
+                </span>
+              </div>
+              {renderInfo ? (
+                <div className="sidebar__item">
+                  <span className="sidebar__label">Last render</span>
+                  <span className="sidebar__value sidebar__value--mono">
+                    {fmtDb(renderInfo.peakDb)} peak
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          </aside>
         </div>
-
-        {(captureActive || transport === "recording") && (
-          <div className="sidebar__section">
-            <span className="sidebar__title">RECORDING</span>
-            <div className="sidebar__item">
-              <span className="sidebar__label">Time</span>
-              <span className="sidebar__value">
-                {transport === "recording" ? fmtTime(recordingTime) : "—"}
-              </span>
-            </div>
-            <div className="sidebar__item">
-              <span className="sidebar__label">Output</span>
-              <span className="sidebar__value">{"/tmp/tracker_recordings/"}</span>
-            </div>
-            <div className="sidebar__item">
-              <span className="sidebar__label">Armed</span>
-              <span className="sidebar__value">
-                {tracks.filter((t) => t.armed).map((t) => t.id + 1).join(", ") || "none"}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {levels && (levels.metrics.underruns > 0 || levels.metrics.overruns > 0) && (
-          <div className="sidebar__section">
-            <span className="sidebar__title">PERF</span>
-            <div className="sidebar__item">
-              <span className="sidebar__label">Xruns</span>
-              <span className="sidebar__value sidebar__value--warn">
-                {levels.metrics.underruns}u · {levels.metrics.overruns}o
-              </span>
-            </div>
-          </div>
-        )}
-
-        <div className="sidebar__section">
-          <span className="sidebar__title">SESSION</span>
-          <div className="sidebar__item">
-            <span className="sidebar__label">Format</span>
-            <span className="sidebar__value">WAV 48k 32-bit</span>
-          </div>
-          <div className="sidebar__item">
-            <span className="sidebar__label">Armed tracks</span>
-            <span className="sidebar__value">{tracks.filter((t) => t.armed).length}/4</span>
-          </div>
-        </div>
-
-        <div className="sidebar__section">
-          <span className="sidebar__title">FX</span>
-          <button
-            className={`sidebar__btn ${fxOpen ? "sidebar__btn--active" : ""}`}
-            onClick={() => setFxOpen((open) => !open)}
-            aria-pressed={fxOpen}
-          >
-            {fxOpen ? "■ CLOSE RACK" : "▤ OPEN RACK · x"}
-          </button>
-          <div className="sidebar__item">
-            <span className="sidebar__label">Track {selectedTrack + 1}</span>
-            <span className="sidebar__value">
-              {trackFxBadges(fx.tracks[selectedTrack]).join(" · ") || "clean"}
-            </span>
-          </div>
-          <div className="sidebar__item">
-            <span className="sidebar__label">Master</span>
-            <span className="sidebar__value">
-              {fx.limiter.enabled ? "LIM" : "—"}
-              {fx.reverb.enabled ? " · REV" : ""}
-              {fx.delay.enabled ? " · DLY" : ""}
-              {fx.width.enabled ? " · WIDTH" : ""}
-            </span>
-          </div>
-          {renderInfo ? (
-            <div className="sidebar__item">
-              <span className="sidebar__label">Last render</span>
-              <span className="sidebar__value sidebar__value--mono">
-                {fmtDb(renderInfo.peakDb)} peak
-              </span>
-            </div>
-          ) : null}
-        </div>
-      </aside>
+      </div>
 
       <footer className="app__footer">
         <VimStatusLine
@@ -656,6 +676,14 @@ export default function App() {
           display: flex;
           flex-direction: column;
           overflow: hidden;
+          min-height: 0;
+        }
+        .app__workspace {
+          position: relative;
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
         }
         .app__tracks {
           display: flex;
@@ -724,6 +752,20 @@ export default function App() {
           margin-bottom: var(--space-2);
           display: block;
         }
+        .sidebar__top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .sidebar__top .sidebar__title { margin-bottom: 0; }
+        .sidebar__close {
+          color: var(--ink-muted);
+          font-size: var(--text-caption);
+          line-height: 1;
+          padding: 2px 3px;
+          border-radius: var(--radius-sm);
+        }
+        .sidebar__close:hover { color: var(--ink); background: var(--surface-raised); }
         .sidebar__item {
           display: flex;
           flex-direction: column;
