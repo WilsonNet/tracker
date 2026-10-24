@@ -1,7 +1,8 @@
 mod audio;
 
 use audio::device::AudioDevice;
-use audio::engine::RecordingStatus;
+use audio::engine::{MixRenderResult, RecordingStatus};
+use audio::fx::FxSettings;
 use audio::AudioEngine;
 use std::sync::Mutex;
 
@@ -60,9 +61,22 @@ fn recording_status(state: tauri::State<'_, Mutex<AudioEngine>>) -> Result<Recor
 }
 
 #[tauri::command]
-fn bounce_tracks(state: tauri::State<'_, Mutex<AudioEngine>>) -> Result<String, String> {
+fn bounce_tracks(
+    settings: FxSettings,
+    state: tauri::State<'_, Mutex<AudioEngine>>,
+) -> Result<MixRenderResult, String> {
     let engine = state.lock().map_err(|e| e.to_string())?;
-    engine.bounce_tracks()
+    engine.bounce_tracks(settings)
+}
+
+#[tauri::command]
+fn preview_mix(
+    app: tauri::AppHandle,
+    settings: FxSettings,
+    state: tauri::State<'_, Mutex<AudioEngine>>,
+) -> Result<MixRenderResult, String> {
+    let engine = state.lock().map_err(|e| e.to_string())?;
+    engine.preview_mix(settings, app)
 }
 
 #[tauri::command]
@@ -95,6 +109,7 @@ pub fn run() {
             stop_recording,
             recording_status,
             bounce_tracks,
+            preview_mix,
             start_playback,
             stop_playback,
         ]);

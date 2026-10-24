@@ -1,5 +1,3 @@
-<!-- SEED: re-run /impeccable document once there's code to capture the actual tokens and components. -->
-
 ---
 name: "Tracker — Multitrack Recorder"
 description: "A minimal multitrack audio recorder for the desktop. Keyboard-first, Vim-native, hardware-inspired — no timeline, no grid, just record."
@@ -31,17 +29,17 @@ This system explicitly rejects Pro Tools-level clutter, GarageBand friendliness,
 The palette is dark. The scene is a musician in a dim home studio at night, monitor glow the only light source, instrument in hand. The near-black surface recedes; the amber primary signals action and state.
 
 **Primary**
-- **Amber Signal** `[to be resolved during implementation]`: The brand anchor. Used for the transport bar, recording state, track arm indicators, level meters, and primary action buttons. Vibrant but never fluorescent. The color of a hardware VU meter at night.
+- **Amber Signal** `oklch(0.73 0.157 57)` / bright `oklch(0.80 0.18 57)`: The brand anchor. Used for the transport bar, recording state, track arm indicators, level meters, and primary action buttons. Vibrant but never fluorescent. The color of a hardware VU meter at night.
 
 **Neutral**
-- **Console Black** `[to be resolved during implementation]`: The background surface. Near-black, chroma 0. The canvas that lets amber carry the identity.
-- **Panel Gray** `[to be resolved during implementation]`: Slightly lifted surface for track strips, channel controls, and setting panels. Same hue family as bg, pure neutral.
-- **Signal White** `[to be resolved during implementation]`: Body text and high-contrast labels. Near-white, chroma 0. Clean, readable, no hidden warmth.
-- **Dim Label** `[to be resolved during implementation]`: Secondary text and muted labels. Ink pulled toward bg at reduced contrast. Still ≥3.5:1 against the surface.
+- **Console Black** `oklch(0.07 0 0)`: The background surface. Near-black, chroma 0. The canvas that lets amber carry the identity.
+- **Panel Gray** `oklch(0.125 0 0)` (raised: `oklch(0.175 0 0)`): Slightly lifted surface for track strips, channel controls, and setting panels. Same hue family as bg, pure neutral.
+- **Signal White** `oklch(0.93 0 0)`: Body text and high-contrast labels. Near-white, chroma 0. Clean, readable, no hidden warmth.
+- **Dim Label** `oklch(0.65 0 0)` (muted: `oklch(0.48 0 0)`): Secondary text and muted labels. Ink pulled toward bg at reduced contrast. Still ≥3.5:1 against the surface.
 
 **State Semantic**
-- **Recording Red** `[to be resolved during implementation]`: Recording indicator — a distinct red, not derived from the orange primary. Pulsing glow.
-- **Overdub Teal** `[to be resolved during implementation]`: Overdub/solo state. Cool contrast to the warm primary. A second distinct hue used sparingly for state differentiation.
+- **Recording Red** `oklch(0.50 0.20 20)`: Recording indicator — a distinct red, not derived from the orange primary. Pulsing glow.
+- **Overdub Teal** `oklch(0.55 0.12 200)`: Overdub/solo state. Cool contrast to the warm primary. A second distinct hue used sparingly for state differentiation.
 
 **Named Rules**
 - **The No-Hidden-Warmth Rule.** The background is pure near-black (chroma 0). The orange primary carries all the warmth. Tinting the surface toward amber is prohibited — it muddies contrast and reads as a dim panel, not a precision instrument.
@@ -49,7 +47,7 @@ The palette is dark. The scene is a musician in a dim home studio at night, moni
 
 ## 3. Typography
 
-**Primary Font:** Mono-forward — a single monospace or monospace-adjacent family `[font pairing to be chosen at implementation]`. No display/body pairing. One family carries headings, labels, buttons, meters, and body text.
+**Primary Font:** JetBrains Mono (fallback: Fira Code, Cascadia Code, Consolas). No display/body pairing. One family carries headings, labels, buttons, meters, and body text.
 
 **Character:** Technical precision without feeling cold. The monospace choice aligns with the Vim-native, keyboard-first philosophy. Letters have clear differentiation (no ambiguous 0/O, 1/l/I). Reading rhythm feels natural, not mechanical.
 
@@ -75,15 +73,32 @@ Shadows exist only where they serve a structural purpose: dropdown menus, dialog
 
 ## 5. Components
 
-No components exist yet. This section will be populated when `impeccable document` runs in scan mode after implementation begins.
+All components live in `src/components/`. Shared tokens are in `src/styles/tokens.css`; the FX system has its own sheet (`src/styles/fx.css`).
 
-Key component direction (non-normative preview):
-- Transport controls: prominent, amber-filled, keyboard-bound (Space = play/stop, R = record, etc.)
-- Track strips: horizontal or vertical channel controls with level meters, arm buttons, solo/mute, and pan
-- Level meters: vertical/horizontal bars with amber fill, peak indicators, segmented for readability
-- VU-style metering: smooth responsive motion tied to audio levels
-- Modal overlays: used only when inline alternatives are exhausted (settings, project config)
-- Command palette: Vim-style `:` command mode for actions without dedicated keybindings
+**Transport bar** — amber-bordered REC / PLAY / STOP, timecode in tabular mono, BPM stepper. State is carried by fill, not by shadow: recording red, playing teal, idle ink-dim.
+
+**Track strip** — numbered header, `IN n` channel selector, `FX` badge row (lit label + `EQ · CMP · REV · DLY` summary), ARM/SOLO/MUTE toggles, pan knob, vertical fader, segmented meter. Selected = amber-dim border; armed = amber border; recording = red border with pulsing number.
+
+**FX rack** (`FxRack.tsx`) — a horizontal instrument rack above the bounce row.
+- Header: `FX`, channel tabs `1 2 3 4 MST` (a 3px dot marks a channel with active effects), channel name, interaction hint, close.
+- Modules: numbered `01…05`, power switch (`ON` amber / `BYP` dim), a response visual, a knob row, and a readout footer. Bypassed modules dim to 40% but stay editable-free (knobs disabled).
+- Overflow: the chain scrolls horizontally with edge chevrons; the wheel scrolls it too.
+- Channels: track = `EQ · COMP · SEND`; master = `COMP · REVERB · DELAY · WIDTH · LIMITER`.
+- Visuals are derived from the actual DSP parameters: EQ magnitude curve with draggable nodes, compressor transfer curve + GR meter, reverb RT60 envelope with pre-delay and early reflections, delay repeats with L/R lanes, vectorscope for width, ceiling-clipped waveform for the limiter.
+
+**Knob** — the single control primitive for continuous values. 270° arc, amber value arc, pointer, label + real-unit readout. Drag (vertical, `Shift` = fine), wheel, arrow keys (`Home`/`End`, `PageUp`/`PageDown`), double-click reset. `role="slider"` with `aria-valuetext` in real units. Disabled at 35% opacity.
+
+**Gain-reduction meter** — right-to-left amber fill over a 24 dB range, peak tick, numeric `−x.x dB`. Static peak after a render, animated at 20 Hz while audio plays.
+
+**Command palette** — Vim `:` overlay, monospace, amber selection.
+
+**Status line / rhythm section** — mode badge, transient message, capture/record indicators, hint string; rhythm toggle at the right.
+
+### Interaction vocabulary
+- Buttons: 1px border, flat; hover fills with the 8–12% tint (`--amber-bg`, `--teal-bg`, `--red-bg`).
+- Toggles: `aria-pressed` + filled state; chips (`AUTO`, `SYNC`, `P·P`) are the compact form.
+- Focus: 1px amber outline, 1–2px offset, never removed.
+- Nothing is a modal unless it must be (command palette only).
 
 ## 6. Do's and Don'ts
 

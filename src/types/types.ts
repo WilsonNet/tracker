@@ -69,6 +69,20 @@ export interface RecordingStatus {
   output_dir: string;
 }
 
+/** Stats returned by `bounce_tracks` and `preview_mix`. */
+export interface MixRenderResult {
+  path: string | null;
+  frames: number;
+  durationSec: number;
+  peakDb: number;
+  trackGr: number[];
+  masterGr: number;
+  limiterGr: number;
+  trackGrTimeline: number[][];
+  masterGrTimeline: number[];
+  limiterGrTimeline: number[];
+}
+
 export function defaultTrack(id: number): TrackData {
   return {
     id,

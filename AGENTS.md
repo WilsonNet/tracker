@@ -46,13 +46,25 @@ One-shot means: prompt in, working feature out. The feedback loop closes the gap
 
 Run the app in a herdr pane so it is easy to inspect and kill. Never leave it as an orphaned background process.
 
+The window opens **silently on the Hyprland special workspace `special:tracker`** (window rule + `SUPER+SHIFT+X` toggle in `~/.dotfiles/.config/hypr/hyprland.lua`). It never steals focus from the active workspace. Because the workspace is hidden, the window is neither composited (screenshots are blank) nor reachable by native mouse injection — verify UI in the Vite dev server with Playwright instead.
+
 1. `herdr pane split --current --direction right --cwd "$PWD" --no-focus` — note the returned `pane_id`
 2. `herdr pane run <pane-id> "npm run tauri -- dev --features e2e-testing"`
 3. `herdr pane wait-output <pane-id> --match "listening on unix"` — wait for the app + playwright socket
 4. `herdr pane read <pane-id> --source recent-unwrapped --lines 80` — read logs
 5. `herdr pane close <pane-id>` — kills the app and its child processes
+6. `SUPER+SHIFT+X` — show/hide the app window
 
 The `e2e-testing` feature exposes the tauri-playwright socket bridge at `/tmp/tauri-playwright.sock` for driving the real webview (screenshots, clicks, IPC). It requires temporarily adding `"playwright:default"` to `src-tauri/capabilities/default.json`; **remove it afterwards** — plain `cargo build` fails on the unknown permission once the feature is off.
+
+### Native effects rack
+
+All effects are hand-written Rust DSP (`src-tauri/src/audio/fx/`) — no VST, no plugin host, no GPL crates.
+
+- **Track chain:** 3-band EQ (low shelf 110 Hz → mid bell → high shelf 7.5 kHz) → compressor → fader/pan, plus post-fader sends into the shared reverb and delay buses.
+- **Master chain:** compressor → FDN reverb → ping-pong delay → mid/side widener (mono-safe below the bass crossover) → lookahead limiter with a Hermite soft-clip ceiling.
+- `preview_mix` renders the current mix with FX and plays it (resampled to the device rate); `bounce_tracks` writes a stereo 32-bit float `bounce.wav` through the same chain. Both return 20 Hz gain-reduction timelines that drive the UI meters.
+- The UI is `src/components/FxRack.tsx` + `src/components/fx/*`; shared model/math in `src/lib/fx.ts` (mirrors the Rust defaults and RBJ formulas). `x` toggles the rack, `[`/`]` cycle channels, `Escape` closes it.
 
 ### Testing audio with real input device
 1. Launch the app via herdr with `--features e2e-testing` (see above)
@@ -60,11 +72,12 @@ The `e2e-testing` feature exposes the tauri-playwright socket bridge at `/tmp/ta
 3. Each track header has an **IN n** selector for the input channel it records (defaults to 1, 2, 3, 4)
 4. Click **CAPTURE** — live levels appear for every channel; speak/sing into the mic on Input 1 to verify Track 1's meter responds
 
-### E2E Testing (18 tests passing)
-- `cd e2e && npx playwright test --project=browser-only` — 18 tests in ~20s
-- Tests: transport controls, arm/solo/mute, keyboard shortcuts (Space, R, 1-4, `:`), command palette, bounce section, meter rendering, capture/demo mode
-- Fixtures in `e2e/fixtures.ts` with `createTauriTest` (browser mode with IPC mocks + Tauri mode via socket bridge)
-- For Tauri desktop E2E: build with `--features e2e-testing` flag
+### E2E Testing (26 tests passing)
+- `cd e2e && npx playwright test --project=browser-only` — 26 tests in ~45s
+- Tests: transport controls, arm/solo/mute, keyboard shortcuts (Space, R, 1-4, `:`), command palette, bounce section, meter rendering, capture/demo mode, and the FX rack (open/close, tabs, bypass, knob keyboard/drag, sends, live GR meters)
+- Fixtures in `e2e/fixtures.ts` with `createTauriTest` (browser mode with IPC mocks + Tauri mode via socket bridge). Mock handlers are stringified into the page — they must be self-contained, no outer references.
+- `e2e/tests/desktop.spec.ts` is the real-engine test; it's skipped unless the window is visible: `SUPER+SHIFT+X`, then `TRACKER_VISIBLE=1 npm run test:e2e:tauri` (requires the `e2e-testing` feature + `playwright:default`)
+- Rust DSP coverage lives in `cargo test --lib` (34 tests): filter responses, compressor curve, reverb decay/decorrelation, delay timing, widener mono-sum, limiter ceiling, full stereo mixdown and WAV write, and the exact UI JSON payload.
 
 ### Architecture: Audio Engine (Rust, real-time safe)
 

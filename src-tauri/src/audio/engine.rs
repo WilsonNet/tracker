@@ -12,6 +12,23 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 use super::device::{enumerate_input_devices, AudioDevice};
+use super::fx::render::render_mix;
+use super::fx::FxSettings;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MixRenderResult {
+    pub path: Option<String>,
+    pub frames: usize,
+    pub duration_sec: f64,
+    pub peak_db: f32,
+    pub track_gr: Vec<f32>,
+    pub master_gr: f32,
+    pub limiter_gr: f32,
+    pub track_gr_timeline: Vec<Vec<f32>>,
+    pub master_gr_timeline: Vec<f32>,
+    pub limiter_gr_timeline: Vec<f32>,
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LevelUpdatePayload {
@@ -43,6 +60,8 @@ pub struct AudioEngine {
     running: Arc<AtomicBool>,
     stream: Mutex<Option<cpal::Stream>>,
     playback_stream: Mutex<Option<cpal::Stream>>,
+    /// Bumped on every preview/stop so stale watch threads exit.
+    playback_generation: Arc<AtomicU64>,
     underruns: Arc<AtomicU64>,
     overruns: Arc<AtomicU64>,
     rec_active: Arc<AtomicBool>,
@@ -62,6 +81,7 @@ impl AudioEngine {
             running: Arc::new(AtomicBool::new(false)),
             stream: Mutex::new(None),
             playback_stream: Mutex::new(None),
+            playback_generation: Arc::new(AtomicU64::new(0)),
             underruns: Arc::new(AtomicU64::new(0)),
             overruns: Arc::new(AtomicU64::new(0)),
             rec_active: Arc::new(AtomicBool::new(false)),
@@ -372,59 +392,205 @@ impl AudioEngine {
         }
     }
 
-    pub fn bounce_tracks(&self) -> Result<String, String> {
+    pub fn bounce_tracks(&self, settings: FxSettings) -> Result<MixRenderResult, String> {
         let dir = &self.output_dir;
-        let sr = *self.sample_rate.lock().unwrap();
-
-        let mut track_data: Vec<Vec<f32>> = Vec::new();
-        for i in 0..4 {
-            let path = dir.join(format!("track_{}.wav", i + 1));
-            if !path.exists() { continue; }
-            let reader = hound::WavReader::open(&path)
-                .map_err(|e| format!("Read track {}: {e}", i + 1))?;
-            let samples: Vec<f32> = reader.into_samples::<f32>()
-                .filter_map(|s| s.ok())
-                .collect();
-            if !samples.is_empty() {
-                track_data.push(samples);
-            }
-        }
-
-        if track_data.is_empty() {
+        let sample_rate = *self.sample_rate.lock().unwrap();
+        let audio = self.read_track_audio()?;
+        if audio.iter().all(|t| t.is_empty()) {
             return Err("No recorded tracks to bounce".into());
         }
 
-        let max_len = track_data.iter().map(|t| t.len()).max().unwrap_or(0);
-        let num_tracks = track_data.len();
-        let mut mixed = vec![0.0_f32; max_len];
-        for track in &track_data {
-            for (i, &sample) in track.iter().enumerate() {
-                mixed[i] += sample / num_tracks as f32;
-            }
-        }
-
+        let render = render_mix(&audio, &settings, sample_rate as f32);
         let bounce_path = dir.join("bounce.wav");
         let spec = hound::WavSpec {
-            channels: 1,
-            sample_rate: sr,
+            channels: 2,
+            sample_rate,
             bits_per_sample: 32,
             sample_format: hound::SampleFormat::Float,
         };
         let mut writer = hound::WavWriter::create(&bounce_path, spec)
             .map_err(|e| format!("Create bounce: {e}"))?;
-        for &s in &mixed {
+        for &s in &render.samples {
             writer.write_sample(s).map_err(|e| format!("Write bounce: {e}"))?;
         }
         writer.finalize().map_err(|e| format!("Finalize bounce: {e}"))?;
 
-        Ok(bounce_path.to_string_lossy().to_string())
+        let duration = render.duration_seconds(sample_rate as f32) as f64;
+        let frames = render.frames;
+        let peak_db = render.peak_db;
+        let stats = render.stats;
+        Ok(MixRenderResult {
+            path: Some(bounce_path.to_string_lossy().to_string()),
+            frames,
+            duration_sec: duration,
+            peak_db,
+            track_gr: stats.track_gr,
+            master_gr: stats.master_gr,
+            limiter_gr: stats.limiter_gr,
+            track_gr_timeline: stats.track_gr_timeline,
+            master_gr_timeline: stats.master_gr_timeline,
+            limiter_gr_timeline: stats.limiter_gr_timeline,
+        })
+    }
+
+    fn read_track_audio(&self) -> Result<Vec<Vec<f32>>, String> {
+        let dir = &self.output_dir;
+        let mut audio = Vec::with_capacity(4);
+        for i in 0..4 {
+            let path = dir.join(format!("track_{}.wav", i + 1));
+            if !path.exists() {
+                audio.push(Vec::new());
+                continue;
+            }
+            let reader = hound::WavReader::open(&path)
+                .map_err(|e| format!("Read track {}: {e}", i + 1))?;
+            let spec = reader.spec();
+            let mut samples: Vec<f32> = reader
+                .into_samples::<f32>()
+                .filter_map(|s| s.ok())
+                .collect();
+            // Older takes may be stereo; fold down to mono for the channel strip.
+            if spec.channels > 1 {
+                let ch = spec.channels as usize;
+                samples = samples
+                    .chunks(ch)
+                    .map(|frame| frame.iter().sum::<f32>() / ch as f32)
+                    .collect();
+            }
+            audio.push(samples);
+        }
+        Ok(audio)
+    }
+
+    /// Render the current mix with effects and play it, without writing a file.
+    /// Returns the render stats so the UI can drive its meters.
+    pub fn preview_mix(
+        &self,
+        settings: FxSettings,
+        app: AppHandle,
+    ) -> Result<MixRenderResult, String> {
+        let sample_rate = *self.sample_rate.lock().unwrap();
+        let audio = self.read_track_audio()?;
+        if audio.iter().all(|t| t.is_empty()) {
+            return Err("No recorded audio found. Record something first.".into());
+        }
+        let render = render_mix(&audio, &settings, sample_rate as f32);
+        let frames = render.frames;
+        let duration = render.duration_seconds(sample_rate as f32) as f64;
+        let peak_db = render.peak_db;
+        let stats = render.stats;
+        self.play_stereo(render.samples, sample_rate, app)?;
+
+        Ok(MixRenderResult {
+            path: None,
+            frames,
+            duration_sec: duration,
+            peak_db,
+            track_gr: stats.track_gr,
+            master_gr: stats.master_gr,
+            limiter_gr: stats.limiter_gr,
+            track_gr_timeline: stats.track_gr_timeline,
+            master_gr_timeline: stats.master_gr_timeline,
+            limiter_gr_timeline: stats.limiter_gr_timeline,
+        })
+    }
+
+    /// Play interleaved stereo samples through the default output device,
+    /// resampling to the device rate and spreading to however many channels
+    /// the device wants.
+    fn play_stereo(
+        &self,
+        samples: Vec<f32>,
+        render_rate: u32,
+        app: AppHandle,
+    ) -> Result<(), String> {
+        let out_device = cpal::default_host()
+            .default_output_device()
+            .ok_or_else(|| "No output device".to_string())?;
+        let out_config = out_device
+            .default_output_config()
+            .map_err(|e| format!("Output config: {e}"))?;
+        let out_rate = out_config.sample_rate();
+        let config: cpal::StreamConfig = out_config.config();
+        let channels = config.channels as usize;
+
+        let samples = if out_rate != render_rate {
+            resample_linear(&samples, render_rate, out_rate, 2)
+        } else {
+            samples
+        };
+        let total_frames = samples.len() / 2;
+        let playback_samples = Arc::new(Mutex::new(samples));
+        let position = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        let stream_samples = playback_samples.clone();
+        let stream_pos = position.clone();
+        let stream = out_device
+            .build_output_stream::<f32, _, _>(
+                config,
+                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    let guard = stream_samples.lock().unwrap();
+                    let mut p = stream_pos.load(Ordering::Relaxed);
+                    let frames_out = data.len() / channels.max(1);
+                    for frame in 0..frames_out {
+                        let (l, r) = if p < total_frames {
+                            (guard[p * 2], guard[p * 2 + 1])
+                        } else {
+                            (0.0, 0.0)
+                        };
+                        p += 1;
+                        for c in 0..channels {
+                            data[frame * channels + c] = match channels {
+                                1 => (l + r) * 0.5,
+                                _ if c % 2 == 0 => l,
+                                _ => r,
+                            };
+                        }
+                    }
+                    stream_pos.store(p, Ordering::Relaxed);
+                },
+                move |err| eprintln!("Playback error: {err}"),
+                None,
+            )
+            .map_err(|e| format!("Output stream: {e}"))?;
+
+        stream.play().map_err(|e| format!("Play start: {e}"))?;
+        *self.playback_stream.lock().unwrap() = Some(stream);
+        let generation = self.playback_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.spawn_playback_watch(position, total_frames, app.clone(), generation);
+        let _ = app.emit("playback-started", true);
+        Ok(())
+    }
+
+    fn spawn_playback_watch(
+        &self,
+        position: Arc<std::sync::atomic::AtomicUsize>,
+        total_frames: usize,
+        app: AppHandle,
+        generation: u64,
+    ) {
+        let current = self.playback_generation.clone();
+        thread::Builder::new()
+            .name("playback-watch".into())
+            .spawn(move || loop {
+                thread::sleep(Duration::from_millis(150));
+                // Superseded by a newer preview or an explicit stop.
+                if current.load(Ordering::SeqCst) != generation {
+                    break;
+                }
+                if position.load(Ordering::Relaxed) >= total_frames {
+                    let _ = app.emit("playback-ended", true);
+                    break;
+                }
+            })
+            .ok();
     }
 
     pub fn start_playback(&self, app: AppHandle) -> Result<(), String> {
         let dir = &self.output_dir;
         let bounce_path = dir.join("bounce.wav");
         let track_path = dir.join("track_1.wav");
-        
+
         let path = if bounce_path.exists() { bounce_path } else { track_path };
         if !path.exists() {
             return Err("No recorded audio found. Record something first.".into());
@@ -432,46 +598,24 @@ impl AudioEngine {
 
         let reader = hound::WavReader::open(&path)
             .map_err(|e| format!("Open playback file: {e}"))?;
-        let _spec = reader.spec();
-        let samples: Vec<f32> = reader.into_samples::<f32>()
+        let spec = reader.spec();
+        let raw: Vec<f32> = reader
+            .into_samples::<f32>()
             .filter_map(|s| s.ok())
             .collect();
-        let total = samples.len();
-
-        let host = cpal::default_host();
-        let device = host.default_output_device()
-            .ok_or_else(|| "No output device".to_string())?;
-        let out_config = device.default_output_config()
-            .map_err(|e| format!("Output config: {e}"))?;
-        let config: cpal::StreamConfig = out_config.config();
-
-        let pos = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let playback_samples = Arc::new(Mutex::new(samples));
-
-        let stream_pos = pos.clone();
-        let stream_samples = playback_samples.clone();
-        let stream = device.build_output_stream::<f32, _, _>(
-            config,
-            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                let samples_guard = stream_samples.lock().unwrap();
-                let p = stream_pos.load(std::sync::atomic::Ordering::Relaxed);
-                let remaining = total.saturating_sub(p);
-                let to_write = data.len().min(remaining);
-                data[..to_write].copy_from_slice(&samples_guard[p..p + to_write]);
-                for s in data[to_write..].iter_mut() { *s = 0.0; }
-                stream_pos.store(p + to_write, std::sync::atomic::Ordering::Relaxed);
-            },
-            move |err| { eprintln!("Playback error: {err}"); },
-            None,
-        ).map_err(|e| format!("Output stream: {e}"))?;
-
-        stream.play().map_err(|e| format!("Play start: {e}"))?;
-        *self.playback_stream.lock().unwrap() = Some(stream);
-        let _ = app.emit("playback-started", true);
-        Ok(())
+        let channels = spec.channels.max(1) as usize;
+        let stereo: Vec<f32> = if channels >= 2 {
+            raw.chunks(channels)
+                .flat_map(|frame| [frame[0], frame[1]])
+                .collect()
+        } else {
+            raw.iter().flat_map(|&s| [s, s]).collect()
+        };
+        self.play_stereo(stereo, spec.sample_rate, app)
     }
 
     pub fn stop_playback(&self) {
+        self.playback_generation.fetch_add(1, Ordering::SeqCst);
         *self.playback_stream.lock().unwrap() = None;
     }
 
@@ -480,8 +624,7 @@ impl AudioEngine {
     }
 }
 
-fn zero_levels(underruns: u64, overruns: u64, interval: Duration) -> LevelUpdatePayload {
-    LevelUpdatePayload {
+fn zero_levels(underruns: u64, overruns: u64, interval: Duration) -> LevelUpdatePayload {    LevelUpdatePayload {
         input_peaks: Vec::new(),
         input_rms: Vec::new(),
         recording: false,
@@ -521,4 +664,134 @@ fn compute_levels(buf: &[f32], channels: usize) -> (Vec<f32>, Vec<f32>) {
         .collect();
 
     (peak_db, rms_db)
+}
+
+/// Linear-interpolation resampler for interleaved audio. Only used to match the
+/// output device rate; the render itself stays at the capture rate.
+fn resample_linear(samples: &[f32], from: u32, to: u32, channels: usize) -> Vec<f32> {
+    if from == to || samples.is_empty() || channels == 0 {
+        return samples.to_vec();
+    }
+    let frames_in = samples.len() / channels;
+    if frames_in == 0 {
+        return Vec::new();
+    }
+    let ratio = to as f64 / from as f64;
+    let frames_out = (frames_in as f64 * ratio).round() as usize;
+    let mut out = Vec::with_capacity(frames_out * channels);
+    for i in 0..frames_out {
+        let src = i as f64 / ratio;
+        let i0 = (src.floor() as usize).min(frames_in - 1);
+        let frac = (src - i0 as f64) as f32;
+        let i1 = (i0 + 1).min(frames_in - 1);
+        for c in 0..channels {
+            let a = samples[i0 * channels + c];
+            let b = samples[i1 * channels + c];
+            out.push(a + (b - a) * frac);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::fx::{DelayParams, EqParams, ReverbParams, TrackMix, WidthParams};
+
+    fn write_tone(dir: &std::path::Path, index: usize, freq: f32, seconds: f32) {
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 48_000,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+        let path = dir.join(format!("track_{}.wav", index + 1));
+        let mut writer = hound::WavWriter::create(path, spec).unwrap();
+        for i in 0..(48_000.0 * seconds) as usize {
+            let t = i as f32 / 48_000.0;
+            let sample = (t * freq * std::f32::consts::TAU).sin() * 0.7;
+            writer.write_sample(sample).unwrap();
+        }
+        writer.finalize().unwrap();
+    }
+
+    #[test]
+    fn bounce_renders_stereo_with_the_full_chain() {
+        let dir = std::env::temp_dir().join(format!("tracker_bounce_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (i, freq) in [220.0, 330.0, 440.0, 660.0].iter().enumerate() {
+            write_tone(&dir, i, *freq, 1.0);
+        }
+
+        let mut engine = AudioEngine::new();
+        engine.output_dir = dir.clone();
+
+        let settings = FxSettings {
+            tracks: (0..4)
+                .map(|i| TrackMix {
+                    level: 0.9,
+                    pan: -0.6 + i as f32 * 0.4,
+                    send_reverb: 0.5,
+                    send_delay: 0.25,
+                    eq: EqParams { low_db: 4.0, mid_db: -3.0, high_db: 2.0, ..EqParams::default() },
+                    comp: crate::audio::fx::CompParams { enabled: true, ..Default::default() },
+                    ..TrackMix::default()
+                })
+                .collect(),
+            reverb: ReverbParams { enabled: true, ..Default::default() },
+            delay: DelayParams { enabled: true, ..Default::default() },
+            width: WidthParams { enabled: true, width: 1.4, ..Default::default() },
+            ..FxSettings::default()
+        };
+
+        let result = engine.bounce_tracks(settings).expect("bounce failed");
+        assert_eq!(result.track_gr_timeline.len(), 4);
+        assert!(result.frames > 48_000, "tail should extend past the source");
+        assert!(result.peak_db <= -0.29, "peak above ceiling: {}", result.peak_db);
+
+        let path = result.path.expect("bounce path");
+        let reader = hound::WavReader::open(&path).expect("open bounce");
+        assert_eq!(reader.spec().channels, 2);
+        assert_eq!(reader.spec().sample_rate, 48_000);
+        let samples: Vec<f32> = reader.into_samples::<f32>().filter_map(|s| s.ok()).collect();
+        assert_eq!(samples.len(), result.frames * 2);
+        for s in &samples {
+            assert!(s.is_finite());
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ui_payload_deserializes_with_ui_only_fields() {
+        let json = serde_json::json!({
+            "tracks": [{
+                "eq": { "enabled": true, "lowDb": 3.0, "midDb": 0.0, "midHz": 1000.0, "midQ": 1.0, "highDb": -2.0 },
+                "comp": { "enabled": true, "thresholdDb": -18.0, "ratio": 3.0, "attackMs": 12.0,
+                          "releaseMs": 180.0, "kneeDb": 8.0, "makeupDb": 0.0, "mix": 1.0,
+                          "autoMakeup": true },
+                "sendReverb": 0.4,
+                "sendDelay": 0.1,
+                "level": 0.8,
+                "pan": 0.0,
+                "muted": false
+            }],
+            "masterComp": { "enabled": false, "thresholdDb": -14.0, "ratio": 2.5, "attackMs": 20.0,
+                            "releaseMs": 250.0, "kneeDb": 10.0, "makeupDb": 5.0, "mix": 1.0,
+                            "autoMakeup": true },
+            "reverb": { "enabled": true, "size": 0.6, "decay": 0.5, "tone": 0.5,
+                        "predelayMs": 18.0, "returnLevel": 0.45 },
+            "delay": { "enabled": true, "timeMs": 320.0, "feedback": 0.35, "tone": 0.55,
+                       "pingPong": true, "returnLevel": 0.3, "sync": true, "division": 2 },
+            "width": { "enabled": true, "width": 1.25, "bassHz": 140.0 },
+            "limiter": { "enabled": true, "ceilingDb": -0.3, "releaseMs": 120.0, "lookaheadMs": 5.0 }
+        });
+        let settings: FxSettings = serde_json::from_value(json).expect("payload shape");
+        assert_eq!(settings.tracks.len(), 1);
+        assert_eq!(settings.tracks[0].eq.low_db, 3.0);
+        assert!(settings.reverb.enabled);
+        assert_eq!(settings.delay.time_ms, 320.0);
+        assert!(settings.limiter.enabled);
+    }
 }

@@ -1,7 +1,7 @@
 # Tracker Audio Engine — Build Plan & Status
 
-> Last updated: 2026-10-13
-> Status: Phase F complete — device & channel selection
+> Last updated: 2026-10-24
+> Status: Phase C complete — native effects, stereo preview & bounce
 
 ---
 
@@ -11,7 +11,7 @@
 |-------|------|------|--------|
 | A | Audio engine foundation + device enumeration | Rust | ✅ Complete |
 | B | Recording pipeline (arm, record WAV, level streaming) | Rust + React | ✅ Complete |
-| C | Effects & bounce | Rust | ⏳ Pending |
+| C | Effects & bounce | Rust | ✅ Complete |
 | D | Desktop E2E testing via tauri-playwright | Rust + Test | ✅ Complete |
 | E | Performance tuning + polish pass | Rust + UI | ✅ Complete |
 | F | Device & channel selection (PipeWire/JACK) | Rust + React | ✅ Complete |
@@ -79,12 +79,27 @@ None yet.
 ## Phase C — Effects & Bounce
 
 ### Goals
-- Per-track EQ, reverb, echo via fundsp
-- Input effects (amp sim, delay, distortion)
-- Bounce track: mix 4 tracks → bounce WAV → clear tracks
+- Native effects, no VST/plugin host: EQ, compressor, reverb, delay, stereo widener, limiter
+- Per-track inserts + shared reverb/delay sends; master bus chain
+- Bounce: mix 4 tracks through the full chain → stereo 32-bit float WAV
 
 ### Status
-- [ ] Not started
+- [x] `audio/fx/` module: biquad (RBJ), EQ, compressor, FDN reverb, stereo delay, widener, lookahead limiter
+- [x] Real-time-safe: all buffers allocated at construction, no allocation in `process`
+- [x] Per-track chain: EQ → comp → constant-power fader/pan → post-fader sends
+- [x] Master chain: comp → reverb → delay → widener → limiter (+ Hermite soft-clip ceiling)
+- [x] `render_mix` offline renderer with a 20 Hz gain-reduction timeline per stage
+- [x] `preview_mix` command: render + play through the default output device (resampled to device rate, any channel count)
+- [x] `bounce_tracks` command: same chain → stereo `bounce.wav`; returns peak/GR stats
+- [x] React FX rack: channel tabs, per-module bypass, drag/wheel/keyboard knobs, live response visuals, GR meters during playback
+- [x] Keyboard: `x` rack, `[`/`]` channels, `Escape` closes; track FX badge opens that channel
+- [x] 34 Rust DSP/engine tests + 26 browser E2E tests
+- [ ] Live monitoring of effects during capture (effects currently apply to preview/bounce, not the input path)
+
+### Notes
+- Reverb is an 8-line Householder FDN (real size control, exact RT60), not Freeverb; delay uses linear-interpolated fractional reads with tape-style saturation in the loop.
+- `fundsp` was dropped: GPL-3.0. Everything is written against public-domain papers (RBJ, Dattorro diffusion, Giannoulis/Reiss compressor, Adriaensen-style lookahead limiting) and unit-tested.
+- Sends are shared buses: one reverb and one delay instance, track send knobs feed them, master RETURN sets the wet level.
 
 ---
 

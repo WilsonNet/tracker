@@ -27,3 +27,8 @@ tauri-plugin-playwright = { version = "0.4", optional = true }
 [features]
 default = []
 e2e-testing = ["tauri-plugin-playwright"]
+
+# The DSP renders a whole mix offline; keep dev builds usable without -O2's
+# full compile cost.
+[profile.dev]
+opt-level = 1

@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import type { TransportState, VimMode, TrackData, BounceState, RhythmData, AudioDeviceInfo, LevelUpdate } from "./types/types.ts";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import type { TransportState, VimMode, TrackData, BounceState, RhythmData, AudioDeviceInfo, LevelUpdate, MixRenderResult } from "./types/types.ts";
 import { defaultTrack } from "./types/types.ts";
 import { useVimKeyboard } from "./hooks/useVimKeyboard.ts";
 import { TransportBar } from "./components/TransportBar.tsx";
@@ -8,6 +8,15 @@ import { BounceSection } from "./components/BounceSection.tsx";
 import { RhythmSection } from "./components/RhythmSection.tsx";
 import { VimStatusLine } from "./components/VimStatusLine.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
+import { FxRack, type FxMeterState, type FxTab } from "./components/FxRack.tsx";
+import {
+  defaultFxState,
+  effectiveDelayMs,
+  fmtDb,
+  trackFxBadges,
+  type FxState,
+  type MixSettings,
+} from "./lib/fx.ts";
 
 function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -52,10 +61,68 @@ export default function App() {
   const [playbackActive, setPlaybackActive] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const recStartRef = useRef(0);
+  const [fx, setFx] = useState<FxState>(() => defaultFxState(4));
+  const [fxOpen, setFxOpen] = useState(false);
+  const [fxTab, setFxTab] = useState<FxTab>(0);
+  const [renderInfo, setRenderInfo] = useState<MixRenderResult | null>(null);
+  const [playhead, setPlayhead] = useState(0);
 
   const channelCount = tauriMode
     ? devices.find((d) => d.name === selectedDevice)?.input_channels ?? 2
     : 2;
+
+  const mixSettings: MixSettings = useMemo(() => {
+    const anySolo = tracks.some((t) => t.solo);
+    return {
+      tracks: fx.tracks.map((trackFx, i) => {
+        const track = tracks[i];
+        return {
+          eq: trackFx.eq,
+          comp: trackFx.comp,
+          sendReverb: trackFx.sendReverb,
+          sendDelay: trackFx.sendDelay,
+          level: track?.level ?? 0.8,
+          pan: (track?.pan ?? 0.5) * 2 - 1,
+          muted: !track || track.muted || (anySolo && !track.solo),
+        };
+      }),
+      masterComp: fx.masterComp,
+      reverb: fx.reverb,
+      delay: { ...fx.delay, timeMs: effectiveDelayMs(fx.delay, bpm) },
+      width: fx.width,
+      limiter: fx.limiter,
+    };
+  }, [bpm, fx, tracks]);
+
+  const meters: FxMeterState = useMemo(() => {
+    if (!renderInfo) {
+      return {
+        playing: false,
+        trackGr: [0, 0, 0, 0],
+        trackPeakGr: [0, 0, 0, 0],
+        masterGr: 0,
+        masterPeakGr: 0,
+        limiterGr: 0,
+        limiterPeakGr: 0,
+        peakDb: -96,
+      };
+    }
+    const live = playbackActive;
+    const at = (timeline: number[] | undefined, fallback: number) => {
+      if (!live || !timeline || timeline.length === 0) return fallback;
+      return timeline[Math.min(playhead, timeline.length - 1)] ?? fallback;
+    };
+    return {
+      playing: live,
+      trackGr: renderInfo.trackGrTimeline.map((timeline, i) => at(timeline, renderInfo.trackGr[i] ?? 0)),
+      trackPeakGr: renderInfo.trackGr,
+      masterGr: at(renderInfo.masterGrTimeline, renderInfo.masterGr),
+      masterPeakGr: renderInfo.masterGr,
+      limiterGr: at(renderInfo.limiterGrTimeline, renderInfo.limiterGr),
+      limiterPeakGr: renderInfo.limiterGr,
+      peakDb: renderInfo.peakDb,
+    };
+  }, [playbackActive, playhead, renderInfo]);
 
   useEffect(() => {
     setTauriMode(isTauri());
@@ -79,6 +146,26 @@ export default function App() {
     });
     return () => { unlisten.then((u) => u()); };
   }, [tauriMode]);
+
+  useEffect(() => {
+    if (!tauriMode) return;
+    const unlisten = tauriListen<boolean>("playback-ended", () => setPlaybackActive(false));
+    return () => { unlisten.then((u) => u()); };
+  }, [tauriMode]);
+
+  // Drive the FX GR meters from the render's timeline while audio plays.
+  useEffect(() => {
+    if (!playbackActive || !renderInfo) return;
+    const started = performance.now();
+    const points = Math.max(1, renderInfo.limiterGrTimeline.length);
+    setPlayhead(0);
+    const id = setInterval(() => {
+      const elapsed = (performance.now() - started) / 1000;
+      setPlayhead(Math.max(0, Math.min(points - 1, Math.floor(elapsed * 20))));
+      if (elapsed > renderInfo.durationSec + 0.4) setPlaybackActive(false);
+    }, 50);
+    return () => clearInterval(id);
+  }, [playbackActive, renderInfo]);
 
   // Demo meter animation for browser/Vite mode
   useEffect(() => {
@@ -149,7 +236,26 @@ export default function App() {
       (key, mods) => {
         if (cmdOpen) return;
         if (key === ":") { setCmdOpen(true); return; }
-        if (key === "Escape") { setMode("normal"); setTransport("stopped"); return; }
+        if (key === "Escape") {
+          if (fxOpen) { setFxOpen(false); return; }
+          setMode("normal");
+          setTransport("stopped");
+          return;
+        }
+        if (key === "x" && !mods.shift) {
+          setFxOpen((open) => !open);
+          return;
+        }
+        if (key === "[" || key === "]") {
+          const order: FxTab[] = [0, 1, 2, 3, "master"];
+          setFxOpen(true);
+          setFxTab((current) => {
+            const index = Math.max(0, order.indexOf(current));
+            const next = (index + (key === "]" ? 1 : order.length - 1)) % order.length;
+            return order[next];
+          });
+          return;
+        }
         if (key === " ") {
           setTransport((s) => (s === "playing" ? "stopped" : "playing"));
           showMsg(transport === "playing" ? "Stopped" : "Playing");
@@ -201,7 +307,7 @@ export default function App() {
           return;
         }
       },
-      [cmdOpen, selectedTrack, tracks, transport, showMsg],
+      [cmdOpen, selectedTrack, tracks, transport, showMsg, fxOpen],
     ),
   );
 
@@ -249,9 +355,15 @@ export default function App() {
   function handleBounce() {
     setBounce({ canUndo: true, inProgress: true });
     if (tauriMode) {
-      tauriInvoke("bounce_tracks")
-        .then((r) => showMsg(`Bounce saved: ${String(r)}`))
+      tauriInvoke<MixRenderResult>("bounce_tracks", { settings: mixSettings })
+        .then((result) => {
+          setRenderInfo(result);
+          showMsg(`Bounce · peak ${fmtDb(result.peakDb)} · ${result.durationSec.toFixed(1)}s`);
+        })
         .catch((e: string) => showMsg(`Bounce failed: ${e}`));
+    } else {
+      setRenderInfo(demoRender(mixSettings));
+      showMsg("Bounce (demo — no audio written)");
     }
     setTimeout(() => setBounce((b) => ({ ...b, inProgress: false })), 1500);
   }
@@ -261,10 +373,17 @@ export default function App() {
   }
   function handlePlayback() {
     if (tauriMode) {
-      tauriInvoke("start_playback")
-        .then(() => setPlaybackActive(true))
+      tauriInvoke<MixRenderResult>("preview_mix", { settings: mixSettings })
+        .then((result) => {
+          setRenderInfo(result);
+          setPlayhead(0);
+          setPlaybackActive(true);
+          showMsg(`Playing mix · peak ${fmtDb(result.peakDb)}`);
+        })
         .catch((e: string) => showMsg(`Playback: ${e}`));
     } else {
+      setRenderInfo(demoRender(mixSettings));
+      setPlayhead(0);
       setPlaybackActive(true);
       showMsg("Playback (demo — no audio)");
     }
@@ -286,7 +405,7 @@ export default function App() {
         ts.map((t) => (t.solo ? { ...t, solo: false } : { ...t, solo: true, armed: false })),
       );
       showMsg("Solo toggled");
-    } else if (cmd === "h") showMsg("Help: j/k nav, J/K vol, 1-4 arm, Space play, R rec");
+    } else if (cmd === "h") showMsg("Help: j/k nav, J/K vol, 1-4 arm, Space play, R rec, x fx rack");
     else showMsg(`Unknown: ${cmd}`);
   }
 
@@ -335,6 +454,7 @@ export default function App() {
                 selected={selectedTrack === i}
                 transportState={transport}
                 channelCount={channelCount}
+                fx={fx.tracks[i]}
                 onArm={handleArm}
                 onSolo={handleSolo}
                 onMute={handleMute}
@@ -342,10 +462,27 @@ export default function App() {
                 onPanChange={handlePan}
                 onChannelChange={handleChannel}
                 onSelect={setSelectedTrack}
+                onOpenFx={(id) => {
+                  setSelectedTrack(id);
+                  setFxTab(id);
+                  setFxOpen(true);
+                }}
               />
             );
           })}
         </div>
+
+        <FxRack
+          open={fxOpen}
+          tab={fxTab}
+          state={fx}
+          tracks={tracks}
+          bpm={bpm}
+          meters={meters}
+          onTabChange={setFxTab}
+          onChange={setFx}
+          onClose={() => setFxOpen(false)}
+        />
 
         <BounceSection
           canUndo={bounce.canUndo}
@@ -448,14 +585,36 @@ export default function App() {
 
         <div className="sidebar__section">
           <span className="sidebar__title">FX</span>
+          <button
+            className={`sidebar__btn ${fxOpen ? "sidebar__btn--active" : ""}`}
+            onClick={() => setFxOpen((open) => !open)}
+            aria-pressed={fxOpen}
+          >
+            {fxOpen ? "■ CLOSE RACK" : "▤ OPEN RACK · x"}
+          </button>
           <div className="sidebar__item">
-            <span className="sidebar__label">Track</span>
-            <span className="sidebar__value">EQ · REV · ECHO</span>
+            <span className="sidebar__label">Track {selectedTrack + 1}</span>
+            <span className="sidebar__value">
+              {trackFxBadges(fx.tracks[selectedTrack]).join(" · ") || "clean"}
+            </span>
           </div>
           <div className="sidebar__item">
-            <span className="sidebar__label">Input</span>
-            <span className="sidebar__value">Amp Sim</span>
+            <span className="sidebar__label">Master</span>
+            <span className="sidebar__value">
+              {fx.limiter.enabled ? "LIM" : "—"}
+              {fx.reverb.enabled ? " · REV" : ""}
+              {fx.delay.enabled ? " · DLY" : ""}
+              {fx.width.enabled ? " · WIDTH" : ""}
+            </span>
           </div>
+          {renderInfo ? (
+            <div className="sidebar__item">
+              <span className="sidebar__label">Last render</span>
+              <span className="sidebar__value sidebar__value--mono">
+                {fmtDb(renderInfo.peakDb)} peak
+              </span>
+            </div>
+          ) : null}
         </div>
       </aside>
 
@@ -521,6 +680,16 @@ export default function App() {
           overflow: hidden;
           transition: width var(--duration-normal) var(--ease-out), padding var(--duration-normal) var(--ease-out);
           z-index: 10;
+        }
+        /* Keep the collapsed rail clean: content only paints once it is open. */
+        .app__sidebar > * {
+          opacity: 0;
+          transition: opacity var(--duration-fast) var(--ease-out) 60ms;
+        }
+        .app__sidebar:hover > *,
+        .app__sidebar:focus-within > *,
+        .app__sidebar.sidebar--open > * {
+          opacity: 1;
         }
         .app__sidebar:hover,
         .app__sidebar:focus-within,
@@ -631,4 +800,44 @@ function fmtTime(s: number): string {
   const sec = Math.floor(s % 60);
   const ms = Math.floor((s % 1) * 100);
   return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}.${String(ms).padStart(2, "0")}`;
+}
+
+/**
+ * Browser-mode stand-in for the Rust render: plausible meters so the rack is
+ * fully testable without an audio device. Never used in the desktop app.
+ */
+function demoRender(mix: MixSettings): MixRenderResult {
+  const durationSec = 14;
+  const points = Math.floor(durationSec * 20);
+  const trackPeak = mix.tracks.map((track, i) =>
+    track.comp.enabled ? -(2 + ((i * 1.7) % 4)) : 0,
+  );
+  const trackGrTimeline = mix.tracks.map((track, i) => {
+    const depth = trackPeak[i];
+    return Array.from({ length: points }, (_, p) => {
+      if (!track.comp.enabled || depth === 0) return 0;
+      const envelope = 0.25 + 0.75 * Math.abs(Math.sin((p / 20) * 0.9 + i * 0.8));
+      return depth * envelope;
+    });
+  });
+  const masterGr = mix.masterComp.enabled ? -2.4 : 0;
+  const limiterGr = mix.limiter.enabled ? -1.2 : 0;
+  const masterGrTimeline = Array.from({ length: points }, (_, p) =>
+    masterGr === 0 ? 0 : masterGr * (0.3 + 0.7 * Math.abs(Math.sin((p / 20) * 1.1))),
+  );
+  const limiterGrTimeline = Array.from({ length: points }, (_, p) =>
+    limiterGr === 0 ? 0 : limiterGr * (0.2 + 0.8 * Math.abs(Math.sin((p / 20) * 1.3 + 0.4))),
+  );
+  return {
+    path: null,
+    frames: durationSec * 48_000,
+    durationSec,
+    peakDb: mix.limiter.ceilingDb,
+    trackGr: trackPeak,
+    masterGr,
+    limiterGr,
+    trackGrTimeline,
+    masterGrTimeline,
+    limiterGrTimeline,
+  };
 }

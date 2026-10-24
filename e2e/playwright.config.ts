@@ -16,9 +16,17 @@ export default defineConfig({
   projects: [
     {
       name: 'browser-only',
+      testIgnore: /desktop\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         mode: 'browser' as const,
+      },
+    },
+    {
+      name: 'tauri',
+      testMatch: /desktop\.spec\.ts/,
+      use: {
+        mode: 'tauri' as const,
       },
     },
   ],

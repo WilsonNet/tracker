@@ -1,6 +1,8 @@
 import type { TrackData } from "../types/types.ts";
 import { LevelMeter } from "./LevelMeter.tsx";
 import { Knob } from "./Knob.tsx";
+import type { TrackFxSettings } from "../lib/fx.ts";
+import { trackFxBadges } from "../lib/fx.ts";
 
 interface TrackStripProps {
   track: TrackData;
@@ -8,6 +10,7 @@ interface TrackStripProps {
   selected: boolean;
   transportState: "stopped" | "playing" | "recording";
   channelCount: number;
+  fx: TrackFxSettings;
   onArm: (id: number) => void;
   onSolo: (id: number) => void;
   onMute: (id: number) => void;
@@ -15,6 +18,7 @@ interface TrackStripProps {
   onPanChange: (id: number, pan: number) => void;
   onChannelChange: (id: number, channel: number) => void;
   onSelect: (id: number) => void;
+  onOpenFx: (id: number) => void;
 }
 
 export function TrackStrip({
@@ -23,6 +27,7 @@ export function TrackStrip({
   selected,
   transportState,
   channelCount,
+  fx,
   onArm,
   onSolo,
   onMute,
@@ -30,9 +35,11 @@ export function TrackStrip({
   onPanChange,
   onChannelChange,
   onSelect,
+  onOpenFx,
 }: TrackStripProps) {
   const isActive = !track.muted && (selected || track.armed || transportState !== "stopped");
   const isRecording = transportState === "recording" && track.armed;
+  const badges = trackFxBadges(fx);
 
   return (
     <div
@@ -62,6 +69,18 @@ export function TrackStrip({
           </select>
         </label>
       </div>
+
+      <button
+        type="button"
+        className={`track__fx ${badges.length > 0 ? "track__fx--active" : ""} ${selected ? "track__fx--selected" : ""}`}
+        onClick={(e) => { e.stopPropagation(); onOpenFx(track.id); }}
+        aria-label={`Open effects for track ${index + 1}`}
+        title={`Effects · x opens the rack (${badges.join(" ") || "clean"})`}
+      >
+        <span className="track__fx-label">FX</span>
+        <span className="track__fx-badges">{badges.join(" · ") || "CLEAN"}</span>
+        <span className="track__fx-key">x</span>
+      </button>
 
       <div className="track__controls">
         <div className="track__buttons">
@@ -100,6 +119,14 @@ export function TrackStrip({
             onChange={(v) => onPanChange(track.id, v)}
             label="PAN"
             ariaLabel={`Pan track ${index + 1}`}
+            min={0}
+            max={1}
+            step={0.01}
+            defaultValue={0.5}
+            size="sm"
+            format={(v) =>
+              v < 0.49 ? `L${Math.round((0.5 - v) * 200)}` : v > 0.51 ? `R${Math.round((v - 0.5) * 200)}` : "C"
+            }
           />
         </div>
 
@@ -207,6 +234,32 @@ export function TrackStrip({
         .track__input-select:hover { border-color: var(--amber-dim); }
         .track__input-select:focus-visible { outline: 1px solid var(--amber); outline-offset: 1px; }
         .track__input-select option { background: var(--surface-raised); color: var(--ink); }
+        .track__fx {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
+          width: 100%;
+          padding: 2px var(--space-1) 2px var(--space-2);
+          font-family: var(--font-mono);
+          font-size: 0.5625rem;
+          letter-spacing: 0.06em;
+          color: var(--ink-muted);
+          border: 1px solid var(--border-subtle);
+          border-radius: var(--radius-sm);
+          text-align: left;
+          transition: color var(--duration-fast) var(--ease-out),
+                      border-color var(--duration-fast) var(--ease-out),
+                      background var(--duration-fast) var(--ease-out);
+        }
+        .track__fx:hover { color: var(--ink-dim); border-color: var(--border); background: var(--surface-hover); }
+        .track__fx--active { color: var(--ink-dim); border-color: var(--border); }
+        .track__fx--selected { border-color: var(--border-amber); }
+        .track__fx-label { font-weight: 700; color: var(--ink-muted); }
+        .track__fx--active .track__fx-label { color: var(--amber); }
+        .track__fx-badges { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .track__fx-key { font-size: 0.5rem; opacity: 0; transition: opacity var(--duration-fast); }
+        .track__fx:hover .track__fx-key,
+        .track__fx:focus-visible .track__fx-key { opacity: 1; }
         .track__controls {
           display: flex;
           align-items: flex-end;

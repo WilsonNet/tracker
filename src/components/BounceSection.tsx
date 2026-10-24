@@ -34,7 +34,7 @@ export function BounceSection({
       <button
         className={`bounce__btn bounce__btn--play ${playing ? "bounce__btn--active" : ""}`}
         onClick={playing ? onStopPlayback : onPlay}
-        aria-label={playing ? "Stop playback" : "Play bounce"}
+        aria-label={playing ? "Stop playback" : "Play mix"}
       >
         {playing ? "■ STOP" : "▶ PLAY"}
       </button>
