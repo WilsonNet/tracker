@@ -76,11 +76,12 @@ All effects are hand-written Rust DSP (`src-tauri/src/audio/fx/`) — no VST, no
 3. Each track header has an **IN n** selector for the input channel it records (defaults to 1, 2, 3, 4)
 4. Click **CAPTURE** — live levels appear for every channel; speak/sing into the mic on Input 1 to verify Track 1's meter responds
 
-### E2E Testing (26 tests passing)
-- `cd e2e && npx playwright test --project=browser-only` — 26 tests in ~45s
-- Tests: transport controls, arm/solo/mute, keyboard shortcuts (Space, R, 1-4, `:`), command palette, bounce section, meter rendering, capture/demo mode, and the FX rack (open/close, tabs, bypass, knob keyboard/drag, sends, live GR meters)
+### E2E Testing (27 tests passing)
+- `cd e2e && npx playwright test --project=browser-only` — 27 tests in ~45s
+- Tests: transport controls, arm/solo/mute, keyboard shortcuts (Space, R, 1-4, `:`), command palette, bounce section, meter rendering, capture/demo mode, the I/O panel, and the FX rack (open/close, tabs, bypass, knob keyboard/drag, sends, live GR meters)
 - Fixtures in `e2e/fixtures.ts` with `createTauriTest` (browser mode with IPC mocks + Tauri mode via socket bridge). Mock handlers are stringified into the page — they must be self-contained, no outer references.
-- `e2e/tests/desktop.spec.ts` is the real-engine test; it's skipped unless the window is visible: `SUPER+SHIFT+X`, then `TRACKER_VISIBLE=1 npm run test:e2e:tauri` (requires the `e2e-testing` feature + `playwright:default`)
+- `e2e/tests/desktop.spec.ts` is the real-engine test; it's skipped unless the window is visible: `hyprctl dispatch 'hl.dsp.workspace.toggle_special("tracker")'`, then `TRACKER_VISIBLE=1 npm run test:e2e:tauri` (requires the `e2e-testing` feature + `playwright:default`)
+- The bridge's native pointer injection does not reach a hidden or floating window. Drive the real webview through `e2e/js-driver.ts` (`click`, `setSelect`, `press`, `hotkey`) — it dispatches DOM events inside React instead. `e2e/tests/live-record.spec.ts` is the hardware recording check (`TAURI_LIVE=1`).
 - Rust DSP coverage lives in `cargo test --lib` (34 tests): filter responses, compressor curve, reverb decay/decorrelation, delay timing, widener mono-sum, limiter ceiling, full stereo mixdown and WAV write, and the exact UI JSON payload.
 
 ### Architecture: Audio Engine (Rust, real-time safe)

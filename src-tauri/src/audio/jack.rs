@@ -173,3 +173,100 @@ pub fn start(
         .activate_async((), handler)
         .map_err(|e| format!("JACK activate: {e}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ringbuf::traits::{Consumer, Split};
+    use ringbuf::HeapRb;
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    /// Live hardware check: capture 3 s from the first multi-channel input,
+    /// write input 2 to a mono WAV and report per-channel peaks.
+    /// `cargo test --lib live_capture -- --ignored --nocapture`
+    #[test]
+    #[ignore = "requires a live PipeWire/JACK input device"]
+    fn live_capture_writes_input_2() {
+        let groups = capture_port_groups();
+        for (node, ports) in &groups {
+            println!("group {node:?} -> {ports:?}");
+        }
+        let (node, ports) = groups
+            .iter()
+            .find(|(n, p)| p.len() >= 2 && n.contains("Scarlett"))
+            .or_else(|| groups.iter().find(|(_, p)| p.len() >= 2))
+            .map(|(n, p)| (n.clone(), p.clone()))
+            .expect("no multi-channel capture device");
+        let channels = ports.len();
+        println!("capturing {node:?} channels={channels}");
+
+        let rb = HeapRb::<f32>::new(48_000 * channels);
+        let (producer, mut consumer) = rb.split();
+        let running = Arc::new(AtomicBool::new(true));
+        let overruns = Arc::new(AtomicU64::new(0));
+        let client = start(
+            &node,
+            channels,
+            producer,
+            running.clone(),
+            overruns.clone(),
+        )
+        .expect("start jack capture");
+
+        let mut samples: Vec<f32> = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut buf = vec![0.0_f32; 8192 * channels];
+        while Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(50));
+            let n = consumer.pop_slice(&mut buf);
+            samples.extend_from_slice(&buf[..n]);
+        }
+        running.store(false, Ordering::SeqCst);
+        drop(client);
+
+        assert!(!samples.is_empty(), "captured no samples");
+        let frames = samples.len() / channels;
+        println!(
+            "captured {} frames, {:.2}s, overruns={}",
+            frames,
+            frames as f32 / 48_000.0,
+            overruns.load(Ordering::Relaxed)
+        );
+        assert!(frames > 48_000, "captured less than one second");
+
+        let mut peaks = vec![0.0_f32; channels];
+        for frame in samples.chunks(channels) {
+            for (c, &s) in frame.iter().enumerate() {
+                peaks[c] = peaks[c].max(s.abs());
+            }
+        }
+        let db = |x: f32| if x <= 0.0 { -120.0 } else { 20.0 * x.log10() };
+        for (c, &p) in peaks.iter().enumerate() {
+            println!("input {} peak {:.1} dBFS", c + 1, db(p));
+        }
+
+        let dir = std::env::temp_dir().join("tracker_live_capture");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("input_2.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 48_000,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+        let mut writer = hound::WavWriter::create(&path, spec).unwrap();
+        for frame in samples.chunks(channels) {
+            writer.write_sample(frame[1]).unwrap();
+        }
+        writer.finalize().unwrap();
+        let size = std::fs::metadata(&path).unwrap().len();
+        println!("wrote {} ({} bytes)", path.display(), size);
+        assert!(size > 44, "wav has no samples");
+
+        let mut reader = hound::WavReader::open(&path).unwrap();
+        let written: Vec<f32> = reader.samples::<f32>().map(|s| s.unwrap()).collect();
+        assert_eq!(written.len(), frames);
+        println!("read back {} samples", written.len());
+    }
+}

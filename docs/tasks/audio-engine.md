@@ -135,6 +135,9 @@ None yet.
 
 ### Status
 - [x] cpal `realtime` feature enabled for SCHED_FIFO on audio callback thread
+- [x] Recording requires an active capture stream (clear error instead of silent WAVs)
+- [x] WAV writers checkpoint every second (`flush`), so a crash/kill leaves a readable take
+- [x] Live-validated with a Scarlett 2i2: input 2 → 3.0 s mono float WAV, peak −2.5 dBFS, 0 overruns
 - [x] Recording timer with elapsed time in TransportBar
 - [x] Sidebar: LIVE LEVELS, RECORDING (time, output, armed), SESSION, FX sections
 - [x] VimStatusLine: ● CAP (capture indicator), ● REC N (recording with track count)

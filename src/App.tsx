@@ -271,7 +271,7 @@ export default function App() {
           setTransport(next);
           if (tauriMode) {
             if (next === "recording") {
-              tauriInvoke("start_recording").catch((e: string) => showMsg(`Record: ${e}`));
+              tauriInvoke("start_recording").catch((e: string) => { showMsg(`Record: ${e}`); setTransport("stopped"); });
             } else {
               tauriInvoke("stop_recording").catch(() => {});
             }
@@ -431,7 +431,7 @@ export default function App() {
             setTransport(next);
             if (tauriMode) {
               if (next === "recording") {
-                tauriInvoke("start_recording").catch((e: string) => showMsg(`Record: ${e}`));
+                tauriInvoke("start_recording").catch((e: string) => { showMsg(`Record: ${e}`); setTransport("stopped"); });
               } else {
                 tauriInvoke("stop_recording").catch(() => {});
               }

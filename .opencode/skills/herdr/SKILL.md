@@ -96,8 +96,10 @@ or close the dev-server tab.
 - Desktop E2E needs `--features e2e-testing` **and** `"playwright:default"` in
   `src-tauri/capabilities/default.json`; remove the permission afterwards or
   plain `cargo build` fails on the unknown permission.
-- The socket bridge cannot drive a hidden window (native input never reaches
-  it); the desktop spec stays skipped unless the window is visible.
+- The socket bridge's native pointer injection does not reach a hidden or
+  floating window. Use `e2e/js-driver.ts` (`click`, `setSelect`, `press`,
+  `hotkey`) to dispatch DOM events inside React instead; it works in any window
+  state. `e2e/tests/live-record.spec.ts` is the hardware recording check.
 - Browser-only tests are the fast loop: `npm run test:e2e` (26 tests).
 
 ## Verify before saying "running"

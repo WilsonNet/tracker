@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 use super::device::{enumerate_input_devices, AudioDevice};
@@ -116,6 +116,9 @@ impl AudioEngine {
     pub fn start_recording(&self) -> Result<(), String> {
         if self.rec_active.load(Ordering::SeqCst) {
             return Ok(());
+        }
+        if !self.running.load(Ordering::SeqCst) {
+            return Err("Start CAPTURE before recording".into());
         }
         let armed = self.get_arm_state();
         if !armed.iter().any(|&a| a) {
@@ -320,6 +323,7 @@ impl AudioEngine {
             .spawn(move || {
                 let mut consumer = consumer;
                 let interval = Duration::from_millis(50);
+                let mut last_flush = Instant::now();
 
                 while running.load(Ordering::Relaxed) {
                     thread::sleep(interval);
@@ -351,6 +355,16 @@ impl AudioEngine {
                                     }
                                 }
                             }
+                        }
+                        // Checkpoint the header + data every second so a crash or
+                        // kill still leaves a readable take.
+                        if last_flush.elapsed() >= Duration::from_secs(1) {
+                            if let Ok(mut guard) = rec_writers.lock() {
+                                for (writer, _) in guard.iter_mut().flatten() {
+                                    let _ = writer.flush();
+                                }
+                            }
+                            last_flush = Instant::now();
                         }
                     }
 
