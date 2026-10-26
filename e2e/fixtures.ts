@@ -8,8 +8,22 @@ export const { test, expect } = createTauriTest({
   devUrl: 'http://localhost:1420',
   ipcMocks: {
     list_audio_devices: () => [
-      { id: 'scarlett_0', name: 'Scarlett 2i2 USB', input_channels: 2, is_default: true },
-      { id: 'builtin_1', name: 'Built-in Audio', input_channels: 2, is_default: false },
+      {
+        id: 'scarlett_0',
+        name: 'Scarlett 2i2 USB',
+        input_channels: 2,
+        channel_names: ['Input 1 Mic/Inst/Line', 'Input 2 Mic/Inst/Line'],
+        is_default: true,
+        backend: 'PipeWire JACK',
+      },
+      {
+        id: 'builtin_1',
+        name: 'Built-in Audio',
+        input_channels: 2,
+        channel_names: ['IN 1 (L)', 'IN 2 (R)'],
+        is_default: false,
+        backend: 'PipeWire JACK',
+      },
     ],
     capture_status: () => false,
     recording_status: () => ({

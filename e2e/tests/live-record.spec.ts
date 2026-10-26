@@ -29,19 +29,22 @@ test("records input 2 of the Scarlett to track 1", async ({ tauriPage }) => {
 
   const device = await ui.setSelect(
     'select[aria-label="Select audio input device"]',
-    "Focusrite Scarlett 2i2 2nd Gen 0",
+    "Focusrite Scarlett 2i2 2nd Gen (All Inputs)",
   );
-  expect(device).toContain("2nd Gen 0");
+  expect(device).toContain("Focusrite Scarlett 2i2 2nd Gen");
 
   await ui.click('[aria-label="Start capture"]');
   const sidebar = await waitForText(tauriPage, ".app__sidebar", "LIVE LEVELS");
   console.log("live levels:", sidebar.replace(/\s+/g, " ").trim());
 
-  await ui.setSelect('select[aria-label="Input channel track 1"]', "1");
-  await ui.click('[aria-label="Arm track 1"]');
-  expect(await ui.attr('[aria-label="Arm track 1"]', "aria-pressed")).toBe("true");
+  // Route Track 1 to Input 2 using the new I/O routing matrix button!
+  await ui.click('[aria-label="Route Track 1 to Input 2"]');
+  expect(await ui.attr('[aria-label="Route Track 1 to Input 2"]', "aria-pressed")).toBe("true");
 
+  // Also test pressing Record directly without pre-arming — it auto-arms Track 1!
   await ui.click('[aria-label="Record"]');
+  await sleep(300);
+  expect(await ui.attr('[aria-label="Arm track 1"]', "aria-pressed")).toBe("true");
   expect(await ui.attr('[aria-label="Stop recording"]', "aria-label")).toBe(
     "Stop recording",
   );

@@ -47,7 +47,9 @@ export interface AudioDeviceInfo {
   id: string;
   name: string;
   input_channels: number;
+  channel_names?: string[];
   is_default: boolean;
+  backend?: string;
 }
 
 export interface LevelUpdate {

@@ -13,6 +13,9 @@ interface TransportBarProps {
   recordingTime?: number;
   ioOpen: boolean;
   onToggleIo: () => void;
+  activeDeviceName?: string;
+  captureActive?: boolean;
+  onToggleCapture?: () => void;
 }
 
 export function TransportBar({
@@ -27,6 +30,9 @@ export function TransportBar({
   recordingTime,
   ioOpen,
   onToggleIo,
+  activeDeviceName,
+  captureActive,
+  onToggleCapture,
 }: TransportBarProps) {
   const isRecording = state === "recording";
   const isPlaying = state === "playing";
@@ -89,15 +95,31 @@ export function TransportBar({
         </div>
 
         <div className="transport__section transport__section--io">
+          {onToggleCapture ? (
+            <button
+              type="button"
+              className={`transport-btn transport-btn--cap ${captureActive ? "transport-btn--cap-active" : ""}`}
+              onClick={onToggleCapture}
+              aria-pressed={captureActive}
+              aria-label={captureActive ? "Monitor active (click to stop capture)" : "Start input monitor"}
+              title={captureActive ? "Input monitor active — click to stop (c)" : "Start input monitor (c)"}
+            >
+              <span className="transport-btn__dot" />
+              <span className="transport-btn__label">{captureActive ? "MON ON" : "MON"}</span>
+            </button>
+          ) : null}
           <button
             className={`transport-btn transport-btn--io ${ioOpen ? "transport-btn--io-open" : ""}`}
             onClick={onToggleIo}
             aria-pressed={ioOpen}
             aria-label={ioOpen ? "Close audio input panel" : "Audio input and devices"}
-            title="Audio input & devices (i)"
+            title="Audio input & routing matrix (i)"
           >
             <span className="transport-btn__icon">⌁</span>
             <span className="transport-btn__label">I/O</span>
+            {activeDeviceName ? (
+              <span className="transport-btn__device">{activeDeviceName}</span>
+            ) : null}
           </button>
         </div>
       </div>
@@ -167,10 +189,48 @@ export function TransportBar({
           color: var(--ink);
         }
 
-        .transport__section--io { margin-left: var(--space-3); }
+        .transport__section--io { margin-left: var(--space-3); gap: var(--space-1); }
+        .transport-btn--cap {
+          color: var(--ink-dim);
+          border: 1px solid var(--border);
+        }
+        .transport-btn--cap:hover {
+          color: var(--ink);
+          border-color: var(--amber-dim);
+          background: var(--surface-hover);
+        }
+        .transport-btn__dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: var(--ink-muted);
+        }
+        .transport-btn--cap-active {
+          color: var(--amber);
+          border-color: var(--border-amber);
+          background: var(--amber-bg);
+        }
+        .transport-btn--cap-active .transport-btn__dot {
+          background: var(--amber);
+          box-shadow: 0 0 6px var(--amber);
+        }
         .transport-btn--io {
           color: var(--ink-dim);
           border: 1px solid var(--border);
+          max-width: 220px;
+        }
+        .transport-btn__device {
+          font-size: var(--text-caption);
+          color: var(--ink-muted);
+          font-weight: 400;
+          text-transform: none;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          max-width: 130px;
+          border-left: 1px solid var(--border);
+          padding-left: var(--space-1);
+          margin-left: 2px;
         }
         .transport-btn--io:hover {
           color: var(--ink);
@@ -181,6 +241,10 @@ export function TransportBar({
           color: var(--amber);
           border-color: var(--border-amber);
           background: var(--amber-bg);
+        }
+        .transport-btn--io-open .transport-btn__device {
+          color: var(--amber);
+          border-left-color: var(--border-amber);
         }
 
         .bpm-label {

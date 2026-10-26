@@ -12,6 +12,9 @@ export default defineConfig({
     baseURL: 'http://localhost:1420',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    launchOptions: {
+      executablePath: process.env.PLAYWRIGHT_CHROME_PATH || '/usr/bin/google-chrome-stable',
+    },
   },
   projects: [
     {

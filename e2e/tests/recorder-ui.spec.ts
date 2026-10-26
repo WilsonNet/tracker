@@ -110,6 +110,7 @@ test("I/O button and i shortcut open the device panel", async ({ tauriPage }) =>
   await tauriPage.locator('[aria-label="Audio input and devices"]').click();
   await new Promise((r) => setTimeout(r, 350));
   await expect(tauriPage.locator('[aria-label="Select audio input device"]')).toBeVisible();
+  await expect(tauriPage.locator('[aria-label="Track input routing matrix"]')).toBeVisible();
   const openWidth = await tauriPage.evaluate(() =>
     document.querySelector(".app__sidebar")!.getBoundingClientRect().width
   );
@@ -127,6 +128,38 @@ test("I/O button and i shortcut open the device panel", async ({ tauriPage }) =>
     document.querySelector(".app__sidebar")!.getBoundingClientRect().width
   );
   expect(closedWidth).toBeLessThan(20);
+});
+
+test("track input channel pills and I/O routing matrix stay in sync", async ({ tauriPage }) => {
+  await tauriPage.goto("/");
+  await tauriPage.waitForSelector(".track");
+  // Click IN 2 pill directly on Track 1 header
+  const pill2 = tauriPage.locator('[aria-label="Input channel buttons track 1"] button').nth(1);
+  await pill2.click();
+  await expect(pill2).toHaveAttribute("aria-pressed", "true");
+
+  // Open I/O panel and verify matrix shows Track 1 routed to Input 2
+  await tauriPage.keyboard.press("i");
+  await new Promise((r) => setTimeout(r, 250));
+  const cellT1In2 = tauriPage.locator('[aria-label="Route Track 1 to Input 2"]');
+  await expect(cellT1In2).toHaveAttribute("aria-pressed", "true");
+
+  // Route Track 1 back to Input 1 from the matrix
+  const cellT1In1 = tauriPage.locator('[aria-label="Route Track 1 to Input 1"]');
+  await cellT1In1.click();
+  await expect(cellT1In1).toHaveAttribute("aria-pressed", "true");
+  const pill1 = tauriPage.locator('[aria-label="Input channel buttons track 1"] button').nth(0);
+  await expect(pill1).toHaveAttribute("aria-pressed", "true");
+});
+
+test("pressing record with no armed track auto-arms selected track and starts capture", async ({ tauriPage }) => {
+  await tauriPage.goto("/");
+  await tauriPage.waitForSelector(".track");
+  await expect(tauriPage.locator('[aria-label="Arm track 1"]')).toHaveAttribute("aria-pressed", "false");
+  await tauriPage.keyboard.press("r");
+  await new Promise((r) => setTimeout(r, 250));
+  await expect(tauriPage.locator('[aria-label="Arm track 1"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(tauriPage.locator(".transport-btn--record")).toHaveClass(/transport-btn--active/);
 });
 
 test("capture activates demo meter segments", async ({ tauriPage }) => {

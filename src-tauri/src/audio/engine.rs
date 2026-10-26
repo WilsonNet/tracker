@@ -1,4 +1,4 @@
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
 use hound::WavWriter;
 use ringbuf::traits::*;
 use ringbuf::{HeapCons, HeapRb};
@@ -68,11 +68,14 @@ pub struct AudioEngine {
     rec_writers: Arc<Mutex<Vec<TrackWriter>>>,
     rec_sample_rate: Mutex<u32>,
     output_dir: PathBuf,
-    arm_state: Mutex<Vec<bool>>,
+    arm_state: Arc<Mutex<Vec<bool>>>,
     arm_channels: Mutex<Vec<usize>>,
     sample_rate: Mutex<u32>,
+    active_device: Mutex<Option<String>>,
     #[cfg(target_os = "linux")]
     jack_client: Mutex<Option<jack::AsyncClient<(), super::jack::JackHandler>>>,
+    #[cfg(target_os = "linux")]
+    jack_playback_client: Mutex<Option<jack::AsyncClient<(), super::jack::JackPlaybackHandler>>>,
 }
 
 impl AudioEngine {
@@ -88,11 +91,14 @@ impl AudioEngine {
             rec_writers: Arc::new(Mutex::new(Vec::new())),
             rec_sample_rate: Mutex::new(48000),
             output_dir: std::env::temp_dir().join("tracker_recordings"),
-            arm_state: Mutex::new(vec![false; 4]),
+            arm_state: Arc::new(Mutex::new(vec![false; 4])),
             arm_channels: Mutex::new((0..4).collect()),
             sample_rate: Mutex::new(48000),
+            active_device: Mutex::new(None),
             #[cfg(target_os = "linux")]
             jack_client: Mutex::new(None),
+            #[cfg(target_os = "linux")]
+            jack_playback_client: Mutex::new(None),
         }
     }
 
@@ -105,6 +111,14 @@ impl AudioEngine {
         if let Ok(mut channels) = self.arm_channels.lock() {
             if id < channels.len() {
                 channels[id] = channel;
+            }
+        }
+        // If already recording, update the channel for this writer on the fly
+        if self.rec_active.load(Ordering::Relaxed) {
+            if let Ok(mut guard) = self.rec_writers.lock() {
+                if let Some(Some((_, ref mut ch))) = guard.get_mut(id) {
+                    *ch = channel;
+                }
             }
         }
     }
@@ -182,14 +196,28 @@ impl AudioEngine {
 
     pub fn start_capture(&self, device_name: &str, app: AppHandle) -> Result<(), String> {
         if self.running.load(Ordering::SeqCst) {
-            return Ok(());
+            let same = self
+                .active_device
+                .lock()
+                .ok()
+                .and_then(|d| d.clone())
+                .as_deref()
+                == Some(device_name);
+            if same {
+                return Ok(());
+            }
+            self.stop_capture();
         }
 
         let devices = enumerate_input_devices()?;
         let dev_info = devices
             .iter()
-            .find(|d| d.name == device_name)
+            .find(|d| d.name == device_name || d.id == device_name)
+            .or_else(|| devices.iter().find(|d| d.is_default))
+            .or_else(|| devices.first())
             .ok_or_else(|| format!("Device not found: {device_name}"))?;
+
+        *self.active_device.lock().unwrap() = Some(dev_info.name.clone());
 
         #[cfg(target_os = "linux")]
         if dev_info.pcm_id == "jack" {
@@ -317,6 +345,7 @@ impl AudioEngine {
         let overruns = self.overruns.clone();
         let rec_active = self.rec_active.clone();
         let rec_writers = self.rec_writers.clone();
+        let arm_state = self.arm_state.clone();
 
         thread::Builder::new()
             .name("audio-engine".into())
@@ -372,11 +401,12 @@ impl AudioEngine {
                     let (peaks, rms) = compute_levels(&buf, ch);
 
                     let is_rec = rec_active.load(Ordering::Relaxed);
+                    let armed = arm_state.lock().map(|s| s.clone()).unwrap_or_else(|_| vec![false; 4]);
                     let _ = app.emit("level-update", LevelUpdatePayload {
                         input_peaks: peaks,
                         input_rms: rms,
                         recording: is_rec,
-                        armed_tracks: vec![false; 4],
+                        armed_tracks: armed,
                         metrics: MetricsPayload {
                             underruns: underruns.load(Ordering::Relaxed),
                             overruns: overruns.load(Ordering::Relaxed),
@@ -399,6 +429,7 @@ impl AudioEngine {
         let _ = self.stop_recording();
         self.stop_playback();
         self.running.store(false, Ordering::SeqCst);
+        *self.active_device.lock().unwrap() = None;
         *self.stream.lock().unwrap() = None;
         #[cfg(target_os = "linux")]
         {
@@ -511,16 +542,32 @@ impl AudioEngine {
 
     /// Play interleaved stereo samples through the default output device,
     /// resampling to the device rate and spreading to however many channels
-    /// the device wants.
+    /// the device wants. On Linux, always prefer PipeWire JACK so we never
+    /// open ALSA hardware directly or mute other applications (like YouTube).
     fn play_stereo(
         &self,
         samples: Vec<f32>,
         render_rate: u32,
         app: AppHandle,
     ) -> Result<(), String> {
-        let out_device = cpal::default_host()
-            .default_output_device()
-            .ok_or_else(|| "No output device".to_string())?;
+        self.stop_playback();
+
+        #[cfg(target_os = "linux")]
+        {
+            let position = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            if let Ok((client, total_frames)) =
+                super::jack::start_playback(samples.clone(), render_rate, position.clone())
+            {
+                *self.jack_playback_client.lock().unwrap() = Some(client);
+                let generation = self.playback_generation.fetch_add(1, Ordering::SeqCst) + 1;
+                self.spawn_playback_watch(position, total_frames, app.clone(), generation);
+                let _ = app.emit("playback-started", true);
+                return Ok(());
+            }
+        }
+
+        let out_device = super::device::find_cooperative_output_device()
+            .ok_or_else(|| "No cooperative output device".to_string())?;
         let out_config = out_device
             .default_output_config()
             .map_err(|e| format!("Output config: {e}"))?;
@@ -631,6 +678,10 @@ impl AudioEngine {
     pub fn stop_playback(&self) {
         self.playback_generation.fetch_add(1, Ordering::SeqCst);
         *self.playback_stream.lock().unwrap() = None;
+        #[cfg(target_os = "linux")]
+        {
+            *self.jack_playback_client.lock().unwrap() = None;
+        }
     }
 
     pub fn is_running(&self) -> bool {
@@ -682,7 +733,7 @@ fn compute_levels(buf: &[f32], channels: usize) -> (Vec<f32>, Vec<f32>) {
 
 /// Linear-interpolation resampler for interleaved audio. Only used to match the
 /// output device rate; the render itself stays at the capture rate.
-fn resample_linear(samples: &[f32], from: u32, to: u32, channels: usize) -> Vec<f32> {
+pub(crate) fn resample_linear(samples: &[f32], from: u32, to: u32, channels: usize) -> Vec<f32> {
     if from == to || samples.is_empty() || channels == 0 {
         return samples.to_vec();
     }

@@ -10,6 +10,8 @@ interface TrackStripProps {
   selected: boolean;
   transportState: "stopped" | "playing" | "recording";
   channelCount: number;
+  channelNames?: string[];
+  meterLevel?: number;
   fx: TrackFxSettings;
   onArm: (id: number) => void;
   onSolo: (id: number) => void;
@@ -27,6 +29,8 @@ export function TrackStrip({
   selected,
   transportState,
   channelCount,
+  channelNames,
+  meterLevel,
   fx,
   onArm,
   onSolo,
@@ -37,9 +41,11 @@ export function TrackStrip({
   onSelect,
   onOpenFx,
 }: TrackStripProps) {
-  const isActive = !track.muted && (selected || track.armed || transportState !== "stopped");
+  const isActive = !track.muted && (selected || track.armed || transportState !== "stopped" || meterLevel !== undefined);
   const isRecording = transportState === "recording" && track.armed;
   const badges = trackFxBadges(fx);
+  const effectiveMeter = meterLevel !== undefined ? meterLevel : track.level * 0.9;
+  const chCount = Math.max(channelCount, 1);
 
   return (
     <div
@@ -53,21 +59,43 @@ export function TrackStrip({
       <div className="track__header">
         <span className="track__number">{String(index + 1).padStart(2, "0")}</span>
         <span className="track__name">{track.name}</span>
-        <label className="track__input" onClick={(e) => e.stopPropagation()}>
-          IN
+        <div className="track__input" onClick={(e) => e.stopPropagation()}>
+          <span className="track__input-label">IN</span>
+          <div className="track__input-pills" role="group" aria-label={`Input channel buttons track ${index + 1}`}>
+            {Array.from({ length: Math.min(chCount, 4) }, (_, i) => {
+              const chTitle = channelNames?.[i] ? `IN ${i + 1}: ${channelNames[i]}` : `Input ${i + 1}`;
+              const active = track.inputChannel === i;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  className={`track__in-pill ${active ? "track__in-pill--active" : ""}`}
+                  onClick={() => onChannelChange(track.id, i)}
+                  aria-pressed={active}
+                  title={chTitle}
+                >
+                  {i + 1}
+                </button>
+              );
+            })}
+          </div>
           <select
-            className="track__input-select"
+            className={`track__input-select ${chCount <= 4 ? "track__input-select--compact" : ""}`}
             value={track.inputChannel}
             onChange={(e) => onChannelChange(track.id, Number(e.target.value))}
             aria-label={`Input channel track ${index + 1}`}
+            title={channelNames?.[track.inputChannel] ?? `Input ${track.inputChannel + 1}`}
           >
-            {Array.from({ length: Math.max(channelCount, 1) }, (_, i) => (
-              <option key={i} value={i}>
-                {i + 1}
-              </option>
-            ))}
+            {Array.from({ length: chCount }, (_, i) => {
+              const name = channelNames?.[i];
+              return (
+                <option key={i} value={i}>
+                  {name && name !== `IN ${i + 1}` ? `${i + 1} · ${name}` : `${i + 1}`}
+                </option>
+              );
+            })}
           </select>
-        </label>
+        </div>
       </div>
 
       <button
@@ -148,7 +176,7 @@ export function TrackStrip({
 
         <div className="track__meter">
           <LevelMeter
-            level={track.level * 0.9}
+            level={effectiveMeter}
             active={isActive}
             vertical
           />
@@ -210,8 +238,41 @@ export function TrackStrip({
           margin-left: auto;
           display: flex;
           align-items: center;
-          gap: var(--space-1);
+          gap: 3px;
           letter-spacing: var(--tracking-label);
+        }
+        .track__input-label {
+          font-size: 0.625rem;
+          font-weight: 600;
+          color: var(--ink-muted);
+        }
+        .track__input-pills {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+        }
+        .track__in-pill {
+          font-family: var(--font-mono);
+          font-size: 0.625rem;
+          font-weight: 700;
+          min-width: 18px;
+          height: 18px;
+          padding: 0 4px;
+          border-radius: var(--radius-sm);
+          border: 1px solid var(--border);
+          background: var(--bg);
+          color: var(--ink-muted);
+          line-height: 1;
+          transition: all var(--duration-fast) var(--ease-out);
+        }
+        .track__in-pill:hover {
+          color: var(--ink);
+          border-color: var(--amber-dim);
+        }
+        .track__in-pill--active {
+          color: var(--ink);
+          background: var(--amber);
+          border-color: var(--amber);
         }
         .track__input-select {
           font-family: var(--font-mono);
@@ -224,12 +285,22 @@ export function TrackStrip({
           appearance: none;
           -webkit-appearance: none;
           cursor: pointer;
+          max-width: 72px;
+          text-overflow: ellipsis;
           background-image:
             linear-gradient(45deg, transparent 50%, var(--amber-dim) 50%),
             linear-gradient(135deg, var(--amber-dim) 50%, transparent 50%);
           background-position: calc(100% - 9px) calc(50% + 1px), calc(100% - 5px) calc(50% + 1px);
           background-size: 4px 4px;
           background-repeat: no-repeat;
+        }
+        .track__input-select--compact {
+          width: 14px;
+          padding: 0;
+          color: transparent;
+          border-color: transparent;
+          background-color: transparent;
+          background-position: calc(50% - 2px) calc(50% + 1px), calc(50% + 2px) calc(50% + 1px);
         }
         .track__input-select:hover { border-color: var(--amber-dim); }
         .track__input-select:focus-visible { outline: 1px solid var(--amber); outline-offset: 1px; }

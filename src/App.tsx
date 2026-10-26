@@ -68,9 +68,21 @@ export default function App() {
   const [renderInfo, setRenderInfo] = useState<MixRenderResult | null>(null);
   const [playhead, setPlayhead] = useState(0);
 
+  const currentDevice = useMemo(
+    () => devices.find((d) => d.name === selectedDevice),
+    [devices, selectedDevice],
+  );
+
   const channelCount = tauriMode
-    ? devices.find((d) => d.name === selectedDevice)?.input_channels ?? 2
+    ? currentDevice?.input_channels ?? 2
     : 2;
+
+  const channelNames = useMemo(() => {
+    if (tauriMode && currentDevice?.channel_names?.length) {
+      return currentDevice.channel_names;
+    }
+    return Array.from({ length: channelCount }, (_, i) => `IN ${i + 1}`);
+  }, [tauriMode, currentDevice, channelCount]);
 
   const mixSettings: MixSettings = useMemo(() => {
     const anySolo = tracks.some((t) => t.solo);
@@ -129,16 +141,23 @@ export default function App() {
     setTauriMode(isTauri());
   }, []);
 
-  useEffect(() => {
+  const refreshDevices = useCallback(() => {
     if (!tauriMode) return;
     tauriInvoke<AudioDeviceInfo[]>("list_audio_devices")
       .then((d) => {
         setDevices(d);
-        const def = d.find((dd) => dd.is_default);
-        if (def && !selectedDevice) setSelectedDevice(def.name);
+        setSelectedDevice((prev) => {
+          if (prev && d.some((dd) => dd.name === prev)) return prev;
+          const def = d.find((dd) => dd.is_default) ?? d[0];
+          return def ? def.name : "";
+        });
       })
       .catch(() => {});
   }, [tauriMode]);
+
+  useEffect(() => {
+    refreshDevices();
+  }, [refreshDevices]);
 
   useEffect(() => {
     if (!tauriMode) return;
@@ -198,13 +217,18 @@ export default function App() {
     setRecordingTime(0);
   }, [transport]);
 
-  // Clamp per-track input channel when the selected device has fewer channels
+  // Clamp per-track input channel when the selected device has fewer channels, and sync with Rust
   useEffect(() => {
     if (!tauriMode || !selectedDevice) return;
     setTracks((ts) =>
-      ts.map((t) =>
-        t.inputChannel >= channelCount ? { ...t, inputChannel: channelCount - 1 } : t,
-      ),
+      ts.map((t) => {
+        const clamped = t.inputChannel >= channelCount ? Math.max(0, channelCount - 1) : t.inputChannel;
+        if (clamped !== t.inputChannel) {
+          tauriInvoke("arm_track", { id: t.id, armed: t.armed, channel: clamped }).catch(() => {});
+          return { ...t, inputChannel: clamped };
+        }
+        return t;
+      }),
     );
   }, [channelCount, tauriMode, selectedDevice]);
 
@@ -213,24 +237,117 @@ export default function App() {
     setTimeout(() => setStatusMsg(""), 3000);
   }, []);
 
+  const ensureCapture = useCallback(
+    async (deviceOverride?: string): Promise<boolean> => {
+      const targetDevice = deviceOverride ?? selectedDevice;
+      if (!tauriMode) {
+        if (!captureActive) setCaptureActive(true);
+        return true;
+      }
+      if (captureActive && !deviceOverride) return true;
+      const dev = targetDevice || devices.find((d) => d.is_default)?.name || devices[0]?.name || "";
+      if (!dev) {
+        showMsg("No audio input device available");
+        return false;
+      }
+      if (dev !== selectedDevice) setSelectedDevice(dev);
+      try {
+        await tauriInvoke("start_capture", { deviceName: dev });
+        setCaptureActive(true);
+        return true;
+      } catch (e) {
+        showMsg(`Capture failed: ${String(e)}`);
+        return false;
+      }
+    },
+    [tauriMode, captureActive, selectedDevice, devices, showMsg],
+  );
+
+  function handleSelectDevice(nextDevice: string) {
+    setSelectedDevice(nextDevice);
+    if (!nextDevice) return;
+    if (captureActive && tauriMode) {
+      tauriInvoke("start_capture", { deviceName: nextDevice })
+        .then(() => {
+          setCaptureActive(true);
+          showMsg(`Input switched: ${nextDevice}`);
+        })
+        .catch((e: string) => showMsg(`Input switch failed: ${e}`));
+    }
+  }
+
   function toggleCapture() {
     if (captureActive) {
       if (tauriMode) tauriInvoke("stop_capture").catch(() => {});
       setCaptureActive(false);
       setLevels(null);
-      showMsg("Capture stopped");
+      showMsg("Monitor stopped");
     } else {
       if (tauriMode && !selectedDevice) { showMsg("No device selected"); return; }
-      if (tauriMode) {
-        tauriInvoke("start_capture", { deviceName: selectedDevice })
-          .then(() => setCaptureActive(true))
-          .catch((e: string) => showMsg(`Capture failed: ${e}`));
-      } else {
-        setCaptureActive(true);
-        showMsg("Demo mode — simulated levels");
-      }
+      ensureCapture().then((ok) => {
+        if (ok) showMsg(tauriMode ? `Monitoring ${selectedDevice}` : "Demo mode — simulated levels");
+      });
     }
   }
+
+  const toggleRecording = useCallback(async () => {
+    if (transport === "recording") {
+      setTransport("stopped");
+      if (tauriMode) {
+        await tauriInvoke("stop_recording").catch(() => {});
+      }
+      showMsg("Recording stopped · saved to disk");
+      return;
+    }
+
+    // Auto-arm selected track if no tracks are armed
+    let currentTracks = tracks;
+    if (!currentTracks.some((t) => t.armed)) {
+      const targetId = selectedTrack;
+      currentTracks = currentTracks.map((t) =>
+        t.id === targetId ? { ...t, armed: true } : t,
+      );
+      setTracks(currentTracks);
+      if (tauriMode) {
+        const tr = currentTracks.find((t) => t.id === targetId);
+        await tauriInvoke("arm_track", {
+          id: targetId,
+          armed: true,
+          channel: tr?.inputChannel ?? 0,
+        }).catch(() => {});
+      }
+    } else if (tauriMode) {
+      // Ensure backend has latest arm states & channels synced
+      for (const tr of currentTracks) {
+        await tauriInvoke("arm_track", {
+          id: tr.id,
+          armed: tr.armed,
+          channel: tr.inputChannel,
+        }).catch(() => {});
+      }
+    }
+
+    // Auto-start capture if not already running
+    const capOk = await ensureCapture();
+    if (!capOk) return;
+
+    setTransport("recording");
+    if (tauriMode) {
+      try {
+        await tauriInvoke("start_recording");
+        const armedList = currentTracks
+          .filter((t) => t.armed)
+          .map((t) => `T${t.id + 1}(IN${t.inputChannel + 1})`)
+          .join(", ");
+        showMsg(`Recording ${armedList}`);
+      } catch (e) {
+        showMsg(`Record failed: ${String(e)}`);
+        setTransport("stopped");
+      }
+    } else {
+      showMsg("Recording");
+    }
+  }, [transport, tauriMode, tracks, selectedTrack, ensureCapture, showMsg]);
 
   useVimKeyboard(
     useCallback(
@@ -239,6 +356,10 @@ export default function App() {
         if (key === ":") { setCmdOpen(true); return; }
         if (key === "Escape") {
           if (fxOpen) { setFxOpen(false); return; }
+          if (ioOpen) { setIoOpen(false); return; }
+          if (transport === "recording" && tauriMode) {
+            tauriInvoke("stop_recording").catch(() => {});
+          }
           setMode("normal");
           setTransport("stopped");
           return;
@@ -249,6 +370,10 @@ export default function App() {
         }
         if (key === "i" && !mods.shift) {
           setIoOpen((open) => !open);
+          return;
+        }
+        if (key === "c" && !mods.shift) {
+          toggleCapture();
           return;
         }
         if (key === "[" || key === "]") {
@@ -267,16 +392,7 @@ export default function App() {
           return;
         }
         if (key === "r" && !mods.shift) {
-          const next = transport === "recording" ? "stopped" : "recording";
-          setTransport(next);
-          if (tauriMode) {
-            if (next === "recording") {
-              tauriInvoke("start_recording").catch((e: string) => { showMsg(`Record: ${e}`); setTransport("stopped"); });
-            } else {
-              tauriInvoke("stop_recording").catch(() => {});
-            }
-          }
-          showMsg(next === "recording" ? "Recording" : "Stopped");
+          toggleRecording();
           return;
         }
         if (key === "j" && !mods.shift) {
@@ -305,14 +421,13 @@ export default function App() {
         }
         const num = Number(key);
         if (num >= 1 && num <= 4) {
-          setTracks((ts) =>
-            ts.map((t) => (t.id === num - 1 ? { ...t, armed: !t.armed } : t)),
-          );
+          handleArm(num - 1);
           showMsg(`Track ${num} ${tracks[num - 1]?.armed ? "disarmed" : "armed"}`);
           return;
         }
       },
-      [cmdOpen, selectedTrack, tracks, transport, showMsg, fxOpen],    ),
+      [cmdOpen, selectedTrack, tracks, transport, showMsg, fxOpen, ioOpen, tauriMode, toggleRecording],
+    ),
   );
 
   function handleArm(id: number) {
@@ -425,41 +540,40 @@ export default function App() {
           position={position}
           recordingTime={transport === "recording" ? recordingTime : undefined}
           onPlay={() => { setTransport((s) => (s === "playing" ? "stopped" : "playing")); showMsg(transport === "playing" ? "Stopped" : "Playing"); }}
-          onStop={() => { setTransport("stopped"); showMsg("Stopped"); }}
-          onRecord={() => {
-            const next = transport === "recording" ? "stopped" : "recording";
-            setTransport(next);
-            if (tauriMode) {
-              if (next === "recording") {
-                tauriInvoke("start_recording").catch((e: string) => { showMsg(`Record: ${e}`); setTransport("stopped"); });
-              } else {
-                tauriInvoke("stop_recording").catch(() => {});
-              }
+          onStop={() => {
+            if (transport === "recording" && tauriMode) {
+              tauriInvoke("stop_recording").catch(() => {});
             }
-            showMsg(next === "recording" ? "Recording" : "Stopped");
+            setTransport("stopped");
+            showMsg("Stopped");
           }}
+          onRecord={toggleRecording}
           onBpmChange={setBpm}
           ioOpen={ioOpen}
           onToggleIo={() => setIoOpen((open) => !open)}
+          activeDeviceName={selectedDevice || (tauriMode ? "No Input" : "Demo Input")}
+          captureActive={captureActive}
+          onToggleCapture={toggleCapture}
         />
         <div className="app__workspace">
           <div className="app__tracks">
             {tracks.map((track, i) => {
               const showLive = captureActive && levels;
-              let meterLevel = track.level;
+              let liveMeter: number | undefined;
               if (showLive) {
                 const raw = levels!.input_peaks[track.inputChannel] ?? -96;
-                meterLevel = Math.max(dbToLinear(raw), 0);
+                liveMeter = Math.max(dbToLinear(raw), 0);
               }
-              const liveTrack = { ...track, level: meterLevel };
               return (
                 <TrackStrip
                   key={track.id}
-                  track={liveTrack}
+                  track={track}
                   index={i}
                   selected={selectedTrack === i}
                   transportState={transport}
                   channelCount={channelCount}
+                  channelNames={channelNames}
+                  meterLevel={liveMeter}
                   fx={fx.tracks[i]}
                   onArm={handleArm}
                   onSolo={handleSolo}
@@ -515,45 +629,135 @@ export default function App() {
               </div>
             ) : null}
             <div className="sidebar__section">
-              <span className="sidebar__title">AUDIO INPUT</span>
+              <div className="sidebar__head-row">
+                <span className="sidebar__title">AUDIO INPUT</span>
+                {tauriMode ? (
+                  <button
+                    type="button"
+                    className="sidebar__refresh"
+                    onClick={refreshDevices}
+                    title="Refresh audio devices"
+                    aria-label="Refresh audio devices"
+                  >
+                    ↻
+                  </button>
+                ) : null}
+              </div>
               <div className="sidebar__item">
                 <select
                   className="sidebar__select"
                   value={selectedDevice}
-                  onChange={(e) => setSelectedDevice(e.target.value)}
-                  disabled={captureActive || !tauriMode}
+                  onChange={(e) => handleSelectDevice(e.target.value)}
+                  disabled={!tauriMode}
                   aria-label="Select audio input device"
                 >
-                  <option value="">{tauriMode ? "Select..." : "Browser mode"}</option>
+                  <option value="">{tauriMode ? "Select..." : "Browser mode (2ch)"}</option>
                   {devices.map((d) => (
                     <option key={d.id} value={d.name}>
-                      {d.name}{d.is_default ? " *" : ""} ({d.input_channels}ch)
+                      {d.name}{d.is_default ? " ★" : ""} ({d.input_channels}ch)
                     </option>
                   ))}
                 </select>
               </div>
+              {currentDevice?.backend ? (
+                <div className="sidebar__meta">
+                  <span>{currentDevice.backend}</span>
+                  <span>{channelCount} IN</span>
+                </div>
+              ) : null}
               <button
                 className={`sidebar__btn ${captureActive ? "sidebar__btn--active" : ""}`}
                 onClick={toggleCapture}
                 disabled={tauriMode && !captureActive && !selectedDevice}
                 aria-label={captureActive ? "Stop capture" : "Start capture"}
               >
-                {captureActive ? "■ STOP" : "● CAPTURE"}
+                {captureActive ? "■ STOP MONITOR" : "● CAPTURE / MONITOR"}
               </button>
-              {captureActive && levels && (
-                <div className="sidebar__section">
-                  <span className="sidebar__title">LIVE LEVELS</span>
-                  {levels.input_peaks.map((peak, i) => (
-                    <div className="sidebar__item" key={i}>
-                      <span className="sidebar__label">IN {i + 1}</span>
-                      <span className={`sidebar__value sidebar__value--mono ${peak > -3 ? "sidebar__value--warn" : ""}`}>
-                        {peak.toFixed(1)} dB
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
+
+            <div className="sidebar__section">
+              <span className="sidebar__title">INPUT ROUTING MATRIX</span>
+              <div className="io-matrix" role="group" aria-label="Track input routing matrix">
+                <div className="io-matrix__head">
+                  <span className="io-matrix__col-trk">TRK</span>
+                  <div className="io-matrix__cols">
+                    {Array.from({ length: Math.max(channelCount, 1) }, (_, chIdx) => (
+                      <span
+                        key={chIdx}
+                        className="io-matrix__col-in"
+                        title={channelNames[chIdx] ?? `IN ${chIdx + 1}`}
+                      >
+                        IN {chIdx + 1}
+                      </span>
+                    ))}
+                  </div>
+                  <span className="io-matrix__col-arm">ARM</span>
+                </div>
+                {tracks.map((tr) => (
+                  <div key={tr.id} className={`io-matrix__row ${tr.armed ? "io-matrix__row--armed" : ""}`}>
+                    <span className="io-matrix__trk">T{tr.id + 1}</span>
+                    <div className="io-matrix__cells">
+                      {Array.from({ length: Math.max(channelCount, 1) }, (_, chIdx) => {
+                        const routed = tr.inputChannel === chIdx;
+                        return (
+                          <button
+                            key={chIdx}
+                            type="button"
+                            className={`io-matrix__cell ${routed ? "io-matrix__cell--active" : ""}`}
+                            onClick={() => handleChannel(tr.id, chIdx)}
+                            aria-pressed={routed}
+                            aria-label={`Route Track ${tr.id + 1} to Input ${chIdx + 1}`}
+                            title={`Route Track ${tr.id + 1} ← ${channelNames[chIdx] ?? `IN ${chIdx + 1}`}`}
+                          >
+                            {routed ? "●" : "·"}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      className={`io-matrix__arm ${tr.armed ? "io-matrix__arm--on" : ""}`}
+                      onClick={() => handleArm(tr.id)}
+                      aria-pressed={tr.armed}
+                      aria-label={`Matrix arm track ${tr.id + 1}`}
+                      title={`Arm Track ${tr.id + 1}`}
+                    >
+                      {tr.armed ? "REC" : "ARM"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {captureActive && levels && (
+              <div className="sidebar__section">
+                <span className="sidebar__title">LIVE LEVELS</span>
+                <div className="io-levels">
+                  {levels.input_peaks.map((peak, i) => {
+                    const pct = Math.max(0, Math.min(100, ((peak + 60) / 60) * 100));
+                    const label = channelNames[i] && channelNames[i] !== `IN ${i + 1}`
+                      ? `IN ${i + 1} · ${channelNames[i]}`
+                      : `IN ${i + 1}`;
+                    return (
+                      <div className="io-levels__row" key={i}>
+                        <div className="io-levels__top">
+                          <span className="sidebar__label" title={label}>{label}</span>
+                          <span className={`sidebar__value sidebar__value--mono ${peak > -3 ? "sidebar__value--warn" : ""}`}>
+                            {peak <= -90 ? "−∞" : `${peak.toFixed(1)}`} dB
+                          </span>
+                        </div>
+                        <div className="io-levels__bar">
+                          <div
+                            className={`io-levels__fill ${peak > -3 ? "io-levels__fill--clip" : ""}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {(captureActive || transport === "recording") && (
               <div className="sidebar__section">
@@ -722,7 +926,7 @@ export default function App() {
         .app__sidebar:hover,
         .app__sidebar:focus-within,
         .app__sidebar.sidebar--open {
-          width: 220px;
+          width: 268px;
           padding: var(--space-3);
           overflow-y: auto;
         }
@@ -743,6 +947,176 @@ export default function App() {
         .app__sidebar:hover::after,
         .app__sidebar:focus-within::after {
           opacity: 0;
+        }
+        .sidebar__head-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: var(--space-2);
+        }
+        .sidebar__head-row .sidebar__title {
+          margin-bottom: 0;
+        }
+        .sidebar__refresh {
+          font-family: var(--font-mono);
+          font-size: var(--text-label);
+          color: var(--ink-muted);
+          padding: 1px 5px;
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          line-height: 1.2;
+        }
+        .sidebar__refresh:hover {
+          color: var(--amber);
+          border-color: var(--amber-dim);
+          background: var(--surface-raised);
+        }
+        .sidebar__meta {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          font-size: 0.625rem;
+          color: var(--ink-muted);
+          letter-spacing: 0.04em;
+          padding: 2px 0 var(--space-1);
+        }
+        .io-matrix {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          background: var(--bg);
+          border: 1px solid var(--border-subtle);
+          border-radius: var(--radius-sm);
+          padding: var(--space-2);
+        }
+        .io-matrix__head {
+          display: flex;
+          align-items: center;
+          gap: var(--space-1);
+          font-size: 0.5625rem;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          color: var(--ink-muted);
+          padding-bottom: 3px;
+          border-bottom: 1px solid var(--border-subtle);
+        }
+        .io-matrix__col-trk {
+          width: 24px;
+        }
+        .io-matrix__cols {
+          display: flex;
+          flex: 1;
+          gap: 3px;
+        }
+        .io-matrix__col-in {
+          flex: 1;
+          text-align: center;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .io-matrix__col-arm {
+          width: 34px;
+          text-align: right;
+        }
+        .io-matrix__row {
+          display: flex;
+          align-items: center;
+          gap: var(--space-1);
+          padding: 2px 0;
+        }
+        .io-matrix__trk {
+          width: 24px;
+          font-size: var(--text-caption);
+          font-weight: 600;
+          color: var(--ink-dim);
+        }
+        .io-matrix__row--armed .io-matrix__trk {
+          color: var(--red);
+        }
+        .io-matrix__cells {
+          display: flex;
+          flex: 1;
+          gap: 3px;
+        }
+        .io-matrix__cell {
+          flex: 1;
+          height: 20px;
+          font-family: var(--font-mono);
+          font-size: var(--text-caption);
+          font-weight: 700;
+          color: var(--ink-muted);
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          transition: all var(--duration-fast) var(--ease-out);
+        }
+        .io-matrix__cell:hover {
+          color: var(--ink);
+          border-color: var(--amber-dim);
+        }
+        .io-matrix__cell--active {
+          color: var(--ink);
+          background: var(--amber);
+          border-color: var(--amber);
+        }
+        .io-matrix__arm {
+          width: 34px;
+          height: 20px;
+          font-family: var(--font-mono);
+          font-size: 0.5625rem;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          color: var(--red);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          background: transparent;
+          transition: all var(--duration-fast) var(--ease-out);
+        }
+        .io-matrix__arm:hover {
+          border-color: var(--red);
+          background: var(--red-bg);
+        }
+        .io-matrix__arm--on {
+          color: var(--ink);
+          background: var(--red);
+          border-color: var(--red);
+        }
+        .io-levels {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .io-levels__row {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .io-levels__top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: var(--space-1);
+        }
+        .io-levels__top .sidebar__label {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .io-levels__bar {
+          height: 4px;
+          background: var(--bg);
+          border-radius: 1px;
+          overflow: hidden;
+          border: 1px solid var(--border-subtle);
+        }
+        .io-levels__fill {
+          height: 100%;
+          background: var(--amber);
+          transition: width 60ms linear;
+        }
+        .io-levels__fill--clip {
+          background: var(--red);
         }
         .sidebar__title {
           font-size: var(--text-label);

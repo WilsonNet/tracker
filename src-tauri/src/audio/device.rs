@@ -6,7 +6,9 @@ pub struct AudioDevice {
     pub id: String,
     pub name: String,
     pub input_channels: u16,
+    pub channel_names: Vec<String>,
     pub is_default: bool,
+    pub backend: String,
     #[serde(skip)]
     pub pcm_id: String,
     #[serde(skip)]
@@ -14,6 +16,7 @@ pub struct AudioDevice {
 }
 
 /// "acp6x, " -> "acp6x", "Scarlett 4i4 USB, USB Audio" stays as-is.
+#[cfg(not(target_os = "linux"))]
 fn clean_name(raw: &str) -> String {
     raw.trim().trim_end_matches(',').trim().to_string()
 }
@@ -115,11 +118,22 @@ fn enumerate_pipewire_sources() -> Vec<AudioDevice> {
         } else {
             s.description.clone()
         };
+        let channel_names: Vec<String> = (0..s.channels)
+            .map(|i| {
+                if s.channels == 1 && !s.profile.is_empty() {
+                    s.profile.clone()
+                } else {
+                    format!("IN {}", i + 1)
+                }
+            })
+            .collect();
         devices.push(AudioDevice {
             id: s.name.clone(),
             name,
             input_channels: s.channels,
+            channel_names,
             is_default: s.is_default,
+            backend: "PipeWire ALSA".into(),
             pcm_id: "pipewire".into(),
             node: Some(s.name.clone()),
         });
@@ -130,6 +144,7 @@ fn enumerate_pipewire_sources() -> Vec<AudioDevice> {
 /// Hardware fallback (pure ALSA systems): capture-capable cards only.
 /// On Linux only `plughw:CARD=n,DEV=n` PCMs are kept, never ALSA plugin
 /// pseudo-devices (pulse, pipewire, dmix, surround converters, ...).
+#[cfg(not(target_os = "linux"))]
 fn enumerate_hardware_devices() -> Result<Vec<AudioDevice>, String> {
     let host = cpal::default_host();
     let default_name = host
@@ -204,12 +219,15 @@ fn enumerate_hardware_devices() -> Result<Vec<AudioDevice>, String> {
             pcm_id.clone()
         };
 
+        let channel_names: Vec<String> = (0..channels).map(|i| format!("IN {}", i + 1)).collect();
         seen_names.push(name.clone());
         devices.push(AudioDevice {
             id,
             name,
             input_channels: channels,
+            channel_names,
             is_default,
+            backend: "ALSA Hardware".into(),
             pcm_id,
             node: None,
         });
@@ -228,9 +246,9 @@ fn enumerate_hardware_devices() -> Result<Vec<AudioDevice>, String> {
     Ok(devices)
 }
 
-/// Enumerate capture devices. On Linux with PipeWire running, the list is the
-/// JACK graph (every input as readable ports); otherwise the PipeWire ALSA
-/// sources, and finally the raw hardware cards.
+/// Enumerate capture devices. On Linux, NEVER touch raw ALSA hardware (`plughw:`/`hw:`),
+/// because opening an ALSA card directly steals exclusive access and mutes all other
+/// apps (YouTube, browser, etc.). Always use PipeWire JACK or cooperative PipeWire sources.
 pub fn enumerate_input_devices() -> Result<Vec<AudioDevice>, String> {
     #[cfg(target_os = "linux")]
     {
@@ -242,11 +260,44 @@ pub fn enumerate_input_devices() -> Result<Vec<AudioDevice>, String> {
         if !sources.is_empty() {
             return Ok(sources);
         }
+        return Err("No PipeWire/JACK input sources found. Refusing to open raw ALSA hardware to avoid muting desktop audio.".into());
     }
+    #[cfg(not(target_os = "linux"))]
     enumerate_hardware_devices()
 }
 
+/// Find a cooperative output device (`pipewire`, `pulse`, or `default` PCM) and NEVER
+/// fall back to raw ALSA `hw:` / `plughw:` cards that lock out desktop audio.
+pub fn find_cooperative_output_device() -> Option<cpal::Device> {
+    let host = cpal::default_host();
+    if let Ok(devices) = host.output_devices() {
+        for pref in ["pipewire", "pulse", "default"] {
+            if let Ok(devs) = host.output_devices() {
+                for d in devs {
+                    if let Ok(desc) = d.description() {
+                        let drv = desc.driver().unwrap_or("");
+                        let name = desc.name();
+                        if drv == pref || name == pref {
+                            return Some(d);
+                        }
+                    }
+                }
+            }
+        }
+        for d in devices {
+            if let Ok(desc) = d.description() {
+                let drv = desc.driver().unwrap_or("");
+                if !drv.starts_with("hw:") && !drv.starts_with("plughw:") {
+                    return Some(d);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Open the cpal device behind an enumerated `AudioDevice`.
+/// Never opens `hw:` or `plughw:` on Linux.
 pub fn find_cpal_device(dev: &AudioDevice) -> Result<cpal::Device, String> {
     let host = cpal::default_host();
     let devices = host
@@ -254,7 +305,12 @@ pub fn find_cpal_device(dev: &AudioDevice) -> Result<cpal::Device, String> {
         .map_err(|e| format!("Failed to enumerate devices: {e}"))?;
     for device in devices {
         if let Ok(desc) = device.description() {
-            if !dev.pcm_id.is_empty() && desc.driver() == Some(dev.pcm_id.as_str()) {
+            let drv = desc.driver().unwrap_or("");
+            #[cfg(target_os = "linux")]
+            if drv.starts_with("hw:") || drv.starts_with("plughw:") {
+                continue;
+            }
+            if !dev.pcm_id.is_empty() && Some(dev.pcm_id.as_str()) == desc.driver() {
                 return Ok(device);
             }
             if dev.pcm_id.is_empty() && desc.name() == dev.name {
@@ -263,9 +319,16 @@ pub fn find_cpal_device(dev: &AudioDevice) -> Result<cpal::Device, String> {
         }
     }
     if dev.pcm_id == "pipewire" {
-        if let Some(device) = host.default_input_device() {
-            return Ok(device);
+        if let Ok(devs) = host.input_devices() {
+            for d in devs {
+                if let Ok(desc) = d.description() {
+                    let drv = desc.driver().unwrap_or("");
+                    if drv == "pipewire" || drv == "pulse" || drv == "default" {
+                        return Ok(d);
+                    }
+                }
+            }
         }
     }
-    Err(format!("Device '{}' no longer available", dev.name))
+    Err(format!("Cooperative audio device '{}' not available", dev.name))
 }
