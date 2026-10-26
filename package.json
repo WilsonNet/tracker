@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:app": "tauri build --no-bundle && ./scripts/install-desktop.sh",
+    "install:desktop": "./scripts/install-desktop.sh",
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
