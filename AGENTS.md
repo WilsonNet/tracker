@@ -23,6 +23,14 @@ Every prompt that produces a feature, component, or change must result in a **wo
 
 One-shot means: prompt in, working feature out. The feedback loop closes the gap between "wrote code" and "verified it works."
 
+## Odin Port
+
+The native rewrite lives in `odin/`; the original Tauri/React app stays in place as the behavioral reference. Do not delete or "clean up" the reference implementation while the port is in progress.
+
+- **Read the Odin documentation before writing Odin.** Prefer, in order: the installed compiler sources and examples under `~/.local/opt/odin` (`core/`, `vendor/`, `examples/`), the language overview at <https://odin-lang.org/docs/overview/>, and the package docs at <https://pkg.odin-lang.org/>. Use Context7 (`context7` MCP) when it has Odin coverage. Check exact signatures in the installed core/vendor sources before calling an API — do not guess.
+- `odin/ROADMAP.md` is the port status board: update the done/missing lists in the same change that moves a subsystem.
+- `odin/README.md` documents the build, test, and CLI feedback loop.
+
 ## Build Tracking
 
 `docs/tasks/audio-engine.md` tracks the audio engine implementation as a phased build plan with real-time status. Read it before starting any Rust audio work to understand what's done and what's next.
