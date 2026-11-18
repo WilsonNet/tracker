@@ -52,6 +52,10 @@ development package is needed; the build still invokes the system
 ## Quick start
 
 ```sh
+# 0. System libraries (Arch: cairo pango sdl2 jack; Debian/Ubuntu:
+#    libcairo2-dev libpango1.0-dev libsdl2-dev libjack-jackd2-dev)
+#    Cairo/Pango draw the shell; SDL2 owns the window; JACK is optional.
+
 # 1. Toolchain (once)
 curl -sL -o /tmp/odin.tar.gz \
   https://github.com/odin-lang/Odin/releases/download/dev-2026-11a/odin-linux-amd64-dev-2026-11a.tar.gz
@@ -304,12 +308,12 @@ odin/
     wav.odin           float32 WAV + PCM import
     dsp/               biquad, EQ, comp, limiter, reverb, delay, widener,
                        resample, render
-    ui/                canvas, font (baked + runtime), theme, widgets, app,
-                       input, draw, PNG, tests
+    ui/                cairo canvas, Pango text, theme, widgets, app, input,
+                       draw, charts, PNG, tests
   scripts/             check.sh, install-desktop.sh, gen_font.py
   tests/ui/            full-tour.json
-  assets/              tracker.png / tracker.svg / FONT-LICENSE.txt /
-                       NotoSansMono-Regular.ttf (runtime glyphs)
+  assets/              tracker.png / tracker.svg / Inter-*.ttf /
+                       Inter-OFL.txt / NotoSansMono-Regular.ttf
 ```
 
 Correspondence with the Rust reference:
@@ -322,37 +326,33 @@ Correspondence with the Rust reference:
 | `audio/device.rs`, `engine.rs` capture | `capture.odin` + `engine.odin` |
 | `audio/jack.rs` | `jack_capture.odin` |
 | `hound` WAV writer | `wav.odin` |
-| React UI | `src/ui/` (software canvas) |
+| React UI | `src/ui/` (Cairo vector canvas + Pango text) |
 | Playwright | `ui_harness.odin` |
 
 ## Rendering notes (crispness)
 
-The UI is a deterministic software canvas, not a webview. Layout is always in
-logical pixels; the canvas allocates its pixel buffer at the display density and
-every primitive (fill, rect, line, circle, arc, text, clip) converts through
-`Canvas.scale`. The design now applies the full "web-crisp" playbook:
+The UI is a native vector canvas, not a webview and not a bitmap game canvas.
+Layout stays in logical pixels; the canvas owns an ARGB32 image surface backed
+by the SDL texture buffer, and Cairo rasterises every path at the display
+density.
 
-- SDL opens the window with `WINDOW_ALLOW_HIGHDPI`. The density is
-  `GetWindowSizeInPixels / GetWindowSize` (every frame, so moving between a
-  laptop panel and an external display updates the UI); `--ui-scale 1|1.25|1.5|2|3`
-  forces it for testing. Pointer coordinates are normalised through the same
-  pixel/logical ratio in `ui_window.odin`.
-- Two pre-baked **anti-aliased grayscale atlases** at the exact design sizes
-  (12.5 px body, 25 px heading) are used where the physical size matches them
-  byte-for-byte: 1× body, 1× headings, and 2× body (the 25 px companion). The
-  default 1× screenshot output is pixel-identical to the pre-HiDPI renderer.
-- Every other density (1.25×, 1.5×, 3×, and headings at those densities) is
-  rasterised at its true physical pixel height by a runtime `stb_truetype`
-  atlas from the bundled `assets/NotoSansMono-Regular.ttf` (Apache-2.0). The
-  cache is keyed by pixel size and lives on the canvas. No small bitmap is ever
-  magnified: text is crisp, with real anti-aliased edge coverage.
-- Logical cell metrics (8×15 body, 16×30 heading) and baselines are unchanged
-  at every density, so `text_width`/`text_height`, centering, truncation and
-  hit-testing stay identical across scales.
-- Flat 1 px borders, rules and rectangles are snapped to the physical grid, so
-  a 1 logical px border is 2 physical px at 2× and 3 at 3×. The design
-  intentionally has no rounded cards, shadows, gradients or icon font.
-
+- **Cairo geometry.** Panels, cards, buttons, knobs, faders, meter segments and
+  chart fills are real anti-aliased paths with rounded corners, linear
+  gradients and soft shadows. The same primitives are tested at 1×/2×/3× and
+  under the responsive zoom.
+- **Pango text.** Inter (Regular / Medium / SemiBold) carries the interface;
+  Noto Sans Mono is reserved for timecode and numeric readouts. Pango provides
+  shaping, kerning, hinting and per-face weights at the exact physical size, so
+  labels stay crisp at fractional densities and responsive zoom.
+- **Bundled fonts.** `assets/Inter-*.ttf` (SIL OFL 1.1) and
+  `assets/NotoSansMono-Regular.ttf` (Apache-2.0) ship with the app.
+  `scripts/install-desktop.sh` installs the Inter faces under
+  `$PREFIX/share/fonts/tracker` and refreshes fontconfig. Pango falls back to
+  the system sans face if they are absent.
+- **HiDPI.** SDL opens the window with `WINDOW_ALLOW_HIGHDPI`; the density is
+  `GetWindowSizeInPixels / GetWindowSize` and is recomputed every frame.
+  `--ui-scale 1|1.25|1.5|2|3` forces it for testing. Pointer coordinates are
+  normalised through the same pixel/logical ratio.
 - **Window-responsive zoom.** The panel is authored at 1180x760. Above that,
   `ui_zoom_for_window()` returns a uniform zoom from the geometric mean of the
   width and height ratios, clamped to 1.8x and never below the tested 900x620
@@ -362,23 +362,20 @@ every primitive (fill, rect, line, circle, arc, text, clip) converts through
   effective zoom is 1.52x (1263x710 layout); a 2536x986 window uses 1.59x
   (1595x620 layout). Below 1180x760 the zoom stays 1:1 and the flexible
   layout compresses instead of shrinking the type.
+- **Charts.** Per-track input-level history, EQ response, compressor transfer,
+  reverb decay, delay taps, stereo width and limiter ceiling are drawn as
+  smooth polylines with gradient fills, grids and threshold markers.
+- **Content-sized overlays.** The command palette, recent-project picker and
+  I/O drawer shrink to their contents; the I/O list switches to two columns
+  when crowded, and compact track strips trade the fader for a horizontal
+  meter when the FX rack is open in a short window.
 
-Deliberately **not** used: Clay/Flexbox (the 4-track layout is fixed and covered
-by geometry tests at 900/1180/1920), raylib, MSDF/SDF shaders (they soften
-12 px text and need a GPU path), and runtime FreeType. The runtime text path is
-stb_truetype only, with a single bundled mono face — no font matching, shaping
-or fallback, which this ASCII instrument panel does not need.
+The legacy 12.5 px / 25 px mono atlases and the stb_truetype runtime path remain
+only for the fixed-cell `canvas_text` tests; the application shell uses Pango.
 
-Sources that shaped this path: the SDL high-DPI guidance ([SDL3 README-highdpi]
-— window sizes and mouse positions are in points, `GetWindowSizeInPixels` is the
-drawable pixel buffer), the installed Odin `vendor:sdl2` bindings
-(`WINDOW_ALLOW_HIGHDPI`, `GetWindowSizeInPixels`) and `vendor:stb/truetype`
-(`ScaleForMappingEmToPixels`, `GetCodepointBitmap`), and stb_truetype's header
-notes on em-size versus pixel-height scaling. The baked atlases remain the
-ground truth for 1×/2× metrics; `scripts/gen_font.py` documents Pillow/FreeType's
-anchor/baseline behaviour used to generate them.
-
-[SDL3 README-highdpi]: https://wiki.libsdl.org/SDL3/README-highdpi
+Sources that shaped this path: Cairo's image-surface and path API, Pango's
+Cairo integration (`pango_cairo_show_layout`, 72 dpi resolution), the SDL2
+high-DPI guidance, and the Inter/SIL OFL and Noto font licences.
 
 ## Limitations
 

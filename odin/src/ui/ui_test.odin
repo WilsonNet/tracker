@@ -861,7 +861,7 @@ ui_text_tokens_keep_readable_contrast :: proc(t: ^testing.T) {
 		{"teal on bg", COLORS_DEFAULT.teal, COLORS_DEFAULT.bg, 4.5},
 		{"red on panel", COLORS_DEFAULT.red, COLORS_DEFAULT.surface, 3.0},
 		{"amber_dim border", COLORS_DEFAULT.amber_dim, COLORS_DEFAULT.surface, 3.0},
-		{"white on red", COLORS_DEFAULT.white, COLORS_DEFAULT.red, 4.5},
+		{"on-amber on red", COLORS_DEFAULT.on_amber, COLORS_DEFAULT.red, 4.5},
 	}
 	for c in cases {
 		ratio := contrast_ratio(c.fg, c.bg)
@@ -1402,6 +1402,7 @@ ui_describe_is_a_screen_reader_snapshot :: proc(t: ^testing.T) {
 
 @(private)
 pixel_at :: proc(c: ^Canvas, x, y: int) -> Color {
+	canvas_flush(c)
 	return c.pixels[y * c.width + x]
 }
 

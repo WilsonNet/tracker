@@ -2,7 +2,7 @@ ODIN       ?= odin
 ODIN_BIN   := $(shell command -v $(ODIN))
 ODIN_ROOT  ?= $(dir $(shell readlink -f $(ODIN_BIN)))
 STB_LIB    := $(ODIN_ROOT)vendor/stb/lib/stb_truetype.a
-LINK_FLAGS := -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lSDL2"
+LINK_FLAGS := -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lSDL2 -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0"
 BIN        := bin/tracker-odin
 
 PREFIX     ?= $(HOME)/.local

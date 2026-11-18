@@ -88,5 +88,6 @@ png_write :: proc(path: string, width, height: int, pixels: []u32) -> bool {
 }
 
 canvas_screenshot :: proc(c: ^Canvas, path: string) -> bool {
+	canvas_flush(c)
 	return png_write(path, c.width, c.height, c.pixels)
 }

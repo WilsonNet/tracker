@@ -18,6 +18,7 @@ RECENT_PATH_MAX :: 192
 RECENT_QUERY_MAX :: 40
 DESCRIBE_MAX :: 1024
 HISTORY_LABEL_MAX :: 40
+HISTORY_LEN :: 120
 
 Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent }
 Transport :: enum { Stopped, Playing, Recording }
@@ -286,6 +287,9 @@ App :: struct {
 	take_active:   [MAX_TRACKS]int,
 	frames:        i64,
 	time:          f32,
+	peak_history:  [MAX_TRACKS][HISTORY_LEN]f32,
+	peak_history_pos: int,
+	peak_history_acc: f32,
 
 	project_buf: [64]u8,
 	project_len: int,
@@ -403,6 +407,9 @@ app_init :: proc(a: ^App, width, height: int) {
 		t.peak_db = -60
 		t.rms_db = -60
 		t.gr_db = 0
+		for h in 0 ..< HISTORY_LEN {
+			a.peak_history[i][h] = -60
+		}
 		t.eq.enabled = true
 		t.eq.mid_hz = 1_000
 		t.eq.mid_q = 1.0
@@ -974,15 +981,15 @@ add_toggle :: proc(l: ^Layout, r: Rect, m: Fx_Module, p: int) {
 @(private)
 layout_module :: proc(l: ^Layout, panel: Rect, m: Fx_Module, count: int, start_y: f32) {
 	// Knob centres: up to 3 per row. Compact rack geometry.
-	radius: f32 = 15
+	radius: f32 = 17
 	cols := 3
 	cell_w := panel.w / f32(cols)
 	for i in 0 ..< count {
 		row := i / cols
 		col := i % cols
 		cx := panel.x + cell_w * (f32(col) + 0.5)
-		cy := start_y + f32(row) * 60 + radius + 4
-		add_knob(l, Rect{cx - radius - 6, cy - radius - 5, radius * 2 + 12, radius * 2 + 10}, m, i)
+		cy := start_y + f32(row) * 64 + radius + 4
+		add_knob(l, Rect{cx - radius - 7, cy - radius - 6, radius * 2 + 14, radius * 2 + 12}, m, i)
 	}
 }
 
@@ -1001,35 +1008,32 @@ app_layout :: proc(a: ^App) {
 	l.bottom = Rect{0, h - m.status_h - m.bottom_h, w, m.bottom_h}
 
 	// ── top bar: mode / transport / timecode / tempo / utilities ───────
-	l.rec = Rect{84, 12, 50, 24}
-	l.play = Rect{138, 12, 54, 24}
-	l.stop = Rect{196, 12, 56, 24}
-	// Utilities ride the right edge so the bar never overflows at 900 px.
+	l.rec = Rect{104, 12, 64, 32}
+	l.play = Rect{176, 12, 68, 32}
+	l.stop = Rect{252, 12, 64, 32}
+
 	util_y := f32(13)
-	util_h: f32 = 22
+	util_h: f32 = 30
 	right := w - m.margin
-	l.click = Rect{right - 50, util_y, 50, util_h}
-	l.monitor = Rect{l.click.x - 50, util_y, 46, util_h}
-	l.io = Rect{l.monitor.x - 44, util_y, 40, util_h}
-	l.fx = Rect{l.io.x - 44, util_y, 40, util_h}
-	l.bounce = Rect{l.fx.x - 68, util_y, 64, util_h}
-	// Tempo sits with the other right-hand controls, clear of the transport.
-	l.bpm_plus = Rect{l.bounce.x - 8 - 20, 12, 20, 24}
-	l.bpm_minus = Rect{l.bpm_plus.x - 74, 12, 20, 24}
+	l.click = Rect{right - 60, util_y, 60, util_h}
+	l.monitor = Rect{l.click.x - 54, util_y, 54, util_h}
+	l.io = Rect{l.monitor.x - 44, util_y, 44, util_h}
+	l.fx = Rect{l.io.x - 44, util_y, 44, util_h}
+	l.bounce = Rect{l.fx.x - 76, util_y, 76, util_h}
+	l.bpm_plus = Rect{l.bounce.x - 8 - 24, util_y, 24, util_h}
+	l.bpm_minus = Rect{l.bpm_plus.x - 82, util_y, 24, util_h}
 
 	// ── rack reflows the workspace instead of covering it ───────────────
 	fx_open := a.mode == .Fx
-	fx_h: f32 = min(m.fx_h, h - 160)
-	// Geometry exists in every mode so target lookup, tests, and keyboard
-	// focus keep working when the rack is closed; only the workspace reflow
-	// and the drawing are conditional.
+	fx_h: f32 = min(m.fx_h, h - 190)
 	l.fx_panel = Rect{m.margin, l.bottom.y - fx_h - sp.xs, w - m.margin * 2, fx_h}
-	area_y := m.header_h + sp.md
-	area_bottom := l.bottom.y - sp.md
+	area_y := m.header_h + sp.lg
+	area_bottom := l.bottom.y - sp.lg
 	if fx_open {
-		area_bottom = l.fx_panel.y - sp.md
+		area_bottom = l.fx_panel.y - sp.lg
 	}
-	area_h := max(area_bottom - area_y, 120)
+	area_h := max(area_bottom - area_y, 150)
+	compact_tracks := fx_open && area_h < 260
 
 	// ── channel strips ─────────────────────────────────────────────────
 	track_w := (w - m.margin * 2 - m.gutter * MAX_TRACKS) / f32(MAX_TRACKS)
@@ -1040,82 +1044,96 @@ app_layout :: proc(a: ^App) {
 		inner_x := r.x + m.track_pad
 		inner_w := r.w - m.track_pad * 2
 
-		l.input[i] = Rect{r.x + r.w - m.track_pad - 46, r.y + 8, 46, 21}
-		l.take[i] = Rect{l.input[i].x - 50, r.y + 8, 44, 21}
+		l.input[i] = Rect{r.x + r.w - m.track_pad - 46, r.y + 11, 46, 26}
+		l.take[i] = Rect{l.input[i].x - 48, r.y + 11, 44, 26}
 
-		// Hardware-style control cluster, anchored left like the reference.
-		tog_y := r.y + 62
-		tog_w: f32 = 58
-		for j in 0 ..< 3 {
-			y := tog_y + f32(j) * 26
-			rect := Rect{inner_x, y, tog_w, 20}
-			switch j {
-			case 0: l.arm[i] = rect
-			case 1: l.solo[i] = rect
-			case 2: l.mute[i] = rect
+		if compact_tracks {
+			// Rack-focused layout: keep the track identity, FX summary,
+			// arm/solo/mute and a horizontal level bar; hide the fader stack.
+			bw := (inner_w - 10) / 3
+			l.arm[i] = Rect{inner_x, r.y + 76, bw, 26}
+			l.solo[i] = Rect{inner_x + bw + 5, r.y + 76, bw, 26}
+			l.mute[i] = Rect{inner_x + (bw + 5) * 2, r.y + 76, bw, 26}
+			l.pan[i] = Rect{}
+			l.fader[i] = Rect{}
+			l.meter[i] = Rect{}
+			l.gr[i] = Rect{inner_x, r.y + 112, inner_w, 14}
+		} else {
+			compact_controls := area_h < 250
+			tog_y := r.y + 70 if compact_controls else r.y + 82
+			tog_pitch: f32 = 28 if compact_controls else 32
+			tog_w: f32 = min(68, inner_w * 0.36)
+			for j in 0 ..< 3 {
+				rect := Rect{inner_x, tog_y + f32(j) * tog_pitch, tog_w, 26}
+				switch j {
+				case 0: l.arm[i] = rect
+				case 1: l.solo[i] = rect
+				case 2: l.mute[i] = rect
+				}
 			}
-		}
-		pan_cx := inner_x + 92
-		l.pan[i] = Rect{pan_cx - 24, tog_y + 30, 48, 56}
 
-		fader_h := clamp(area_h * 0.38, 90, 260)
-		l.fader[i] = Rect{inner_x + 128, tog_y, 22, fader_h}
-		l.meter[i] = Rect{inner_x + 156, tog_y - 3, 9, fader_h + 12}
-		l.gr[i] = Rect{inner_x + 128, tog_y + fader_h + 22, min(110, inner_w - 128), 10}
+			fader_x := inner_x + inner_w - 58
+			pan_cx := inner_x + tog_w + (fader_x - (inner_x + tog_w)) * 0.5
+			l.pan[i] = Rect{pan_cx - 26, tog_y + 12, 52, 60}
+
+			fader_h := clamp(area_h - (tog_y - r.y) - 40, 60, 240)
+			l.fader[i] = Rect{fader_x, tog_y, 20, fader_h}
+			l.meter[i] = Rect{fader_x + 30, tog_y - 4, 10, fader_h + 16}
+			l.gr[i] = Rect{fader_x, tog_y + fader_h + 26, min(120, inner_w - (fader_x - inner_x)), 14}
+		}
 	}
 
 	// ── master lives in the bottom bar ─────────────────────────────────
-	l.master = Rect{w - 292, l.bottom.y + 4, 274, 28}
-	l.master_meter = Rect{l.master.x + 96, l.master.y + 22, 96, 3}
+	l.master = Rect{w - 336, l.bottom.y + 5, 320, 34}
+	l.master_meter = Rect{l.master.x + 108, l.master.y + 24, 120, 5}
 
 	// ── FX rack ────────────────────────────────────────────────────────
 	{
-		tab_w: f32 = 34
+		tab_w: f32 = 40
 		for i in 0 ..< 5 {
-			l.fx_tab[i] = Rect{l.fx_panel.x + 56 + f32(i) * (tab_w + 4), l.fx_panel.y + 8, tab_w, 22}
+			l.fx_tab[i] = Rect{l.fx_panel.x + 72 + f32(i) * (tab_w + 4), l.fx_panel.y + 10, tab_w, 28}
 		}
-		l.fx_close = Rect{l.fx_panel.x + l.fx_panel.w - 32, l.fx_panel.y + 8, 22, 22}
+		l.fx_close = Rect{l.fx_panel.x + l.fx_panel.w - 40, l.fx_panel.y + 10, 28, 28}
 
-		inner := Rect{l.fx_panel.x + 10, l.fx_panel.y + 38, l.fx_panel.w - 20, fx_h - 46}
+		inner := Rect{l.fx_panel.x + 12, l.fx_panel.y + 48, l.fx_panel.w - 24, fx_h - 60}
 		if a.fx_channel >= MAX_TRACKS {
 			modules := [5]Fx_Module{.COMP, .REVERB, .DELAY, .WIDTH, .LIMITER}
 			counts := [5]int{5, 5, 4, 2, 3}
-			mod_gap: f32 = 6
+			mod_gap: f32 = 8
 			mod_w := (inner.w - mod_gap * 4) / 5
 			for mod, i in modules {
 				p := Rect{inner.x + f32(i) * (mod_w + mod_gap), inner.y, mod_w, inner.h}
 				l.fx_module[i] = p
 				l.fx_module_id[i] = mod
 				l.fx_module_count += 1
-				layout_module(l, p, mod, counts[i], p.y + 74)
-				add_toggle(l, Rect{p.x + p.w - 46, p.y + 6, 40, 20}, mod, 0)
+				layout_module(l, p, mod, counts[i], p.y + 92)
+				add_toggle(l, Rect{p.x + p.w - 44, p.y + 10, 40, 24}, mod, 0)
 				if mod == .DELAY {
-					add_toggle(l, Rect{p.x + p.w - 88, p.y + 6, 38, 20}, mod, 1)
+					add_toggle(l, Rect{p.x + p.w - 84, p.y + 10, 38, 24}, mod, 1)
 				}
 			}
 		} else {
 			modules := [3]Fx_Module{.EQ, .COMP, .SEND}
 			counts := [3]int{5, 5, 2}
-			mod_gap: f32 = 8
+			mod_gap: f32 = 12
 			mod_w := (inner.w - mod_gap * 2) / 3
 			for mod, i in modules {
 				p := Rect{inner.x + f32(i) * (mod_w + mod_gap), inner.y, mod_w, inner.h}
 				l.fx_module[i] = p
 				l.fx_module_id[i] = mod
 				l.fx_module_count += 1
-				layout_module(l, p, mod, counts[i], p.y + 74)
+				layout_module(l, p, mod, counts[i], p.y + 92)
 				if mod != .SEND {
-					add_toggle(l, Rect{p.x + p.w - 46, p.y + 6, 40, 20}, mod, 0)
+					add_toggle(l, Rect{p.x + p.w - 52, p.y + 10, 44, 24}, mod, 0)
 				}
 			}
 		}
 	}
 
-	// ── palette (windowed list; selection drives the scroll) ───────────
-	pal_h := min(f32(460), h - 160)
-	l.palette = Rect{(w - 560) * 0.5, max(72, (h - pal_h) * 0.5), 560, pal_h}
-	l.palette_input = Rect{l.palette.x + 14, l.palette.y + 38, l.palette.w - 28, 28}
-	palette_visible := max(int((pal_h - 110) / 26), 1)
+	// ── palette (content-sized, windowed; selection drives the scroll) ─
+	pal_w := min(m.palette_w, w - 120)
+	pal_max_h := min(m.palette_h, h - 160)
+	palette_visible := max(int((pal_max_h - 116) / 34), 1)
 	if a.palette_count > 0 {
 		if a.palette_sel < a.palette_scroll {
 			a.palette_scroll = a.palette_sel
@@ -1129,28 +1147,41 @@ app_layout :: proc(a: ^App) {
 	}
 	l.palette_visible = palette_visible
 	l.palette_count = max(min(a.palette_count - a.palette_scroll, palette_visible), 0)
+	pal_rows := max(l.palette_count, 1)
+	pal_h := min(pal_max_h, 96 + f32(pal_rows) * 34 + 44)
+	l.palette = Rect{(w - pal_w) * 0.5, max(76, (h - pal_h) * 0.5), pal_w, pal_h}
+	l.palette_input = Rect{l.palette.x + 16, l.palette.y + 46, l.palette.w - 32, 36}
 	for i in 0 ..< MAX_PALETTE {
-		l.palette_row[i] = Rect{l.palette.x + 10, l.palette.y + 78 + f32(i) * 26, l.palette.w - 20, 24}
+		l.palette_row[i] = Rect{l.palette.x + 12, l.palette.y + 96 + f32(i) * 34, l.palette.w - 24, 32}
 	}
 
-	// ── recent projects ────────────────────────────────────────────────
-	l.recent_panel = Rect{(w - 620) * 0.5, max(96, (h - 380) * 0.5), 620, 380}
-	l.recent_input = Rect{l.recent_panel.x + 14, l.recent_panel.y + 38, l.recent_panel.w - 28, 28}
+	// ── recent projects (content-sized) ────────────────────────────────
 	l.recent_count = a.recent_filtered
+	recent_rows := max(min(l.recent_count, MAX_RECENT), 1)
+	recent_h := min(f32(420), 96 + f32(recent_rows) * 34 + 78)
+	l.recent_panel = Rect{(w - 640) * 0.5, max(100, (h - recent_h) * 0.5), 640, recent_h}
+	l.recent_input = Rect{l.recent_panel.x + 16, l.recent_panel.y + 46, l.recent_panel.w - 32, 36}
 	for i in 0 ..< MAX_RECENT {
-		l.recent_row[i] = Rect{l.recent_panel.x + 10, l.recent_panel.y + 78 + f32(i) * 30, l.recent_panel.w - 20, 28}
+		l.recent_row[i] = Rect{l.recent_panel.x + 12, l.recent_panel.y + 96 + f32(i) * 34, l.recent_panel.w - 24, 32}
 	}
 
-	// ── I/O drawer ─────────────────────────────────────────────────────
-	l.io_panel = Rect{w - 440, 64, 426, h - 100}
-	io_ctl_y := l.io_panel.y + l.io_panel.h - 64
-	l.jack = Rect{l.io_panel.x + 14, io_ctl_y, 64, 22}
-	l.rescan = Rect{l.io_panel.x + 86, io_ctl_y, 74, 22}
-	l.lat_minus = Rect{l.io_panel.x + 176, io_ctl_y, 22, 22}
-	l.lat_plus = Rect{l.io_panel.x + 266, io_ctl_y, 22, 22}
+	// ── I/O drawer (content-sized, two columns when crowded) ───────────
+	io_w := min(m.io_w, w - 80)
 	l.io_count = min(len(a.devices), MAX_DEVICES)
+	io_cols := 1 if l.io_count <= 10 else 2
+	io_rows := max((l.io_count + io_cols - 1) / io_cols, 1)
+	io_h := min(h - 136, 96 + f32(io_rows) * 36 + 78)
+	l.io_panel = Rect{w - io_w - 20, max(76, (h - io_h) * 0.5), io_w, io_h}
+	io_ctl_y := l.io_panel.y + l.io_panel.h - 68
+	l.jack = Rect{l.io_panel.x + 16, io_ctl_y, 68, 30}
+	l.rescan = Rect{l.io_panel.x + 92, io_ctl_y, 82, 30}
+	l.lat_minus = Rect{l.io_panel.x + 194, io_ctl_y, 28, 30}
+	l.lat_plus = Rect{l.io_panel.x + 302, io_ctl_y, 28, 30}
+	col_w := (l.io_panel.w - 28 - f32(io_cols - 1) * 8) / f32(io_cols)
 	for i in 0 ..< MAX_DEVICES {
-		l.io_row[i] = Rect{l.io_panel.x + 12, l.io_panel.y + 78 + f32(i) * 30, l.io_panel.w - 24, 26}
+		col := i / io_rows
+		row := i % io_rows
+		l.io_row[i] = Rect{l.io_panel.x + 14 + f32(col) * (col_w + 8), l.io_panel.y + 96 + f32(row) * 36, col_w, 32}
 	}
 
 	if a.fx_focus >= l.knob_count + l.toggle_count {
@@ -1484,6 +1515,15 @@ app_tick :: proc(a: ^App, dt: f32) {
 		a.master.peak_db = peak
 		a.master.rms_db = peak - 6
 		a.master.gr_db = -abs(math.sin(a.time * 1.7)) * 0.8 if a.master.limiter.enabled && peak > -3 else 0
+	}
+
+	a.peak_history_acc += dt
+	for a.peak_history_acc >= 0.05 {
+		a.peak_history_acc -= 0.05
+		a.peak_history_pos = (a.peak_history_pos + 1) % HISTORY_LEN
+		for i in 0 ..< MAX_TRACKS {
+			a.peak_history[i][a.peak_history_pos] = a.tracks[i].peak_db
+		}
 	}
 
 	// The render job is independent of the overlay: dismissing the panel must

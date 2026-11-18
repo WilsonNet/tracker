@@ -12,8 +12,10 @@ intentional limits are in `ROADMAP.md`.
 | DSP | `odin test src/dsp` | **70 passed** |
 | engine / project / WAV / RF64 / takes / CLI | `odin test src` | **85 passed** |
 | UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **57 passed** |
+| vector renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
+| charts | level history + 5 FX response graphs | 17 screenshots inspected |
 | static checks | `odin check src -no-entry-point -vet` | clean |
-| packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry |
+| packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
 Total: **212 unit tests**.
 
@@ -82,5 +84,6 @@ icons. The window class matches the existing silent `special:tracker` rule.
 ## Sources consulted
 
 The implementation follows the project research rule in `AGENTS.md`; the
-significant sources are recorded in the README (SDL2 high-DPI, stb_truetype,
+significant sources are recorded in the README (Cairo image surfaces + paths,
+Pango Cairo integration, Inter/SIL OFL, SDL2 high-DPI, stb_truetype fallback,
 RF64/EBU, JACK, XDG, Odin core/vendor).

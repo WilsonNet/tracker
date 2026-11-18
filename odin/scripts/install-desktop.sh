@@ -13,6 +13,7 @@ PREFIX="${PREFIX:-$HOME/.local}"
 BIN="$PREFIX/bin"
 APPS="$PREFIX/share/applications"
 ICONS="$PREFIX/share/icons/hicolor"
+FONTS="$PREFIX/share/fonts/tracker"
 
 uninstall=0
 for arg in "$@"; do
@@ -43,6 +44,7 @@ if [ "$uninstall" -eq 1 ]; then
 		"$APPS/tracker-odin.desktop" \
 		"$ICONS/256x256/apps/tracker-odin.png" \
 		"$ICONS/scalable/apps/tracker-odin.svg"
+	rm -rf "$FONTS"
 	refresh_caches
 	echo "removed tracker-odin from $PREFIX"
 	exit 0
@@ -56,8 +58,13 @@ fi
 	exit 1
 }
 
-mkdir -p "$BIN" "$APPS" "$ICONS/256x256/apps" "$ICONS/scalable/apps"
+mkdir -p "$BIN" "$APPS" "$ICONS/256x256/apps" "$ICONS/scalable/apps" "$FONTS"
 install -m 755 bin/tracker-odin "$BIN/tracker-odin"
+install -m 644 assets/Inter-Regular.ttf assets/Inter-Medium.ttf \
+	assets/Inter-SemiBold.ttf assets/Inter-OFL.txt "$FONTS/"
+if command -v fc-cache >/dev/null 2>&1; then
+	fc-cache -f "$FONTS" >/dev/null 2>&1 || true
+fi
 install -m 644 assets/tracker.png "$ICONS/256x256/apps/tracker-odin.png"
 install -m 644 assets/tracker.svg "$ICONS/scalable/apps/tracker-odin.svg"
 

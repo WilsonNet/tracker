@@ -26,34 +26,35 @@ import "core:math"
 // sRGB equivalents of the OKLCH tokens in tokens.css. Reference only: widget
 // code goes through Color_Tokens below.
 
-BG_VALUE         :: 0xFF010101 // oklch(0.07  0     0)   canvas
-SURFACE_VALUE    :: 0xFF060606 // oklch(0.125 0     0)   panels, bars
-RAISED_VALUE     :: 0xFF0B0B0B // oklch(0.15  0     0)   controls, rows
-HIGH_VALUE       :: 0xFF101010 // oklch(0.175 0     0)   wells, meter tracks
-LINE_VALUE       :: 0xFF1B1B1B // oklch(0.22  0     0)   hairlines
-LINE_SUBTLE_VALUE:: 0xFF0B0B0B // oklch(0.15  0     0)   faintest dividers
-LINE_STRONG_VALUE:: 0xFF2B2B2B // 1 px emphasised strokes
-AMBER_VALUE      :: 0xFFF08A31 // oklch(0.73  0.157 57)  primary signal
-AMBER_BRIGHT_VALUE:: 0xFFFF9B2C
-AMBER_DIM_VALUE  :: 0xFF8A552B // oklch(0.50  0.09  57)  quiet amber
-AMBER_BG_VALUE   :: 0xFF231103 // oklch(0.20  0.04  57)  amber wash fill
-AMBER_BORDER_VALUE:: 0xFF603F26 // oklch(0.40 0.06  57)
-INK_VALUE        :: 0xFFE8E8E8 // oklch(0.93  0     0)
-INK_DIM_VALUE    :: 0xFF8F8F8F // oklch(0.65  0     0)
-INK_MUTED_VALUE  :: 0xFF5D5D5D // oklch(0.48  0     0)
-RED_VALUE        :: 0xFFBA022F // oklch(0.50  0.20  20)
-RED_BRIGHT_VALUE :: 0xFFD40237 // oklch(0.55  0.22  20)
-RED_BG_VALUE     :: 0xFF260406 // oklch(0.18  0.06  20)
-TEAL_VALUE       :: 0xFF00858D // oklch(0.55  0.12 200)
-TEAL_BG_VALUE    :: 0xFF001718 // oklch(0.18  0.04 200)
-GREEN_VALUE      :: 0xFF62B36E
+BG_VALUE         :: 0xFF0B0D10
+SURFACE_VALUE    :: 0xFF13161B
+RAISED_VALUE     :: 0xFF1B1F26
+HIGH_VALUE       :: 0xFF242A33
+LINE_VALUE       :: 0xFF2A303A
+LINE_SUBTLE_VALUE:: 0xFF1D222A
+LINE_STRONG_VALUE:: 0xFF3B4350
+AMBER_VALUE      :: 0xFFF2A24B
+AMBER_BRIGHT_VALUE:: 0xFFFFB65F
+AMBER_DIM_VALUE  :: 0xFFA66E36
+AMBER_BG_VALUE   :: 0xFF2A1B0C
+AMBER_BORDER_VALUE:: 0xFF5E4228
+INK_VALUE        :: 0xFFE9EEF5
+INK_DIM_VALUE    :: 0xFF9AA5B4
+INK_MUTED_VALUE  :: 0xFF6E7987
+RED_VALUE        :: 0xFFE5484D
+RED_BRIGHT_VALUE :: 0xFFF25C61
+RED_BG_VALUE     :: 0xFF2B1417
+TEAL_VALUE       :: 0xFF2BB8C0
+TEAL_BG_VALUE    :: 0xFF0E2427
+GREEN_VALUE      :: 0xFF35B45A
 BLACK_VALUE      :: 0xFF000000
 WHITE_VALUE      :: 0xFFFFFFFF
+ON_AMBER_VALUE   :: 0xFF1B1005
 
 // Translucent amber for state washes; alpha is part of the token because the
 // flat surfaces underneath are near-black and opacity reads as brightness.
-AMBER_FAINT_VALUE :: 0x33F08A31
-AMBER_WASH_VALUE  :: 0x1AF08A31
+AMBER_FAINT_VALUE :: 0x33F2A24B
+AMBER_WASH_VALUE  :: 0x1FF2A24B
 
 // ---------------------------------------------------------------- color
 
@@ -86,6 +87,7 @@ Color_Tokens :: struct {
 	amber_faint:  Color,
 	amber_wash:   Color,
 	border_amber: Color,
+	on_amber:     Color,
 
 	// Semantic states. Red is record/stop/mute, teal is play/solo/monitor.
 	red:        Color,
@@ -117,6 +119,7 @@ COLORS_DEFAULT := Color_Tokens {
 	amber_faint    = AMBER_FAINT_VALUE,
 	amber_wash     = AMBER_WASH_VALUE,
 	border_amber   = AMBER_BORDER_VALUE,
+	on_amber       = ON_AMBER_VALUE,
 	red            = RED_VALUE,
 	red_bright     = RED_BRIGHT_VALUE,
 	red_bg         = RED_BG_VALUE,
@@ -128,13 +131,13 @@ COLORS_DEFAULT := Color_Tokens {
 }
 
 COLORS_HIGH_CONTRAST := Color_Tokens {
-	bg             = 0xFF000000,
-	surface        = 0xFF0D0D0D,
-	surface_raised = 0xFF171717,
-	surface_high   = 0xFF262626,
-	line           = 0xFF4D4D4D,
-	line_subtle    = 0xFF262626,
-	line_strong    = 0xFF707070,
+	bg             = 0xFF050608,
+	surface        = 0xFF101318,
+	surface_raised = 0xFF1B2028,
+	surface_high   = 0xFF2B323C,
+	line           = 0xFF4D5664,
+	line_subtle    = 0xFF262C34,
+	line_strong    = 0xFF707A8A,
 	ink            = 0xFFFFFFFF,
 	ink_dim        = 0xFFD2D2D2,
 	ink_muted      = 0xFFB0B0B0,
@@ -145,6 +148,7 @@ COLORS_HIGH_CONTRAST := Color_Tokens {
 	amber_faint    = 0x55FFA23A,
 	amber_wash     = 0x2AFFA23A,
 	border_amber   = 0xFFB87533,
+	on_amber       = 0xFF160D04,
 	red            = 0xFFFF5C54,
 	red_bright     = 0xFFFF8078,
 	red_bg         = 0xFF4A0F0C,
@@ -153,6 +157,25 @@ COLORS_HIGH_CONTRAST := Color_Tokens {
 	green          = 0xFF7FD98C,
 	black          = BLACK_VALUE,
 	white          = WHITE_VALUE,
+}
+
+// ---------------------------------------------------------------- radii
+
+// Skald-style corner scale: controls at 4-8 px, cards at 12, dialogs at 16.
+Radius_Tokens :: struct {
+	sm:   f32,
+	md:   f32,
+	lg:   f32,
+	xl:   f32,
+	pill: f32,
+}
+
+RADII := Radius_Tokens {
+	sm   = 4,
+	md   = 8,
+	lg   = 12,
+	xl   = 16,
+	pill = 999,
 }
 
 // ---------------------------------------------------------------- space
@@ -196,13 +219,13 @@ Type_Tokens :: struct {
 }
 
 TYPE := Type_Tokens {
-	micro   = 8.5,
-	caption = 9,
-	label   = 10,
-	body    = 11.5,
-	title   = 14,
+	micro   = 10,
+	caption = 11,
+	label   = 12,
+	body    = 13,
+	title   = 16,
 	readout = 20,
-	display = 25,
+	display = 28,
 }
 
 // ---------------------------------------------------------------- metrics
@@ -230,29 +253,30 @@ Metric_Tokens :: struct {
 }
 
 METRICS := Metric_Tokens {
-	header_h     = 48,
-	bottom_h     = 36,
-	status_h     = 28,
-	margin       = 14,
-	gutter       = 8,
-	control_h    = 24,
-	control_h_sm = 22,
-	track_pad    = 10,
-	row_h        = 26,
-	fader_w      = 16,
-	meter_w      = 9,
+	header_h     = 56,
+	bottom_h     = 44,
+	status_h     = 30,
+	margin       = 16,
+	gutter       = 12,
+	control_h    = 30,
+	control_h_sm = 26,
+	track_pad    = 14,
+	row_h        = 30,
+	fader_w      = 20,
+	meter_w      = 10,
 	knob_r       = 20,
-	knob_r_sm    = 15,
-	fx_h         = 250,
-	palette_w    = 560,
-	palette_h    = 460,
-	io_w         = 426,
+	knob_r_sm    = 17,
+	fx_h         = 280,
+	palette_w    = 600,
+	palette_h    = 500,
+	io_w         = 460,
 }
 
 // ---------------------------------------------------------------- theme
 
 Tokens :: struct {
 	color:   Color_Tokens,
+	radius:  Radius_Tokens,
 	space:   Space_Tokens,
 	type:    Type_Tokens,
 	metrics: Metric_Tokens,
@@ -260,6 +284,7 @@ Tokens :: struct {
 
 TOKENS_DEFAULT := Tokens {
 	color   = COLORS_DEFAULT,
+	radius  = RADII,
 	space   = SPACE,
 	type    = TYPE,
 	metrics = METRICS,
@@ -267,6 +292,7 @@ TOKENS_DEFAULT := Tokens {
 
 TOKENS_HIGH_CONTRAST := Tokens {
 	color   = COLORS_HIGH_CONTRAST,
+	radius  = RADII,
 	space   = SPACE,
 	type    = TYPE,
 	metrics = METRICS,

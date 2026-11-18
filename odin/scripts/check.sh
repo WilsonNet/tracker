@@ -22,7 +22,7 @@ for arg in "$@"; do
 	esac
 done
 
-LINK='-extra-linker-flags:-lm -ldl -lpthread -ljack -lz -lSDL2'
+LINK='-extra-linker-flags:-lm -ldl -lpthread -ljack -lz -lSDL2 -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0'
 
 command -v "$ODIN" >/dev/null 2>&1 || {
 	echo "odin not found; install it and/or set ODIN=/path/to/odin" >&2

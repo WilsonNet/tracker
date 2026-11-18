@@ -86,7 +86,7 @@ run_ui_shot :: proc(args: []string) -> bool {
 		a.metronome = true
 	}
 	if a.transport != .Stopped {
-		for _ in 0 ..< 36 {
+		for _ in 0 ..< 360 {
 			ui.app_tick(&a, 1.0 / 60.0)
 		}
 	}
