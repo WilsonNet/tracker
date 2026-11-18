@@ -27,6 +27,9 @@ REVERB_BASE_LEN := [REVERB_N]int{1499, 1823, 2099, 2399, 2741, 3137, 3593, 4127}
 REVERB_AP_COUNT :: 4
 REVERB_AP_LEN := [REVERB_AP_COUNT]int{229, 173, 611, 447}
 REVERB_AP_GAIN := [REVERB_AP_COUNT]f32{0.75, 0.75, 0.625, 0.625}
+// Diffusers are stretched 15% relative to the delay-line scale, so their
+// buffers must be allocated from the same factor (not the 1.1 line margin).
+REVERB_AP_SCALE :: 1.15
 // Zero-sum injection: never excite the all-ones mode (it would ring forever).
 REVERB_INJECTION := [REVERB_N]f32{1.0, -1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0}
 // Two orthogonal tap patterns → decorrelated left/right tails.
@@ -212,7 +215,7 @@ reverb_new :: proc(sample_rate: f32, params: Reverb_Params) -> Reverb {
 		r.length[i] = 1
 	}
 	for i in 0 ..< REVERB_AP_COUNT {
-		ap_max := int(f32(REVERB_AP_LEN[i]) * sample_rate / 48_000.0 * 1.1) + 4
+		ap_max := int(f32(REVERB_AP_LEN[i]) * sample_rate / 48_000.0 * REVERB_AP_SCALE) + 8
 		r.allpasses[i] = reverb_allpass_new(ap_max, REVERB_AP_GAIN[i])
 	}
 
@@ -250,13 +253,16 @@ reverb_update :: proc(r: ^Reverb, sample_rate: f32, params: Reverb_Params) {
 		line_length := int(math.round(f32(REVERB_BASE_LEN[i]) * scale))
 		r.length[i] = max(line_length, 8)
 		reverb_line_configure(&r.lines[i], r.length[i])
+		// Use the configured length in case the allocation clamped it. The
+		// RT60 must be derived from the delay actually in the loop.
+		r.length[i] = r.lines[i].length
 		// Exact RT60: amplitude falls 60 dB over `rt60` seconds.
 		loop_seconds := f32(r.length[i]) / sample_rate
 		r.gains[i] = math.pow(10.0, -3.0 * loop_seconds / rt60)
 	}
 
 	for i in 0 ..< REVERB_AP_COUNT {
-		ap_length := int(math.round(f32(REVERB_AP_LEN[i]) * scale * 1.15))
+		ap_length := int(math.round(f32(REVERB_AP_LEN[i]) * scale * REVERB_AP_SCALE))
 		reverb_allpass_configure(&r.allpasses[i], ap_length)
 	}
 

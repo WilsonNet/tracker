@@ -1,10 +1,15 @@
 // Offline mixdown: track chains -> stereo bus -> master chain.
 //
-// Rendering is deterministic and allocation-free inside the loop. Reverb,
-// delay and the widener are not ported yet; see odin/ROADMAP.md.
+// Rendering is deterministic and allocation-free inside the loop. The full
+// chain is EQ -> compressor -> fader/pan -> post-fader reverb/delay sends on
+// each track, then master compressor -> widener -> look-ahead limiter.
 //
-// Ported from src-tauri/src/audio/fx/render.rs (EQ + comp + fader/pan +
-// master comp + limiter).
+// The limiter delays its output by its look-ahead window. The render loop
+// compensates for that inside this file so a rendered mix stays aligned with
+// the source (and a take shorter than the look-ahead is not rendered silent).
+//
+// Ported from src-tauri/src/audio/fx/render.rs, with the latency compensation
+// and final meter capture added.
 
 package dsp
 
@@ -16,9 +21,9 @@ Track_Mix :: struct {
 	// -1 hard left ... 0 centre ... +1 hard right.
 	pan:         f32 `json:"pan"`,
 	muted:       bool `json:"muted"`,
-	// Reserved for the reverb bus (phase 2).
+	// Post-fader send into the reverb bus.
 	send_reverb: f32 `json:"sendReverb"`,
-	// Reserved for the delay bus (phase 2).
+	// Post-fader send into the delay bus.
 	send_delay:  f32 `json:"sendDelay"`,
 	eq:          Eq_Params   `json:"eq"`,
 	comp:        Comp_Params `json:"comp"`,
@@ -169,6 +174,15 @@ render_mix :: proc(track_audio: [][]f32, settings: Fx_Settings, sample_rate: f32
 	limiter := limiter_new(sample_rate, settings.limiter)
 	defer limiter_destroy(&limiter)
 
+	// The limiter's output is delayed by its look-ahead window. Render that
+	// many extra frames and discard the leading zeros so the mix stays
+	// sample-aligned with the source and its final samples are not lost.
+	lookahead := 0
+	if limiter.params.enabled {
+		lookahead = limiter.lookahead
+	}
+	render_frames := total + lookahead
+
 	meter_interval := max(int(sample_rate / METER_HZ), 1)
 	meter_points := total / meter_interval
 	stats := Fx_Stats {
@@ -185,8 +199,9 @@ render_mix :: proc(track_audio: [][]f32, settings: Fx_Settings, sample_rate: f32
 	peak: f32 = 0.0
 	meter_acc := 0
 	meter_slot := 0
+	out_frame := 0
 
-	for frame in 0 ..< total {
+	for frame in 0 ..< render_frames {
 		bus_l: f32 = 0.0
 		bus_r: f32 = 0.0
 		send_rev_l: f32 = 0.0
@@ -198,6 +213,11 @@ render_mix :: proc(track_audio: [][]f32, settings: Fx_Settings, sample_rate: f32
 			sample: f32 = 0.0
 			if frame < len(track_audio[i]) {
 				sample = track_audio[i][frame]
+				// A non-finite sample would poison the recursive filter
+				// states for the rest of the mix. Treat it as a dropout.
+				if math.is_nan(sample) || math.is_inf(sample) {
+					sample = 0.0
+				}
 			}
 			l, r := eq_process(&eqs[i], sample, sample)
 			l, r = comp_process(&comps[i], l, r)
@@ -221,26 +241,37 @@ render_mix :: proc(track_audio: [][]f32, settings: Fx_Settings, sample_rate: f32
 		bus_l, bus_r = widener_process(&widener, bus_l, bus_r)
 		bus_l, bus_r = limiter_process(&limiter, bus_l, bus_r)
 
+		if frame < lookahead {
+			continue
+		}
+
 		peak = max(peak, abs(bus_l), abs(bus_r))
-		samples[frame * 2 + 0] = bus_l
-		samples[frame * 2 + 1] = bus_r
+		samples[out_frame * 2 + 0] = bus_l
+		samples[out_frame * 2 + 1] = bus_r
+		out_frame += 1
 
 		meter_acc += 1
 		if meter_acc >= meter_interval {
 			meter_acc = 0
-			for i in 0 ..< len(tracks) {
-				stats.track_gr[i] = comp_gain_reduction_db(&comps[i])
-				stats.track_gr_timeline[i][meter_slot] = comp_instantaneous_reduction_db(&comps[i])
+			if meter_slot < meter_points {
+				for i in 0 ..< len(tracks) {
+					stats.track_gr_timeline[i][meter_slot] = comp_instantaneous_reduction_db(&comps[i])
+				}
+				stats.master_gr_timeline[meter_slot] = comp_instantaneous_reduction_db(&master_comp)
+				stats.limiter_gr_timeline[meter_slot] = limiter_instantaneous_reduction_db(&limiter)
+				meter_slot += 1
 			}
-			stats.master_gr = comp_gain_reduction_db(&master_comp)
-			stats.master_gr_timeline[meter_slot] = comp_instantaneous_reduction_db(&master_comp)
-
-			stats.limiter_gr = limiter_gain_reduction_db(&limiter)
-			stats.limiter_gr_timeline[meter_slot] = limiter_gain_reduction_db(&limiter)
-
-			meter_slot += 1
 		}
 	}
+
+	// Capture the worst-case reduction after the whole render, including a
+	// final partial meter interval (a take shorter than 50 ms otherwise
+	// reports no compressor or limiter activity at all).
+	for i in 0 ..< len(tracks) {
+		stats.track_gr[i] = comp_gain_reduction_db(&comps[i])
+	}
+	stats.master_gr = comp_gain_reduction_db(&master_comp)
+	stats.limiter_gr = limiter_gain_reduction_db(&limiter)
 
 	return Render_Output {
 		samples = samples,

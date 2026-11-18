@@ -25,8 +25,13 @@ coeff_for_ms :: proc(ms, sample_rate: f32) -> f32 {
 }
 
 // Piecewise Hermite soft clipper. Exactly linear below 75% of `ceiling`,
-// unity slope at the knee, zero slope at the ceiling.
+// unity slope at the knee, zero slope at the ceiling. A NaN input would
+// otherwise turn into a full-scale DC sample at the output of the safety
+// stage, so it is treated as silence.
 soft_clip :: proc(x, ceiling: f32) -> f32 {
+	if math.is_nan(x) {
+		return 0.0
+	}
 	c := max(abs(ceiling), 1e-6)
 	knee := 0.75 * c
 	s := abs(x)

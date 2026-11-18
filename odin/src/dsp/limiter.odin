@@ -87,6 +87,13 @@ limiter_gain_reduction_db :: proc(lim: ^Limiter) -> f32 {
 	return lim.min_gain_db
 }
 
+// Reduction currently applied to the delayed sample, dB (<= 0). Unlike
+// `limiter_gain_reduction_db` this is not a running minimum, so meter
+// timelines can show the release instead of staying at the worst value.
+limiter_instantaneous_reduction_db :: proc(lim: ^Limiter) -> f32 {
+	return lin_to_db(lim.envelope)
+}
+
 limiter_reset_meter :: proc(lim: ^Limiter) {
 	lim.min_gain_db = 0.0
 }
