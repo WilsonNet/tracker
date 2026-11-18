@@ -23,6 +23,10 @@ Every prompt that produces a feature, component, or change must result in a **wo
 
 One-shot means: prompt in, working feature out. The feedback loop closes the gap between "wrote code" and "verified it works."
 
+## Research Rule
+
+Before implementing any complex or unfamiliar feature, do an online search first. This includes audio device APIs, file formats, HiDPI/text rendering, persistence schemas, platform integration, and new UI patterns. Prefer official specifications and documentation (RF64/EBU, JACK, SDL2, Odin core/vendor, XDG), then prior art from comparable tools. Check the installed Odin sources for exact signatures, and record the sources that materially shaped the implementation in the relevant README/roadmap entry.
+
 ## Odin Port
 
 The native rewrite lives in `odin/`; the original Tauri/React app stays in place as the behavioral reference. Do not delete or "clean up" the reference implementation while the port is in progress.

@@ -73,6 +73,11 @@ Playback :: struct {
 	interrupt:     u64,
 }
 
+Capture_Backend :: enum u8 {
+	Miniaudio,
+	Jack,
+}
+
 Engine :: struct {
 	session_dir:  string,
 	project_path: string,
@@ -89,6 +94,9 @@ Engine :: struct {
 	loaded_rate:  [MAX_ENGINE_TRACKS]u32,
 	rec:          Recorder,
 	play:         Playback,
+	backend:      Capture_Backend,
+	jack:         Jack_Session,
+	takes:        [MAX_ENGINE_TRACKS]Take_List,
 }
 
 // ---------------------------------------------------------------- helpers
@@ -157,6 +165,8 @@ engine_init :: proc(e: ^Engine, args: []string) -> bool {
 
 engine_destroy :: proc(e: ^Engine) {
 	engine_stop_playback(e)
+	jack_session_destroy(&e.jack)
+	engine_takes_clear(e)
 	if e.rec.active {
 		engine_record_stop(e, nil)
 	} else if e.rec.device_open || e.rec.ctx_open || e.rec.raw != nil || e.rec.writer != nil {
@@ -172,6 +182,13 @@ engine_destroy :: proc(e: ^Engine) {
 	delete(e.project_path)
 	delete(e.take_path)
 	delete(e.bounce_path)
+}
+
+engine_set_backend :: proc(e: ^Engine, backend: Capture_Backend) {
+	if e.rec.active || jack_session_is_running(&e.jack) {
+		return
+	}
+	e.backend = backend
 }
 
 // ---------------------------------------------------------------- capture
@@ -470,6 +487,30 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	e.sample_rate = a.sample_rate if a.sample_rate != 0 else 48_000
 	e.sample_rate = clamp(e.sample_rate, 8_000, 384_000)
 
+	if e.backend == .Jack {
+		// 0 asks the JACK session to adopt the server rate rather than reject
+		// the project rate; the UI is updated with the actual rate below.
+		if !jack_session_start(&e.jack, requested, 0, nil, 0) {
+			ui.status_buf_set(a, jack_session_detail(&e.jack))
+			return false
+		}
+		e.sample_rate = e.jack.rate
+		a.sample_rate = e.jack.rate
+		e.rec.channels = requested
+		e.rec.rate = e.jack.rate
+		overdub := false
+		for i in 0 ..< MAX_ENGINE_TRACKS {
+			if e.loaded[i] != nil {
+				overdub = true
+			}
+		}
+		if overdub || a.metronome {
+			_ = engine_play(e, a, true)
+		}
+		ui.status_buf_set(a, fmt.tprintf("recording %d ch via JACK @ %d Hz%s", requested, e.jack.rate, " · overdub" if overdub else ""))
+		return true
+	}
+
 	ctx: ma.context_type
 	if ma.context_init(nil, 0, nil, &ctx) != .SUCCESS {
 		ui.status_buf_set(a, "cannot init audio")
@@ -677,6 +718,29 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 }
 
 engine_record_stop :: proc(e: ^Engine, a: ^ui.App) -> bool {
+	if jack_session_is_running(&e.jack) {
+		engine_stop_playback(e)
+		result, ok := jack_session_stop(&e.jack)
+		defer capture_destroy(&result)
+		if !ok {
+			if a != nil {
+				ui.status_buf_set(a, "JACK take failed")
+				ui.app_force_stopped(a, ui.app_status(a))
+			}
+			return false
+		}
+		e.sample_rate = result.rate
+		ok_split := engine_split_capture_result(e, a, &result, e.rec.armed, e.rec.inputs)
+		if a != nil {
+			if ok_split {
+				ui.status_buf_set(a, fmt.tprintf("JACK take captured · %d frames", result.frames))
+			} else {
+				ui.status_buf_set(a, "JACK take empty")
+			}
+			ui.app_force_stopped(a, ui.app_status(a))
+		}
+		return ok_split
+	}
 	if !e.rec.active {
 		// Recovery path: a failed start should never leave hardware or a
 		// writer behind, but don't leak them if it does.
@@ -722,6 +786,50 @@ engine_record_stop :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		ui.app_force_stopped(a, ui.app_status(a))
 	}
 	return ok
+}
+
+// Splits a JACK (or other pre-collected) interleaved capture into per-track
+// WAVs, honouring the arm/input snapshot and the latency trim.
+@(private)
+engine_split_capture_result :: proc(e: ^Engine, a: ^ui.App, result: ^Capture_Result, armed: [MAX_ENGINE_TRACKS]bool, inputs: [MAX_ENGINE_TRACKS]int) -> bool {
+	if result.channels <= 0 || result.frames <= 0 {
+		return false
+	}
+	trim := engine_latency_frames(e.latency_ms, result.rate)
+	start := min(trim, result.frames)
+	frames := result.frames - start
+	if frames <= 0 {
+		return false
+	}
+	any := false
+	for i in 0 ..< MAX_ENGINE_TRACKS {
+		if !armed[i] {
+			continue
+		}
+		ch := (inputs[i] - 1) % result.channels
+		if ch < 0 {
+			ch += result.channels
+		}
+		mono := make([]f32, frames)
+		for f in 0 ..< frames {
+			mono[f] = result.samples[(f + start) * result.channels + ch]
+		}
+		path := fmt.tprintf("%s/track%d.wav", e.session_dir, i + 1)
+		engine_take_stabilize_canonical(e, i)
+		if !wav_write(path, result.rate, 1, mono) {
+			delete(mono)
+			continue
+		}
+		engine_take_register_new(e, i, result.rate)
+		delete(e.loaded[i])
+		e.loaded[i] = mono
+		e.loaded_rate[i] = result.rate
+		if a != nil {
+			a.tracks[i].has_audio = true
+		}
+		any = true
+	}
+	return any
 }
 
 @(private)
@@ -771,10 +879,12 @@ engine_split_take :: proc(e: ^Engine, a: ^ui.App) -> bool {
 			}
 		}
 		path := fmt.tprintf("%s/track%d.wav", e.session_dir, i + 1)
+		engine_take_stabilize_canonical(e, i)
 		if !wav_write(path, e.rec.rate, 1, mono) {
 			delete(mono)
 			continue
 		}
+		engine_take_register_new(e, i, e.rec.rate)
 		delete(e.loaded[i])
 		e.loaded[i] = mono
 		e.loaded_rate[i] = e.rec.rate
@@ -851,8 +961,16 @@ playback_callback :: proc "c" (device: ^ma.device, output, input: rawptr, frame_
 }
 
 engine_load_tracks :: proc(e: ^Engine, a: ^ui.App) -> bool {
+	engine_takes_ensure(e)
 	any := false
 	for i in 0 ..< MAX_ENGINE_TRACKS {
+		if handled, ok := engine_load_track_from_takes(e, a, i); handled {
+			any = any || ok
+			if !ok && a != nil {
+				a.tracks[i].has_audio = false
+			}
+			continue
+		}
 		path := fmt.tprintf("%s/track%d.wav", e.session_dir, i + 1)
 		if !os.exists(path) {
 			delete(e.loaded[i])
