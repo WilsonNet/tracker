@@ -71,7 +71,8 @@ in the reference but not here; **new** = only relevant to the native app.
 | Native file picker / recent projects | missing | fixed `--session` path |
 | RF64 / >4 GB files | done | RF64 reader (ds64, sentinel data size, chunk-order variants), auto RIFF→RF64 writer, streaming `Wav_Stream` writer; synthetic fixtures + >4 GB size arithmetic + roundtrip tests |
 | Screen-reader/accessibility audit | missing | software canvas has no a11y tree |
-| JACK capture in the GUI | missing | CLI only; GUI uses miniaudio |
+| JACK GUI take API | done | async `jack_session.odin`; ring/writer/stop tests + 1 s live take |
+| JACK capture in the GUI | missing | API ready; engine/UI wiring still uses miniaudio |
 | HiDPI (2×/3×) crisp scaling | missing | 1× atlas is exact; integer-scale layout + higher-DPI atlases or runtime stb_truetype |
 | Multi-take comping | done (model) | `takes.odin`: per-track takes, ordered comp regions, equal-power render, session loading; engine/UI wiring pending |
 

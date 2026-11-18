@@ -66,7 +66,7 @@ test -f "$ODIN_ROOT/vendor/miniaudio/lib/miniaudio.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 164 unit tests
+make test         # 159 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -87,7 +87,7 @@ directory is in `XDG_DATA_DIRS`.
 | target | what it does |
 |---|---|
 | `build` | compile `bin/tracker-odin` |
-| `test` | 164 unit tests: 70 DSP, 56 core/engine/project/WAV, 38 UI |
+| `test` | 159 unit tests: 70 DSP, 51 core/engine/project/JACK, 38 UI |
 | `check` | `scripts/check.sh`: unit tests, 118-action UI tour, offline bounce |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
@@ -201,10 +201,43 @@ with every result is written next to the screenshots.
 mixed-rate files to the project rate, renders through the full chain and writes
 stereo 32-bit float.
 
+## Asynchronous JACK take API
+
+`jack_session.odin` is the GUI-facing capture path. Unlike `record --jack` it
+does not take a duration; start a take, poll it, then stop it:
+
+```odin
+session: Jack_Session
+defer jack_session_destroy(&session)
+
+// requested rate 0 = adopt whatever the JACK server runs at.
+if !jack_session_start(&session, 2, 0) {
+	fmt.eprintln(jack_session_detail(&session))
+	return
+}
+// ... UI runs; poll jack_session_frames / jack_session_peak / xruns ...
+result, ok := jack_session_stop(&session)
+defer capture_destroy(&result) // safe when the take failed
+_ = ok
+```
+
+- The JACK process callback only writes into a lock-free ring. A writer thread
+  drains it into 16k-frame chunks, so a take is not capped at a preallocated
+  duration.
+- `port_names` selects source ports; empty means the first N physical graph
+  outputs. The actual server rate is reported in `session.rate`; a non-zero
+  requested rate that differs is rejected with a clear message.
+- `jack_session_stop` deactivates the client first, drains the writer, and
+  returns interleaved samples in a standard `Capture_Result`. A second stop is
+  a safe no-op. `max_seconds` (default 0) is an optional cap, not a target.
+- Tests: `TRACKER_JACK_LIVE=1 odin test src -define:ODIN_TEST_THREADS=1 \
+  -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lSDL2"` adds a 1-second
+  live take to the synthetic ring/writer tests.
+
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 56 core/engine/project/WAV + 38 UI = 164 tests
+make test        # 70 DSP + 51 core/engine/project/JACK + 38 UI = 159 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui
@@ -221,8 +254,8 @@ tools are installed; the offline core of the script does not need audio
 hardware.
 
 Coverage includes the ported Rust DSP vectors (biquad, EQ, compressor, limiter,
-reverb, delay, widener), resampling quality, WAV layout/import, RF64
-read/write/streaming, project round-trip and defaults, solo semantics, every UI control and overlay, screenshot
+reverb, delay, widener), resampling quality, WAV layout/import, project
+round-trip and defaults, solo semantics, every UI control and overlay, screenshot
 PNG validity, and an offline engine bounce. Independent checks: `ffprobe`
 reports `pcm_f32le`, `sox` reads the files without warnings, and its peak/RMS
 agree with the engine.
@@ -243,8 +276,8 @@ odin/
     project.odin       project.json + DSP/view mapping
     capture.odin       miniaudio enumeration/capture
     jack_capture.odin  cooperative JACK client
+    jack_session.odin  asynchronous GUI JACK take (ring + writer/chunks)
     wav.odin           float32 WAV + PCM import
-    wav_rf64.odin      RF64/ds64 read/write + streaming writer
     dsp/               biquad, EQ, comp, limiter, reverb, delay, widener,
                        resample, render
     ui/                canvas, font, theme, widgets, app, input, draw,
@@ -297,14 +330,16 @@ architectural change than this port needs today.
 - Overdub is not latency-compensated: the click/existing mix and the capture
   start on separate devices, so sample-accurate alignment is not guaranteed.
 - Preview render and bounce run synchronously on the UI thread; a long mix
-  pauses the window while it renders. JACK capture is exposed through the CLI,
-  not yet as a GUI mode.
+  pauses the window while it renders. JACK capture is exposed through the CLI
+  and the asynchronous `jack_session` API; the window still records through
+  miniaudio until it is wired to that session.
 - The session path is fixed per run (`--session`); there is no native file
   picker or recent-projects list.
-- No undo/redo, comping, or screen-reader accessibility yet. Large takes use
-  RF64 automatically, but the GUI still buffers a whole take in memory.
+- No undo/redo, comping, RF64 (>4 GB), or screen-reader accessibility yet.
 - `ui-test` covers the state machine and rendering, not OS-level window focus or
   audio-device hotplug.
+- A JACK session keeps its take in fixed chunks in RAM (≈384 MB/hour at
+  48 kHz stereo) until `jack_session_stop` returns the interleaved samples.
 - The embedded text atlas is generated from Noto Sans Mono (Apache-2.0); see
   `assets/FONT-LICENSE.txt`. On a machine with JetBrains Mono installed,
   `scripts/gen_font.py` regenerates from it instead.

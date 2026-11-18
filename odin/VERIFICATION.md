@@ -9,13 +9,12 @@ Recorded on the development machine (Arch Linux, PipeWire 1.6.11, Odin
 |---|---|---|
 | clean build | `make clean && make build` | 0.68 s, 1 binary |
 | DSP tests | `odin test src/dsp` | 70 passed |
-| engine/project/WAV | `odin test src` | 56 passed |
-| RF64 | `odin test src` | ds64 parse/reject, fmt/data chunk-order variants, RIFF boundary + >4 GB arithmetic, streaming roundtrip |
+| engine/project/WAV/JACK | `odin test src` | 51 passed |
 | UI state/layout/PNG | `odin test src/ui` | 38 passed |
 | vet | `odin check src -no-entry-point -vet` | clean |
 | packaging | `PREFIX=/tmp/tracker-install ./scripts/install-desktop.sh` | binary + icon + desktop entry |
 
-Total: **164 unit tests**.
+Total: **159 unit tests**.
 
 ## Native UI harness (Playwright replacement)
 
@@ -34,6 +33,8 @@ Total: **164 unit tests**.
 | miniaudio capture (default source) | 96,000 frames / 2.000 s, short 0 |
 | native UI record (default source) | 100,352 frames / 2.091 s, peak **−6.02 dBFS** with loopback |
 | JACK capture (`record --jack`) | 24,000 frames / 0.500 s, short 0 |
+| async JACK session (`TRACKER_JACK_LIVE=1`) | 48,128 frames / 1.003 s @ 48 kHz stereo, peak −50.68 dBFS, overflow 0, xruns 0 |
+| async JACK rate guard | 44.1 kHz request on a 48 kHz server rejected with the actual rate in the message |
 | loopback capture (known 440 Hz, 0.5 amplitude) | peak **−6.02 dBFS**, RMS −9.13, exact 2.000 s |
 | long loopback capture | 480,000 frames / **10.000 s**, exact |
 | mic input (phantom on, input 1) | peak ≈ −43 dBFS (quiet room) |
@@ -74,7 +75,7 @@ session is Wayland):
 ## Known gaps
 
 See `ROADMAP.md` Phase 4: live input monitoring, latency compensation, native
-file picker, undo/redo, a11y tree, JACK GUI mode, hotplug. These are explicitly
-out of scope for the current port; everything else on the roadmap is
-implemented and exercised above. RF64 is implemented and covered by the WAV
-suite; the engine still buffers a take before writing it.
+file picker, undo/redo, RF64, a11y tree, JACK GUI wiring, hotplug. These are
+explicitly out of scope for the current port; everything else on the roadmap is
+implemented and exercised above. The asynchronous JACK take API itself is
+implemented and live-tested; the window still records through miniaudio.
