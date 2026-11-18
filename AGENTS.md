@@ -30,6 +30,7 @@ The native rewrite lives in `odin/`; the original Tauri/React app stays in place
 - **Read the Odin documentation before writing Odin.** Prefer, in order: the installed compiler sources and examples under `~/.local/opt/odin` (`core/`, `vendor/`, `examples/`), the language overview at <https://odin-lang.org/docs/overview/>, and the package docs at <https://pkg.odin-lang.org/>. Use Context7 (`context7` MCP) when it has Odin coverage. Check exact signatures in the installed core/vendor sources before calling an API — do not guess.
 - `odin/ROADMAP.md` is the port status board: update the done/missing lists in the same change that moves a subsystem.
 - `odin/README.md` documents the build, test, and CLI feedback loop.
+- `odin/VERIFICATION.md` is the current test/measurement matrix; update it with any new hardware or end-to-end evidence.
 
 ## Build Tracking
 
