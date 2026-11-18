@@ -21,6 +21,13 @@ run_ui_window :: proc(args: []string) -> bool {
 	}
 	defer sdl.Quit()
 
+	// Match the existing Hyprland window rule (class `tracker`) so the app opens
+	// on the silent special workspace instead of stealing focus.
+	sdl.SetHint("SDL_VIDEO_X11_WMCLASS", "tracker")
+	sdl.SetHint("SDL_VIDEO_WAYLAND_WMCLASS", "tracker")
+	sdl.SetHint("SDL_APP_ID", "tracker")
+	sdl.SetHint("SDL_APP_NAME", "tracker")
+
 	window := sdl.CreateWindow(
 		"Tracker — Odin",
 		80,

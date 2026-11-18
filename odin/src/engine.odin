@@ -285,9 +285,18 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 
 	G_RECORDER = &e.rec
 	e.rec.writer = thread.create(recorder_writer)
-	if e.rec.writer != nil {
-		thread.start(e.rec.writer)
+	if e.rec.writer == nil {
+		sync.atomic_store(&e.rec.stop, 1)
+		ma.device_uninit(&e.rec.device)
+		ma.context_uninit(&e.rec.ctx)
+		os.close(raw)
+		delete(e.rec.ring)
+		e.rec.ring = nil
+		e.rec.active = false
+		ui.status_buf_set(a, "cannot start writer thread")
+		return false
 	}
+	thread.start(e.rec.writer)
 
 	if ma.device_start(&e.rec.device) != .SUCCESS {
 		sync.atomic_store(&e.rec.stop, 1)
@@ -337,7 +346,11 @@ engine_record_stop :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	e.rec.raw = nil
 	e.rec.active = false
 
+	dropped := e.rec.overflow
 	ok := engine_split_take(e, a)
+	if ok && dropped > 0 && a != nil {
+		ui.toast(a, fmt.tprintf("%d frames dropped (slow disk)", dropped))
+	}
 	delete(e.rec.ring)
 	e.rec.ring = nil
 	if a != nil {

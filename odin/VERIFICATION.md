@@ -39,6 +39,8 @@ Total: **84 unit tests**.
 | overdub | existing mix plays while track 2 records; both takes written |
 | bounce from native UI | `bounce.wav`, stereo float, limiter ceiling respected |
 | project save/reload | `project.json` + `track1.wav`; TAKE restored after relaunch |
+| UI loopback recording | track 1 peak **−6.02 dBFS**, master −7.9 dBFS on screen |
+| Hyprland window rule | class `tracker`, workspace `special:tracker`, silent, no focus steal |
 | mixed-rate session | 44.1 kHz track → 48 kHz bounce |
 | project-driven reverb send | 2 s take → 7.50 s bounce with tail |
 | WAV compatibility | `ffprobe` = `pcm_f32le`; `sox` header warnings absent |

@@ -79,7 +79,7 @@ Exec=$(desktop_exec_quote "$BIN/tracker-odin") ui
 Icon=tracker-odin
 Terminal=false
 StartupNotify=false
-StartupWMClass=tracker-odin
+StartupWMClass=tracker
 Categories=AudioVideo;Audio;
 Keywords=recorder;multitrack;audio;music;
 DESKTOP
