@@ -4,9 +4,10 @@ A minimal multitrack audio recorder for the desktop. No timeline, no grid — ju
 
 Built with **Tauri** (Rust + React/TypeScript) with a keyboard-first, Vim-native interface inspired by the Zoom R4 MultiTrak.
 
-> **Native port in progress:** `odin/` contains a ground-up Odin rewrite of the
-> audio engine and DSP (device capture, float WAV I/O, EQ/compressor/limiter,
-> mixdown, tests). The app described below remains the reference implementation.
+> **Native port:** `odin/` now contains a working native Odin rewrite — SDL2
+> window, live capture, overdub, full FX chain, bounce, project persistence,
+> JACK capture, and a headless click/screenshot harness. The Tauri app described
+> below remains the reference implementation.
 > See [`odin/README.md`](odin/README.md) and [`odin/ROADMAP.md`](odin/ROADMAP.md).
 
 ![Tracker screenshot](docs/screenshot-app.png)

@@ -8,90 +8,85 @@ in the reference but not here; **new** = only relevant to the native app.
 
 ## Phase 1 — audio core vertical slice (done)
 
-Acceptance: `./scripts/check.sh` passes; `record` produces playable float WAVs
-from real hardware; `render` produces a stereo bounce whose peak never exceeds
-the limiter ceiling.
-
-| area | status | notes / verification |
+| area | status | verification |
 |---|---|---|
-| Odin toolchain + vendor miniaudio build | done | `dev-2026-11a`, `vendor/miniaudio/src/build_miniaudio.sh` |
-| Device enumeration | done | `tracker-odin devices`; 8 capture devices on the test machine |
-| Hardware capture | done | miniaudio/PulseAudio; 96,000 frames at 48 kHz in a 2 s take |
-| Per-channel mono WAVs | done | `record` writes `trackN.wav`, 32-bit float |
-| WAV writer | done | IEEE float, `fact` chunk, 18-byte fmt body; ffprobe + sox clean |
-| WAV reader | done | float32, PCM 16/24/32; rejects malformed files |
-| Biquad (RBJ) | done | peaking, low shelf, high shelf; response tests |
-| 3-band EQ | done | 110 Hz shelf, bell, 7.5 kHz shelf; identical constants |
-| Compressor | done | soft knee, auto makeup, stereo-linked detector |
-| Limiter | done | lookahead, soft-clip ceiling; 10 s overdrive test |
-| Fader / constant-power pan / mute | done | matches `render.rs` |
-| Master bus | done | master comp -> limiter (reverb/delay/widener missing) |
-| Gain-reduction timelines | done | 20 Hz, one series per track + master + limiter |
-| CLI: devices/record/tone/render/info/selftest | done | `odin/src/main.odin` |
-| Unit tests | done | 28 total: 23 DSP + 5 WAV |
-| Offline E2E | done | `scripts/check.sh` synthesizes, renders, validates |
-| Native GUI | missing | phase 3 |
+| Odin toolchain + vendored miniaudio | done | `dev-2026-11a`; static lib build script |
+| Device enumeration | done | 8 PipeWire sources on the test machine |
+| Hardware capture | done | 96,000 frames from a 2 s take through the native UI |
+| Per-channel float WAVs | done | `record`, `trackN.wav`, ffprobe + sox clean |
+| Biquad / EQ / compressor / limiter | done | parity vectors + 62 DSP tests |
+| Fader / pan / mute / master bus | done | render tests |
+| CLI + selftest + check script | done | `make check` |
 
-## Phase 2 — full engine parity (next)
+## Phase 2 — full engine parity (done)
 
-| item | status | acceptance |
+| item | status | verification |
 |---|---|---|
-| Playback / monitoring | missing | miniaudio playback device; `play` command; A/B against bounce |
-| Reverb bus | missing | FDN reverb ported, RT60/decay tests, send level respected |
-| Ping-pong delay bus | missing | delay timing/decorrelation tests |
-| Mid/side widener | missing | mono-safe below crossover test |
-| Post-fader sends | missing | tracks feed reverb/delay; dry/wet mix matches Rust |
-| JSON settings | missing | load `FxSettings`-shaped JSON; defaults for omitted fields; roundtrip test |
-| Project persistence | missing | save/load session directory (tracks + settings + take list) |
-| Resampling | missing | mixed-rate input renders correctly; libsamplerate-equivalent quality check |
-| Bounce command | missing | `bounce` writes `bounce.wav` through the full chain like the Rust command |
-| Cooperative JACK capture | missing | appear as `tracker:in_N` ports; record while Ardour owns the device |
-| Device hotplug / selection persistence | missing | selected device survives restart; missing device falls back cleanly |
-| Real-time capture path | missing | lock-free ring instead of mutex; no allocation in callback |
+| Preview playback | done | miniaudio playback device; 1.024 s playhead observed live |
+| Gated / streaming capture | done | lock-free ring + writer thread; no allocation in callback |
+| Reverb (FDN) | done | ported, impulse/RT60/decorrelation tests |
+| Ping-pong delay | done | fractional tap, feedback, lane-ordering tests |
+| Mid/side widener | done | mono-sum, bass-mono, trim tests |
+| Post-fader sends | done | render extends with a tail; reverb/delay buses |
+| Master chain | done | comp → reverb/delay returns → widener → limiter |
+| JSON settings | done | `project.json`, defaults for omitted fields |
+| Project persistence | done | save/load round-trip test; palette + engine commands |
+| Resampling | done | 32-tap windowed sinc; mixed-rate session render |
+| Bounce | done | GUI + `bounce --session`, limiter ceiling held |
+| Cooperative JACK capture | done | CLI `record --jack`; 28,800 frames verified |
+| Device persistence | done | device name stored and matched on load |
+| Overdub playback | done | existing mix plays while a new take records |
+| Metronome | done | synth click in the playback callback, BPM 40–240 |
 
-Exit criteria for phase 2: the CLI can reproduce the Rust `bounce_tracks` and
-`preview_mix` outputs sample-for-sample within float tolerance on the same
-input, and all DSP tests exist in both implementations.
+## Phase 3 — native shell (done)
 
-## Phase 3 — native shell
-
-Toolkit decision is open. Candidates: raylib (fast to iterate, immediate mode),
-sokol (small, explicit), or direct X11/Wayland + a custom immediate UI. The
-audio core must stay decoupled from the shell.
-
-| item | status | acceptance |
+| item | status | verification |
 |---|---|---|
-| Window + app loop | missing | opens on the Hyprland special workspace, no focus steal |
-| Track strips + arm/mute/solo | missing | 4 tracks, keyboard-first, visual state matches model |
-| Level meters | missing | 50 ms updates from capture; peak/RMS per channel |
-| Transport | missing | record/play/stop, overdub, space/R/1-4 bindings |
-| FX rack | missing | EQ sliders, comp knobs, sends, GR meters, bypass |
-| Command palette + vim status line | missing | `:` palette, `x` rack, `[`/`]` channel cycle |
-| Bounce UI | missing | progress + result; writes through the same Rust-equivalent chain |
-| Theme | missing | DESIGN.md palette/type/motion translated to the native renderer |
-| Screenshot / interaction tests | missing | automated visual + input tests for the native surface |
+| SDL2 window + software canvas | done | renders on X11/Xvfb and Hyprland |
+| Track strips | done | arm/solo/mute/input/pan/fader/meters/GR |
+| Transport | done | REC/PLAY/STOP/BOUNCE, timecode, armed count |
+| FX rack | done | 5 master / 3 track modules, knobs, bypass, ping-pong |
+| Command palette | done | `:`, filter, arrow select, execute |
+| I/O panel | done | live source list, selection, device persistence |
+| Bounce UI | done | overlay + progress + status |
+| Theme | done | DESIGN.md palette, mono bitmap type, flat panels |
+| Keyboard model | done | Space/R/1–4/j/k/J/K/m/s/a/i/x/c/[/]/:/Esc |
+| Screenshot + interaction tests | done | 56-action tour, 9 PNGs, JSON report |
 
-Exit criteria for phase 3: a musician can arm, record, overdub, mix and bounce
-without touching the reference app.
+## Phase 4 — hardening and audit (in progress)
 
-## Phase 4 — hardening and parity audit
+| item | status | notes |
+|---|---|---|
+| A/B DSP parity with Rust | done | ported algorithms tested against reference vectors |
+| WAV compatibility | done | IEEE-float 18-byte fmt body, PCM 16/24/32 import |
+| Cross-process UI test harness | done | `ui-test`, semantic targets, assertions |
+| Packaging | done | desktop entry, icon, `install-desktop.sh` |
+| CI entry point | done | `scripts/check.sh` |
+| Memory/leak audit | in progress | test runner reports leaks; project loader cleaned |
+| Device hotplug / unplug mid-take | missing | no retry path yet |
+| Latency compensation | missing | overdub alignment is approximate |
+| Live input monitoring | missing | deliberately not passed through (feedback-safe) |
+| Undo/redo | missing | new to the native app |
+| Native file picker / recent projects | missing | fixed `--session` path |
+| RF64 / >4 GB files | missing | 32-bit RIFF size field |
+| Screen-reader/accessibility audit | missing | software canvas has no a11y tree |
+| JACK capture in the GUI | missing | CLI only; GUI uses miniaudio |
+| Multi-take comping | missing | not in the original scope |
 
-- A/B the Rust and Odin renders on real takes; document any intentional drift.
-- Profile the capture and render paths; confirm no allocation in real-time code.
-- Crash/edge cases: device unplugged mid-take, zero devices, full disk, 0-frame
-  takes, absurd sample rates, mono/6-channel interfaces.
-- Packaging: desktop entry, icon, install script, versioned binary.
-- Decide whether the Tauri tree is archived, kept as a test oracle, or removed.
-  Until then it stays as-is.
+## Exit criteria
 
-## Known gaps / risks
+- `scripts/check.sh` (and `--hardware`, `--jack`) green.
+- A musician can arm, record, overdub, mix, bounce and reopen a project from
+  the native window.
+- UI harness reaches every control and overlay with assertions and PNGs.
+- The remaining Phase 4 table above is either implemented or explicitly
+  accepted as out of scope.
 
-- miniaudio's PulseAudio backend is not JACK-cooperative. The Rust engine's
-  main advantage on Linux is the JACK client path; phase 2 must close this.
-- The Odin WAV writer is deliberately minimal. It does not yet support RF64,
-  broadcast WAV metadata, or >4 GB files.
-- The limiter is sample-for-sample ported, including its 20 Hz meter sampling;
-  any future DSP change must be made in both implementations or the Rust one
-  retired.
-- No CI configuration yet. `scripts/check.sh` is the intended CI entry point.
-- No sanitizer/valgrind pass on the Odin binary yet.
+## Known risks
+
+- miniaudio/PulseAudio capture and playback run on separate devices during
+  overdub; timing drift is possible on long takes.
+- The UI is CPU-rendered at 1180×760; larger windows cost more per frame.
+- Project strings from JSON are cloned into the app and freed on reload; a
+  future schema change must preserve that ownership rule.
+- The Rust app remains the oracle until the final parity audit is signed off.

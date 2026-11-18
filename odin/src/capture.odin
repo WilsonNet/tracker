@@ -105,6 +105,45 @@ list_capture_devices :: proc() -> bool {
 	return true
 }
 
+// Returns capture device names. The caller owns and must free every string and
+// the slice.
+capture_device_names :: proc() -> []string {
+	ctx: ma.context_type
+	if ma.context_init(nil, 0, nil, &ctx) != .SUCCESS {
+		return nil
+	}
+	defer ma.context_uninit(&ctx)
+	infos: [^]ma.device_info
+	count: u32
+	if ma.context_get_devices(&ctx, nil, nil, &infos, &count) != .SUCCESS {
+		return nil
+	}
+	names := make([]string, int(count))
+	for i in 0 ..< int(count) {
+		names[i] = device_name(&infos[i])
+	}
+	return names
+}
+
+capture_default_index :: proc() -> int {
+	ctx: ma.context_type
+	if ma.context_init(nil, 0, nil, &ctx) != .SUCCESS {
+		return 0
+	}
+	defer ma.context_uninit(&ctx)
+	infos: [^]ma.device_info
+	count: u32
+	if ma.context_get_devices(&ctx, nil, nil, &infos, &count) != .SUCCESS {
+		return 0
+	}
+	for i in 0 ..< int(count) {
+		if infos[i].isDefault {
+			return i
+		}
+	}
+	return 0
+}
+
 // Records `seconds` from a capture device. `device_index < 0` selects the
 // system default. Returns interleaved f32 samples.
 capture_record :: proc(seconds: f32, channels: int, rate: u32, device_index: int) -> (result: Capture_Result, ok: bool) {

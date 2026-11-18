@@ -59,6 +59,9 @@ track_mix_pan_gains :: proc(track: Track_Mix) -> (f32, f32) {
 Fx_Settings :: struct {
 	tracks:      []Track_Mix  `json:"tracks"`,
 	master_comp: Comp_Params  `json:"masterComp"`,
+	reverb:      Reverb_Params `json:"reverb"`,
+	delay:       Delay_Params  `json:"delay"`,
+	width:       Width_Params  `json:"width"`,
 	limiter:     Limiter_Params `json:"limiter"`,
 }
 
@@ -74,6 +77,9 @@ fx_settings_default :: proc() -> Fx_Settings {
 	return Fx_Settings {
 		tracks = nil,
 		master_comp = master,
+		reverb = reverb_params_default(),
+		delay = delay_params_default(),
+		width = width_params_default(),
 		limiter = limiter_params_default(),
 	}
 }
@@ -120,7 +126,6 @@ render_mix :: proc(track_audio: [][]f32, settings: Fx_Settings, sample_rate: f32
 	for track in track_audio {
 		max_len = max(max_len, len(track))
 	}
-	total := max_len
 
 	tracks := make([]Track_Mix, len(track_audio))
 	defer delete(tracks)
@@ -130,6 +135,21 @@ render_mix :: proc(track_audio: [][]f32, settings: Fx_Settings, sample_rate: f32
 			tracks[i] = track_mix_sanitized(settings.tracks[i])
 		}
 	}
+
+	active_sends := false
+	for track in tracks {
+		if track.send_reverb > 0.001 || track.send_delay > 0.001 {
+			active_sends = true
+		}
+	}
+	tail_seconds: f32 = 0
+	if active_sends && (settings.reverb.enabled || settings.delay.enabled) {
+		tail_seconds = 2.0
+		if settings.reverb.enabled {
+			tail_seconds += min(reverb_rt60_seconds(settings.reverb), 5.0)
+		}
+	}
+	total := max_len + int(tail_seconds * sample_rate)
 
 	eqs := make([]Eq_State, len(tracks))
 	defer delete(eqs)
@@ -141,6 +161,11 @@ render_mix :: proc(track_audio: [][]f32, settings: Fx_Settings, sample_rate: f32
 	}
 
 	master_comp := comp_new(sample_rate, settings.master_comp)
+	reverb := reverb_new(sample_rate, settings.reverb)
+	defer reverb_destroy(&reverb)
+	delay := delay_new(sample_rate, settings.delay)
+	defer delay_destroy(&delay)
+	widener := widener_new(sample_rate, settings.width)
 	limiter := limiter_new(sample_rate, settings.limiter)
 	defer limiter_destroy(&limiter)
 
@@ -164,6 +189,10 @@ render_mix :: proc(track_audio: [][]f32, settings: Fx_Settings, sample_rate: f32
 	for frame in 0 ..< total {
 		bus_l: f32 = 0.0
 		bus_r: f32 = 0.0
+		send_rev_l: f32 = 0.0
+		send_rev_r: f32 = 0.0
+		send_dly_l: f32 = 0.0
+		send_dly_r: f32 = 0.0
 
 		for track, i in tracks {
 			sample: f32 = 0.0
@@ -173,11 +202,23 @@ render_mix :: proc(track_audio: [][]f32, settings: Fx_Settings, sample_rate: f32
 			l, r := eq_process(&eqs[i], sample, sample)
 			l, r = comp_process(&comps[i], l, r)
 			gl, gr := track_mix_pan_gains(track)
-			bus_l += l * gl
-			bus_r += r * gr
+			out_l := l * gl
+			out_r := r * gr
+			bus_l += out_l
+			bus_r += out_r
+			send_rev_l += out_l * track.send_reverb
+			send_rev_r += out_r * track.send_reverb
+			send_dly_l += out_l * track.send_delay
+			send_dly_r += out_r * track.send_delay
 		}
 
+		rev_l, rev_r := reverb_process(&reverb, send_rev_l, send_rev_r)
+		dly_l, dly_r := delay_process(&delay, send_dly_l, send_dly_r)
+		bus_l += rev_l + dly_l
+		bus_r += rev_r + dly_r
+
 		bus_l, bus_r = comp_process(&master_comp, bus_l, bus_r)
+		bus_l, bus_r = widener_process(&widener, bus_l, bus_r)
 		bus_l, bus_r = limiter_process(&limiter, bus_l, bus_r)
 
 		peak = max(peak, abs(bus_l), abs(bus_r))
@@ -188,20 +229,14 @@ render_mix :: proc(track_audio: [][]f32, settings: Fx_Settings, sample_rate: f32
 		if meter_acc >= meter_interval {
 			meter_acc = 0
 			for i in 0 ..< len(tracks) {
-				gr := comp_gain_reduction_db(&comps[i])
-				stats.track_gr[i] = min(stats.track_gr[i], gr)
-				stats.track_gr_timeline[i][meter_slot] = gr
-				comp_reset_meter(&comps[i])
+				stats.track_gr[i] = comp_gain_reduction_db(&comps[i])
+				stats.track_gr_timeline[i][meter_slot] = comp_instantaneous_reduction_db(&comps[i])
 			}
-			mgr := comp_gain_reduction_db(&master_comp)
-			stats.master_gr = min(stats.master_gr, mgr)
-			stats.master_gr_timeline[meter_slot] = mgr
-			comp_reset_meter(&master_comp)
+			stats.master_gr = comp_gain_reduction_db(&master_comp)
+			stats.master_gr_timeline[meter_slot] = comp_instantaneous_reduction_db(&master_comp)
 
-			lgr := limiter_gain_reduction_db(&limiter)
-			stats.limiter_gr = min(stats.limiter_gr, lgr)
-			stats.limiter_gr_timeline[meter_slot] = lgr
-			limiter_reset_meter(&limiter)
+			stats.limiter_gr = limiter_gain_reduction_db(&limiter)
+			stats.limiter_gr_timeline[meter_slot] = limiter_gain_reduction_db(&limiter)
 
 			meter_slot += 1
 		}

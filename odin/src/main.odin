@@ -14,6 +14,7 @@ import "core:strconv"
 import "core:strings"
 
 import dsp "dsp"
+import ui "ui"
 
 VERSION :: "0.1.0-phase1"
 
@@ -43,6 +44,14 @@ main :: proc() {
 		}
 	case "selftest":
 		ok = run_selftest()
+	case "ui":
+		ok = run_ui_window(args[2:])
+	case "ui-shot":
+		ok = run_ui_shot(args[2:])
+	case "ui-test":
+		ok = run_ui_test(args[2:])
+	case "bounce":
+		ok = run_bounce(args[2:])
 	case "version", "--version":
 		fmt.printfln("tracker-odin %s", VERSION)
 	case "help", "--help", "-h":
@@ -66,8 +75,12 @@ usage:
   tracker-odin record --seconds 5 --out DIR [--channels 2] [--device INDEX] [--rate 48000]
   tracker-odin tone   --out FILE [--seconds 3] [--freq 440] [--amp 0.5] [--channels 1]
   tracker-odin render --in DIR_OR_FILE --out FILE [chain options]
+  tracker-odin bounce --session DIR [--out FILE]
   tracker-odin info   FILE.wav
   tracker-odin selftest
+  tracker-odin ui
+  tracker-odin ui-shot --out FILE [--fx|--palette|--io|--bounce|--playing|--recording]
+  tracker-odin ui-test --script FILE.json --out DIR
   tracker-odin version
 
 chain options for render:
@@ -202,11 +215,29 @@ run_record :: proc(args: []string) -> bool {
 	channels := max(flag_int(args, "--channels", 2), 1)
 	rate := u32(max(flag_int(args, "--rate", 48_000), 8_000))
 	device := flag_int(args, "--device", -1)
+	use_jack := has_flag(args, "--jack")
 
 	ensure_dir(out)
-	fmt.printfln("recording %.1f s, %d channel(s) at %d Hz into %s", seconds, channels, rate, out)
+	if use_jack {
+		fmt.printfln("recording %.1f s, %d channel(s) at %d Hz from JACK into %s", seconds, channels, rate, out)
+	} else {
+		fmt.printfln("recording %.1f s, %d channel(s) at %d Hz into %s", seconds, channels, rate, out)
+	}
 
-	result, ok := capture_record(seconds, channels, rate, device)
+	result: Capture_Result
+	ok: bool
+	if use_jack {
+		ports := jack_port_names()
+		defer {
+			for p in ports {
+				delete(p)
+			}
+			delete(ports)
+		}
+		result, ok = jack_record(seconds, channels, rate, ports)
+	} else {
+		result, ok = capture_record(seconds, channels, rate, device)
+	}
 	if !ok {
 		return false
 	}
@@ -420,5 +451,45 @@ run_selftest :: proc() -> bool {
 
 	fmt.printfln("PASS: rendered %d frames, peak %.2f dBFS, limiter GR %.2f dB", out.frames, out.peak_db, out.stats.limiter_gr)
 	fmt.printfln("      wrote %s", path)
+	return true
+}
+
+@(private)
+run_bounce :: proc(args: []string) -> bool {
+	e: Engine
+	if !engine_init(&e, args) {
+		return false
+	}
+	defer engine_destroy(&e)
+
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	if os.exists(e.project_path) {
+		if !project_load(&a, e.session_dir, e.project_path) {
+			fmt.eprintln("cannot load project")
+			return false
+		}
+	}
+	if !engine_load_tracks(&e, &a) {
+		fmt.eprintln("no tracks in session")
+		return false
+	}
+	out_path := flag_string(args, "--out", e.bounce_path)
+	out, ok := engine_render_mix(&e, &a)
+	if !ok {
+		fmt.eprintln("nothing to render")
+		return false
+	}
+	defer dsp.render_destroy(&out)
+	if !wav_write(out_path, e.sample_rate, 2, out.samples) {
+		fmt.eprintfln("cannot write %s", out_path)
+		return false
+	}
+	fmt.printfln("bounced %s  %.2f s  peak %.2f dBFS", out_path, f32(out.frames) / f32(e.sample_rate), out.peak_db)
+	for gr, i in out.stats.track_gr {
+		fmt.printfln("  track %d comp GR %.2f dB", i + 1, gr)
+	}
+	fmt.printfln("  master GR %.2f dB  limiter GR %.2f dB", out.stats.master_gr, out.stats.limiter_gr)
 	return true
 }
