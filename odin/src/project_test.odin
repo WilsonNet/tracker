@@ -124,3 +124,20 @@ solo_mutes_other_tracks_in_the_mix :: proc(t: ^testing.T) {
 	testing.expect(t, s.tracks[0].muted, "non-soloed track should be muted")
 	testing.expect(t, !s.tracks[1].muted, "soloed track should stay audible")
 }
+
+@(test)
+project_partial_eq_and_comp_keep_explicit_bypass :: proc(t: ^testing.T) {
+	path := "/tmp/tracker-project-partial-fx.json"
+	defer os.remove(path)
+	payload := `{"version":1,"tracks":[{"file":"","eq":{"enabled":false},"comp":{"enabled":false}}]}`
+	testing.expect(t, os.write_entire_file(path, payload) == nil)
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	testing.expect(t, project_load(&a, "/tmp", path), "load failed")
+	testing.expect(t, !a.tracks[0].eq.enabled, "explicit EQ bypass was lost")
+	testing.expect(t, !a.tracks[0].comp.enabled, "explicit comp bypass was lost")
+	testing.expectf(t, a.tracks[0].eq.mid_hz == 1_000, "eq default hz %v", a.tracks[0].eq.mid_hz)
+	testing.expectf(t, a.tracks[0].eq.mid_q == 1, "eq default q %v", a.tracks[0].eq.mid_q)
+	testing.expectf(t, a.tracks[0].comp.ratio == 3, "comp default ratio %v", a.tracks[0].comp.ratio)
+}

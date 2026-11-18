@@ -385,14 +385,27 @@ project_load :: proc(a: ^ui.App, dir, path: string) -> bool {
 		tr.send_delay = clamp(src.send_delay if have else 0, 0, 1)
 
 		eq := base.eq
-		if have && src.eq.mid_hz != 0 {
-			eq = dsp.eq_params_sanitized(src.eq)
+		if have {
+			eq.enabled = src.eq.enabled
+			eq.low_db = src.eq.low_db
+			eq.mid_db = src.eq.mid_db
+			eq.mid_hz = src.eq.mid_hz if src.eq.mid_hz != 0 else 1_000
+			eq.mid_q = src.eq.mid_q if src.eq.mid_q != 0 else 1
+			eq.high_db = src.eq.high_db
+			eq = dsp.eq_params_sanitized(eq)
 		}
 		tr.eq = eq_view_from_params(eq)
 
 		comp := base.comp
-		if have && src.comp.ratio != 0 {
-			comp = dsp.comp_params_sanitized(src.comp)
+		if have {
+			comp.enabled = src.comp.enabled
+			comp.threshold_db = src.comp.threshold_db
+			comp.ratio = src.comp.ratio if src.comp.ratio != 0 else 3
+			comp.attack_ms = src.comp.attack_ms if src.comp.attack_ms != 0 else 12
+			comp.release_ms = src.comp.release_ms if src.comp.release_ms != 0 else 180
+			comp.knee_db = src.comp.knee_db
+			comp.auto_makeup = src.comp.auto_makeup
+			comp = dsp.comp_params_sanitized(comp)
 		}
 		tr.comp = comp_view_from_params(comp)
 

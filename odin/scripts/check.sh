@@ -89,6 +89,31 @@ if command -v ffprobe >/dev/null 2>&1; then
 	echo "  resampled 44.1 kHz -> 48 kHz"
 fi
 
+echo "== project-driven reverb send extends the bounce =="
+mkdir -p "$tmp/fx"
+./bin/tracker-odin tone --out "$tmp/fx/track1.wav" --seconds 2 --freq 330 --amp 0.4 >/dev/null
+cat > "$tmp/fx/project.json" <<'JSON'
+{
+  "version": 1, "name": "fx tail", "sampleRate": 48000, "bpm": 120,
+  "tracks": [{"file": "track1.wav", "input": 1, "level": 1.0, "sendReverb": 0.8,
+    "eq": {"enabled": false}, "comp": {"enabled": false}}],
+  "master": {
+    "reverb": {"enabled": true, "size": 0.6, "decay": 0.6, "tone": 0.5, "predelayMs": 18, "returnLevel": 0.8},
+    "delay": {"enabled": false}, "width": {"enabled": false},
+    "limiter": {"enabled": true, "ceilingDb": -0.3, "releaseMs": 120, "lookaheadMs": 5}
+  }
+}
+JSON
+./bin/tracker-odin bounce --session "$tmp/fx" --out "$tmp/fx/mix.wav" | tee "$tmp/fx/bounce.log"
+if command -v ffprobe >/dev/null 2>&1; then
+	dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$tmp/fx/mix.wav")
+	awk -v d="$dur" 'BEGIN { exit (d > 4.0) ? 0 : 1 }' || {
+		echo "FAIL: reverb tail missing (duration $dur)" >&2
+		exit 1
+	}
+	echo "  reverb tail present ($dur s from a 2 s take)"
+fi
+
 echo "== format assertions =="
 if command -v ffprobe >/dev/null 2>&1; then
 	for f in "$tmp/bounce.wav" "$tmp/session/mix.wav" "$tmp/mixed/mix.wav"; do
