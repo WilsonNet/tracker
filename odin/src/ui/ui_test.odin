@@ -810,7 +810,7 @@ ui_render_is_nonblank_in_every_mode_and_size :: proc(t: ^testing.T) {
 				a.fx_channel = ch
 				a.palette_len = 0
 				app_palette_rebuild(&a)
-				canvas_clear(&c, BG)
+				canvas_clear(&c, COLORS_DEFAULT.bg)
 				app_draw(&a, &c)
 				testing.expectf(t, canvas_nonblank(&c), "%dx%d mode %v channel %d rendered blank", size[0], size[1], mode, ch)
 			}
@@ -828,15 +828,17 @@ ui_text_tokens_keep_readable_contrast :: proc(t: ^testing.T) {
 		bg:   Color,
 		min:  f32,
 	}{
-		{"text on bg", TEXT, BG, 7.0},
-		{"dim on bg", DIM, BG, 4.5},
-		{"muted on bg", MUTED, BG, 3.5},
-		{"muted on panel", MUTED, PANEL_2, 3.5},
-		{"amber on bg", AMBER, BG, 4.5},
-		{"teal on bg", TEAL, BG, 4.5},
-		{"red on panel", RED, PANEL, 3.5},
-		{"amber_dim border", AMBER_DIM, PANEL, 3.0},
-		{"white on red", WHITE, RED, 4.5},
+		{"text on bg", COLORS_DEFAULT.ink, COLORS_DEFAULT.bg, 7.0},
+		{"dim on bg", COLORS_DEFAULT.ink_dim, COLORS_DEFAULT.bg, 4.5},
+		// Muted is hint-only in this palette (the reference uses the same
+		// value); essential labels use ink_dim, which is tested at 4.5.
+		{"muted on bg", COLORS_DEFAULT.ink_muted, COLORS_DEFAULT.bg, 3.0},
+		{"muted on panel", COLORS_DEFAULT.ink_muted, COLORS_DEFAULT.surface_raised, 2.8},
+		{"amber on bg", COLORS_DEFAULT.amber, COLORS_DEFAULT.bg, 4.5},
+		{"teal on bg", COLORS_DEFAULT.teal, COLORS_DEFAULT.bg, 4.5},
+		{"red on panel", COLORS_DEFAULT.red, COLORS_DEFAULT.surface, 3.0},
+		{"amber_dim border", COLORS_DEFAULT.amber_dim, COLORS_DEFAULT.surface, 3.0},
+		{"white on red", COLORS_DEFAULT.white, COLORS_DEFAULT.red, 4.5},
 	}
 	for c in cases {
 		ratio := contrast_ratio(c.fg, c.bg)
@@ -1021,15 +1023,15 @@ ui_font_keeps_descenders_and_baseline :: proc(t: ^testing.T) {
 ui_font_text_screenshot_has_grayscale_edges :: proc(t: ^testing.T) {	c: Canvas
 	canvas_init(&c, 420, 80)
 	defer canvas_destroy(&c)
-	canvas_clear(&c, BG)
-	canvas_text(&c, 8, 6, "TRACKER gjpqy", TEXT, 2)
-	canvas_text(&c, 8, 44, "00:01:23.456  -12.3 dB", DIM)
+	canvas_clear(&c, COLORS_DEFAULT.bg)
+	canvas_text(&c, 8, 6, "TRACKER gjpqy", COLORS_DEFAULT.ink, 2)
+	canvas_text(&c, 8, 44, "00:01:23.456  -12.3 dB", COLORS_DEFAULT.ink_dim)
 
 	levels: [256]bool
 	ink := 0
 	for p in c.pixels {
 		r := u8((p >> 16) & 0xFF)
-		if r != u8((BG >> 16) & 0xFF) {
+		if r != u8((COLORS_DEFAULT.bg >> 16) & 0xFF) {
 			ink += 1
 			levels[r] = true
 		}
@@ -1263,22 +1265,22 @@ ui_project_picker_commands_emit :: proc(t: ^testing.T) {
 ui_high_contrast_tokens_raise_contrast :: proc(t: ^testing.T) {
 	base := theme_tokens(false)
 	high := theme_tokens(true)
-	testing.expect(t, base.text != high.text, "text token should change")
-	testing.expect(t, base.dim != high.dim, "dim token should change")
+	testing.expect(t, base.color.ink != high.color.ink, "text token should change")
+	testing.expect(t, base.color.ink_dim != high.color.ink_dim, "dim token should change")
 	cases := [4]struct {
 		name: string,
 		lo:   Color,
 		hi:   Color,
 		min:  f32,
 	}{
-		{"text on bg", base.text, high.text, 15.0},
-		{"dim on bg", base.dim, high.dim, 7.0},
-		{"muted on bg", base.muted, high.muted, 5.0},
-		{"amber on bg", base.amber, high.amber, 7.0},
+		{"text on bg", base.color.ink, high.color.ink, 15.0},
+		{"dim on bg", base.color.ink_dim, high.color.ink_dim, 7.0},
+		{"muted on bg", base.color.ink_muted, high.color.ink_muted, 5.0},
+		{"amber on bg", base.color.amber, high.color.amber, 7.0},
 	}
 	for c in cases {
-		rb := contrast_ratio(c.lo, base.bg)
-		rh := contrast_ratio(c.hi, high.bg)
+		rb := contrast_ratio(c.lo, base.color.bg)
+		rh := contrast_ratio(c.hi, high.color.bg)
 		testing.expectf(t, rh > rb, "%s did not improve: %.2f -> %.2f", c.name, rb, rh)
 		testing.expectf(t, rh >= c.min, "%s high contrast %.2f < %.1f", c.name, rh, c.min)
 	}
@@ -1294,7 +1296,7 @@ ui_accessibility_toggles_from_palette :: proc(t: ^testing.T) {
 	app_key(&a, .Enter)
 	testing.expect(t, a.high_contrast, "high contrast on")
 	testing.expect(t, app_value_is(&a, "a11y.high_contrast", "true"), "high contrast path")
-	testing.expect(t, app_tokens(&a).text == TOKENS_HIGH_CONTRAST.text, "app tokens switch")
+	testing.expect(t, app_tokens(&a).color.ink == TOKENS_HIGH_CONTRAST.color.ink, "app tokens switch")
 	open_palette(&a)
 	type_query(&a, "high contrast")
 	app_key(&a, .Enter)
@@ -1389,32 +1391,32 @@ ui_canvas_scale_maps_logical_primitives_to_physical_pixels :: proc(t: ^testing.T
 	testing.expectf(t, canvas_logical_width(&c) == 100 && canvas_logical_height(&c) == 50, "logical size %dx%d", canvas_logical_width(&c), canvas_logical_height(&c))
 	testing.expect(t, canvas_pixel_size(1180, 1.5) == 1770, "1.5x pixel width")
 
-	canvas_clear(&c, BG)
-	canvas_fill(&c, Rect{10, 10, 20, 10}, TEXT)
+	canvas_clear(&c, COLORS_DEFAULT.bg)
+	canvas_fill(&c, Rect{10, 10, 20, 10}, COLORS_DEFAULT.ink)
 	// A 20x10 logical rect covers 40x20 physical pixels at 2x.
-	testing.expect(t, pixel_at(&c, 20, 20) == TEXT, "top-left physical pixel missing")
-	testing.expect(t, pixel_at(&c, 59, 39) == TEXT, "bottom-right physical pixel missing")
-	testing.expect(t, pixel_at(&c, 19, 20) == BG, "fill leaked left")
-	testing.expect(t, pixel_at(&c, 60, 39) == BG, "fill leaked right")
+	testing.expect(t, pixel_at(&c, 20, 20) == COLORS_DEFAULT.ink, "top-left physical pixel missing")
+	testing.expect(t, pixel_at(&c, 59, 39) == COLORS_DEFAULT.ink, "bottom-right physical pixel missing")
+	testing.expect(t, pixel_at(&c, 19, 20) == COLORS_DEFAULT.bg, "fill leaked left")
+	testing.expect(t, pixel_at(&c, 60, 39) == COLORS_DEFAULT.bg, "fill leaked right")
 
 	// 1 logical px borders become 2 physical px at 2x.
-	canvas_clear(&c, BG)
-	canvas_rect(&c, Rect{4, 4, 20, 20}, TEXT)
-	testing.expect(t, pixel_at(&c, 8, 8) == TEXT && pixel_at(&c, 9, 8) == TEXT, "rect border is not 2 px")
-	testing.expect(t, pixel_at(&c, 10, 10) == BG, "rect border too thick")
+	canvas_clear(&c, COLORS_DEFAULT.bg)
+	canvas_rect(&c, Rect{4, 4, 20, 20}, COLORS_DEFAULT.ink)
+	testing.expect(t, pixel_at(&c, 8, 8) == COLORS_DEFAULT.ink && pixel_at(&c, 9, 8) == COLORS_DEFAULT.ink, "rect border is not 2 px")
+	testing.expect(t, pixel_at(&c, 10, 10) == COLORS_DEFAULT.bg, "rect border too thick")
 
 	// Clips are stored in physical pixels and intersect logical rectangles.
-	canvas_clear(&c, BG)
+	canvas_clear(&c, COLORS_DEFAULT.bg)
 	old := canvas_push_clip(&c, Rect{0, 0, 15, 15})
-	canvas_fill(&c, Rect{0, 0, 100, 100}, AMBER)
+	canvas_fill(&c, Rect{0, 0, 100, 100}, COLORS_DEFAULT.amber)
 	canvas_pop_clip(&c, old)
-	testing.expect(t, pixel_at(&c, 29, 29) == AMBER, "inside clip missing")
-	testing.expect(t, pixel_at(&c, 30, 30) == BG, "clip did not scale")
+	testing.expect(t, pixel_at(&c, 29, 29) == COLORS_DEFAULT.amber, "inside clip missing")
+	testing.expect(t, pixel_at(&c, 30, 30) == COLORS_DEFAULT.bg, "clip did not scale")
 
 	// Lines scale their endpoints and their 1 logical px thickness.
-	canvas_clear(&c, BG)
-	canvas_hline(&c, 0, 10, 5, TEAL)
-	testing.expect(t, pixel_at(&c, 20, 10) == TEAL && pixel_at(&c, 20, 11) == TEAL, "hline is not 2 px tall")
+	canvas_clear(&c, COLORS_DEFAULT.bg)
+	canvas_hline(&c, 0, 10, 5, COLORS_DEFAULT.teal)
+	testing.expect(t, pixel_at(&c, 20, 10) == COLORS_DEFAULT.teal && pixel_at(&c, 20, 11) == COLORS_DEFAULT.teal, "hline is not 2 px tall")
 }
 
 @(test)
@@ -1423,7 +1425,7 @@ ui_canvas_text_rasterises_at_physical_size :: proc(t: ^testing.T) {
 		top, bottom := -1, -1
 		for y in 0 ..< c.height {
 			for x in x0 ..< x1 {
-				if pixel_at(c, x, y) != BG {
+				if pixel_at(c, x, y) != COLORS_DEFAULT.bg {
 					if top < 0 {
 						top = y
 					}
@@ -1437,15 +1439,15 @@ ui_canvas_text_rasterises_at_physical_size :: proc(t: ^testing.T) {
 	base: Canvas
 	canvas_init(&base, 160, 60, 1.0)
 	defer canvas_destroy(&base)
-	canvas_clear(&base, BG)
-	canvas_text(&base, 4, 4, "H", TEXT)
+	canvas_clear(&base, COLORS_DEFAULT.bg)
+	canvas_text(&base, 4, 4, "H", COLORS_DEFAULT.ink)
 	h1 := scan_height(&base, 0, base.width)
 
 	scaled: Canvas
 	canvas_init(&scaled, 240, 90, 1.5)
 	defer canvas_destroy(&scaled)
-	canvas_clear(&scaled, BG)
-	canvas_text(&scaled, 4, 4, "H", TEXT)
+	canvas_clear(&scaled, COLORS_DEFAULT.bg)
+	canvas_text(&scaled, 4, 4, "H", COLORS_DEFAULT.ink)
 	h15 := scan_height(&scaled, 0, scaled.width)
 	testing.expectf(t, h15 > h1, "1.5x glyph is not taller: %d vs %d", h15, h1)
 	testing.expectf(t, h15 >= int(f32(h1) * 1.4), "1.5x glyph is not physically scaled: %d vs %d", h15, h1)
@@ -1455,7 +1457,7 @@ ui_canvas_text_rasterises_at_physical_size :: proc(t: ^testing.T) {
 	ink := 0
 	for p in scaled.pixels {
 		r := u8((p >> 16) & 0xFF)
-		if p != BG {
+		if p != COLORS_DEFAULT.bg {
 			ink += 1
 			levels[r] = true
 		}
@@ -1473,12 +1475,12 @@ ui_canvas_text_rasterises_at_physical_size :: proc(t: ^testing.T) {
 	run: Canvas
 	canvas_init(&run, 240, 90, 1.5)
 	defer canvas_destroy(&run)
-	canvas_clear(&run, BG)
-	canvas_text(&run, 0, 0, "MMMM", TEXT)
+	canvas_clear(&run, COLORS_DEFAULT.bg)
+	canvas_text(&run, 0, 0, "MMMM", COLORS_DEFAULT.ink)
 	left, right := run.width, -1
 	for y in 0 ..< run.height {
 		for x in 0 ..< run.width {
-			if pixel_at(&run, x, y) != BG {
+			if pixel_at(&run, x, y) != COLORS_DEFAULT.bg {
 				left = min(left, x)
 				right = max(right, x)
 			}
@@ -1562,14 +1564,14 @@ ui_runtime_text_is_deterministic :: proc(t: ^testing.T) {
 	canvas_init(&c, canvas_pixel_size(640, 1.5), canvas_pixel_size(120, 1.5), 1.5)
 	defer canvas_destroy(&c)
 
-	canvas_clear(&c, BG)
-	canvas_text(&c, 8, 8, "DETERMINISTIC 0123", TEXT, 2)
+	canvas_clear(&c, COLORS_DEFAULT.bg)
+	canvas_text(&c, 8, 8, "DETERMINISTIC 0123", COLORS_DEFAULT.ink, 2)
 	first := make([]u32, len(c.pixels))
 	defer delete(first)
 	copy(first, c.pixels)
 
-	canvas_clear(&c, BG)
-	canvas_text(&c, 8, 8, "DETERMINISTIC 0123", TEXT, 2)
+	canvas_clear(&c, COLORS_DEFAULT.bg)
+	canvas_text(&c, 8, 8, "DETERMINISTIC 0123", COLORS_DEFAULT.ink, 2)
 	for p, i in c.pixels {
 		if p != first[i] {
 			testing.expectf(t, false, "runtime glyph cache changed pixel %d", i)

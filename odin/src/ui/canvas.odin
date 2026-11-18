@@ -467,6 +467,67 @@ canvas_text :: proc(c: ^Canvas, x, y: f32, text: string, col: Color, scale: int 
 	}
 }
 
+
+// Arbitrary-size text for hierarchy that falls between the baked 12.5/25 px
+// cells (timecode, track numbers, labels). Rendered from the bundled TTF at
+// the exact physical size, so it stays crisp at every display density.
+text_width_px :: proc(text: string, px: f32) -> f32 {
+	return f32(len(text)) * max(px * 0.60, 1)
+}
+
+text_height_px :: proc(px: f32) -> f32 {
+	return max(px * 1.2, 1)
+}
+
+canvas_text_px :: proc(c: ^Canvas, x, y: f32, text: string, col: Color, px: f32) {
+	if px <= 0 || len(text) == 0 {
+		return
+	}
+	if !runtime_font_init(&c.font) {
+		canvas_text(c, x, y, text, col, 1)
+		return
+	}
+	s := c.scale
+	cell_w := max(i32(math.round(px * 0.60 * s)), 1)
+	baseline := i32(math.round(px * 0.96 * s))
+	font_px := px * s
+	start_x := i32(math.round(x * s))
+	pen_x := start_x
+	pen_y := i32(math.round(y * s))
+	for ch in text {
+		if ch == '\n' {
+			pen_x = start_x
+			pen_y += i32(math.round(px * 1.2 * s))
+			continue
+		}
+		if int(ch) < FONT_FIRST || int(ch) > FONT_LAST || ch == ' ' {
+			pen_x += cell_w
+			continue
+		}
+		g := runtime_glyph(&c.font, u8(ch), font_px)
+		if g.w > 0 && g.h > 0 {
+			for row in 0 ..< g.h {
+				src := row * g.w
+				for ci in 0 ..< g.w {
+					a := g.alpha[int(src + ci)]
+					if a != 0 {
+						text_plot(c, pen_x + g.xoff + ci, pen_y + baseline + g.yoff + row, col, a)
+					}
+				}
+			}
+		}
+		pen_x += cell_w
+	}
+}
+
+canvas_text_px_right :: proc(c: ^Canvas, right, y: f32, text: string, col: Color, px: f32) {
+	canvas_text_px(c, right - text_width_px(text, px), y, text, col, px)
+}
+
+canvas_text_px_center :: proc(c: ^Canvas, cx, y: f32, text: string, col: Color, px: f32) {
+	canvas_text_px(c, cx - text_width_px(text, px) * 0.5, y, text, col, px)
+}
+
 canvas_text_right :: proc(c: ^Canvas, right, y: f32, text: string, col: Color, scale: int = 1) {
 	canvas_text(c, right - text_width(text, scale), y, text, col, scale)
 }

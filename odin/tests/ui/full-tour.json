@@ -582,13 +582,13 @@
     {
       "type": "drag",
       "id": "fader.0",
-      "dy": -40
+      "dy": 60
     },
     {
       "type": "assert",
       "path": "level.0",
-      "min": 1.15,
-      "hasMin": true
+      "max": 0.8,
+      "hasMax": true
     },
     {
       "type": "key",
@@ -597,8 +597,8 @@
     {
       "type": "assert",
       "path": "level.0",
-      "max": 1.05,
-      "hasMax": true
+      "min": 1.05,
+      "hasMin": true
     },
     {
       "type": "key",
@@ -607,8 +607,8 @@
     {
       "type": "assert",
       "path": "level.0",
-      "min": 1.15,
-      "hasMin": true
+      "max": 0.8,
+      "hasMax": true
     },
     {
       "type": "click",

@@ -10,7 +10,7 @@ intentional limits are in `ROADMAP.md`.
 |---|---|---|
 | clean build | `make clean && make build` | ≈0.8 s |
 | DSP | `odin test src/dsp` | **70 passed** |
-| engine / project / WAV / RF64 / takes / CLI | `odin test src` | **83 passed** |
+| engine / project / WAV / RF64 / takes / CLI | `odin test src` | **85 passed** |
 | UI state, layout, HiDPI, PNG | `odin test src/ui` | **56 passed** |
 | static checks | `odin check src -no-entry-point -vet` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry |
@@ -22,7 +22,7 @@ Total: **211 unit tests**.
 `./bin/tracker-odin ui-test --script tests/ui/full-tour.json --out /tmp/ui`
 
 - **220 actions, 0 failures**
-- **17 PNG screenshots** at 900×620, 1180×760, 1920×1080
+- **17 PNG screenshots** at 900×620, 1180×760, 1920×1080; layout geometry asserted at all three sizes
 - Full tour also passes at `--scale 2` (physical 2360×1520)
 - Covers arm/mute/solo, record/play/stop, faders/pans, FX tabs/knobs/bypass,
   palette, recents, bounce, I/O, tempo/click, monitor, JACK toggle, latency,
@@ -53,6 +53,13 @@ The loopback test is reproducible with:
 ```sh
 ./scripts/check.sh --loopback
 ```
+
+## Design tokens
+
+`src/ui/theme.odin` keeps raw palette → semantic colour roles → space/type/
+metric scales → theme bundle. Widgets read `ACTIVE_TOKENS.color.*`; layout reads
+`METRICS`/`SPACE`. The reference palette is asserted by the UI contrast test, and
+the high-contrast theme changes colour only.
 
 ## Accessibility
 

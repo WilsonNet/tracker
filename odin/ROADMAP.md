@@ -43,6 +43,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 |---|---|---|
 | SDL2 window, software canvas | done | X11/Xvfb + Hyprland |
 | 4 track strips, master, meters, GR | done | 220-action tour |
+| Reference density + design-token layers | done | `theme.odin`, geometry tests at 900/1180/1920 |
 | Transport, timecode, BPM, click, monitor | done | tour |
 | FX rack (track + master) | done | knobs, bypass, ping-pong, focus |
 | Command palette, recents, recent overlay | done | 220-action tour |

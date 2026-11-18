@@ -136,6 +136,29 @@ directory is in `XDG_DATA_DIRS`.
   the palette; the dialogs use zenity or kdialog. Double-click resets a
   fader/pan/knob.
 
+### Design tokens
+
+`src/ui/theme.odin` is the single source of truth, layered so a palette change
+or a density tweak never touches drawing code:
+
+- **Palette constants** — the exact brand values as sRGB (`BG_VALUE`,
+  `AMBER_VALUE`, …), with the OKLCH origin in comments. The values mirror the
+  React reference's `src/styles/tokens.css`; when one changes, change both.
+- **`Color_Tokens`** — semantic roles (`bg`, `surface`, `ink`, `ink_dim`,
+  `line`, `amber`, `red`, `teal`, …). Widgets never read the raw palette.
+- **`Space_Tokens`** — a 1/2/4/6/8/12/16/24 px rhythm used for padding.
+- **`Type_Tokens`** — a fixed 8.5/9/10/11.5/14/20/25 px scale (product UI never
+  scales type fluidly). The 12.5 px body and 25 px heading atlases remain for
+  `canvas_text`.
+- **`Metric_Tokens`** — header/bottom/status heights, margins, gutters, control
+  sizes, fader/meter widths. `app_layout` reads these instead of magic numbers.
+- **`Tokens` / `ACTIVE_TOKENS`** — the live bundle handed to the renderer;
+  `TOKENS_HIGH_CONTRAST` swaps colour only, leaving geometry untouched.
+
+The default theme is the reference palette: `#010101` canvas, `#060606` bars and
+panels, `#1B1B1B` hairlines, `#F08A31` amber, `#BA022F` record red, `#00858D`
+solo/play teal, and the three-step ink ramp `#E8E8E8` / `#8F8F8F` / `#5D5D5D`.
+
 Sessions live in `~/.local/share/tracker/session` by default and contain
 `project.json`, `track1.wav` … `track4.wav`, and `bounce.wav` (plus a
 transient `take.raw` while a take is being captured).

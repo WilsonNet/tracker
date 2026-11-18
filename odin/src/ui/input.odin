@@ -507,6 +507,37 @@ app_set_knob :: proc(a: ^App, t: Knob_Target, value: f32) {
 	_ = log
 }
 
+// Whether a module is actively processing. Knobs and toggles dim when the
+// module is bypassed, but stay reachable so they can be re-enabled.
+bypass_state :: proc(a: ^App, m: Fx_Module) -> bool {
+	if a.fx_channel >= MAX_TRACKS {
+		#partial switch m {
+		case .COMP:
+			return a.master.comp.enabled
+		case .REVERB:
+			return a.master.reverb.enabled
+		case .DELAY:
+			return a.master.delay.enabled
+		case .WIDTH:
+			return a.master.width.enabled
+		case .LIMITER:
+			return a.master.limiter.enabled
+		case:
+			return true
+		}
+	}
+	#partial switch m {
+	case .EQ:
+		return a.tracks[a.fx_channel].eq.enabled
+	case .COMP:
+		return a.tracks[a.fx_channel].comp.enabled
+	case .SEND:
+		return true
+	case:
+		return true
+	}
+}
+
 app_toggle_value :: proc(a: ^App, t: Toggle_Target) -> bool {
 	if t.module == .DELAY && t.param == 1 {
 		return a.master.delay.ping_pong
