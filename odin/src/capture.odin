@@ -183,42 +183,66 @@ capture_record :: proc(seconds: f32, channels: int, rate: u32, device_index: int
 		return {}, false
 	}
 
-	target_frames := int(seconds * f32(rate))
-	state := Capture_State {
-		buffer   = make([]f32, target_frames * channels),
-		channels = channels,
-		capacity = target_frames,
-	}
+	state := Capture_State{}
 	defer delete(state.buffer)
 
 	cfg := ma.device_config_init(.capture)
 	cfg.sampleRate = rate
 	cfg.capture.format = .f32
-	cfg.capture.channels = u32(channels)
 	cfg.capture.pDeviceID = &infos[index].id
 	cfg.dataCallback = capture_callback
 	cfg.pUserData = &state
 	cfg.periodSizeInFrames = 1024
 
+	// Some backends reject wide requests even though they can capture fewer
+	// channels. Retry down the list instead of failing the whole take.
 	device: ma.device
-	if ma.device_init(&ctx, &cfg, &device) != .SUCCESS {
+	opened := false
+	last := 0
+	attempts := [6]int{channels, 16, 8, 4, 2, 1}
+	for attempt in attempts {
+		if attempt > channels || attempt == last {
+			continue
+		}
+		last = attempt
+		cfg.capture.channels = u32(attempt)
+		if ma.device_init(&ctx, &cfg, &device) == .SUCCESS {
+			opened = true
+			break
+		}
+	}
+	if !opened {
 		fmt.eprintln("cannot open capture device")
 		return {}, false
 	}
 	defer ma.device_uninit(&device)
 
-	if ma.device_start(&device) != .SUCCESS {
-		fmt.eprintln("cannot start capture device")
-		return {}, false
-	}
-
 	actual_rate := device.sampleRate
 	actual_channels := int(device.capture.channels)
-	// The callback writes `state.channels` wide; miniaudio is configured to
-	// match, so a mismatch means the backend rejected the request.
+	if actual_rate == 0 || actual_channels <= 0 {
+		fmt.eprintln("capture device reported an invalid format")
+		return {}, false
+	}
 	if actual_channels != channels {
-		fmt.eprintfln("device opened %d channels, requested %d", actual_channels, channels)
-		ma.device_stop(&device)
+		fmt.eprintfln("device opened %d channel(s), requested %d", actual_channels, channels)
+	}
+	if actual_rate != rate {
+		fmt.eprintfln("device runs at %d Hz, requested %d Hz", actual_rate, rate)
+	}
+
+	target_frames := int(seconds * f32(actual_rate))
+	if target_frames <= 0 {
+		return {}, false
+	}
+	// Allocate after the device is open so the buffer matches the channels and
+	// rate that were actually accepted. The callback cannot run until
+	// `device_start`, below.
+	state.channels = actual_channels
+	state.capacity = target_frames
+	state.buffer = make([]f32, target_frames * actual_channels)
+
+	if ma.device_start(&device) != .SUCCESS {
+		fmt.eprintln("cannot start capture device")
 		return {}, false
 	}
 
@@ -248,14 +272,12 @@ capture_record :: proc(seconds: f32, channels: int, rate: u32, device_index: int
 	sync.mutex_unlock(&state.lock)
 
 	out_frames := min(frames, target_frames)
-	samples := make([]f32, out_frames * channels)
-	for i in 0 ..< len(samples) {
-		samples[i] = state.buffer[i]
-	}
+	samples := make([]f32, out_frames * actual_channels)
+	copy(samples, state.buffer[:out_frames * actual_channels])
 
 	return Capture_Result {
 		samples = samples,
-		channels = channels,
+		channels = actual_channels,
 		rate = actual_rate,
 		frames = out_frames,
 		short = target_frames - out_frames,

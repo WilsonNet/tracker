@@ -10,6 +10,12 @@ import "core:os"
 
 import dsp "dsp"
 
+// Matches the writer's limit; keeps malformed headers from allocating absurd
+// sample arrays and mirrors the engine's track channel count.
+WAV_MAX_CHANNELS :: 32
+// 12 RIFF + 26 fmt (18-byte body) + 12 fact + 8 data header.
+WAV_HEADER_SIZE :: 58
+
 Wav :: struct {
 	sample_rate: u32,
 	channels:    u32,
@@ -43,23 +49,44 @@ tag_eq :: proc(src: []byte, tag: string) -> bool {
 	return true
 }
 
+// The RIFF size field is 32 bits and covers everything after the first 8 bytes.
+@(private)
+wav_riff_fits :: proc(data_len: int) -> bool {
+	if data_len < 0 {
+		return false
+	}
+	return u64(data_len) + u64(WAV_HEADER_SIZE - 8) <= 0xFFFF_FFFF
+}
+
 // Writes 32-bit float WAV with a `fact` chunk.
 wav_write :: proc(path: string, sample_rate: u32, channels: u32, samples: []f32) -> bool {
-	if channels == 0 || channels > 32 || len(samples) == 0 {
+	if channels == 0 || channels > WAV_MAX_CHANNELS || len(samples) == 0 {
 		return false
 	}
 	if len(samples) % int(channels) != 0 {
 		return false
 	}
+	if sample_rate == 0 {
+		return false
+	}
+	// Guard the u32 size fields and integer overflow before allocating.
+	if !wav_riff_fits(len(samples) * 4) {
+		return false
+	}
+	if u64(sample_rate) * u64(channels) * 4 > 0xFFFF_FFFF {
+		return false
+	}
 	frames := len(samples) / int(channels)
+	if u64(frames) > 0xFFFF_FFFF {
+		return false
+	}
+
 	data_len := len(samples) * 4
-	// 12 RIFF + 26 fmt (18-byte body) + 12 fact + 8 data header.
-	HEADER :: 58
-	buf := make([]byte, HEADER + data_len)
+	buf := make([]byte, WAV_HEADER_SIZE + data_len)
 	defer delete(buf)
 
 	put_tag(buf[0:], "RIFF")
-	endian.unchecked_put_u32le(buf[4:], u32(HEADER - 8 + data_len))
+	endian.unchecked_put_u32le(buf[4:], u32(WAV_HEADER_SIZE - 8 + data_len))
 	put_tag(buf[8:], "WAVE")
 
 	put_tag(buf[12:], "fmt ")
@@ -79,7 +106,7 @@ wav_write :: proc(path: string, sample_rate: u32, channels: u32, samples: []f32)
 	put_tag(buf[50:], "data")
 	endian.unchecked_put_u32le(buf[54:], u32(data_len))
 	for s, i in samples {
-		endian.put_f32(buf[HEADER + i * 4:], .Little, s)
+		endian.put_f32(buf[WAV_HEADER_SIZE + i * 4:], .Little, s)
 	}
 
 	return os.write_entire_file(path, buf) == nil
@@ -92,7 +119,7 @@ wav_read :: proc(path: string) -> (wav: Wav, ok: bool) {
 	}
 	defer delete(data)
 
-	if len(data) < 44 || !tag_eq(data[0:], "RIFF") || !tag_eq(data[8:], "WAVE") {
+	if len(data) < 12 || !tag_eq(data[0:], "RIFF") || !tag_eq(data[8:], "WAVE") {
 		return {}, false
 	}
 
@@ -110,28 +137,33 @@ wav_read :: proc(path: string) -> (wav: Wav, ok: bool) {
 		size := int(endian.unchecked_get_u32le(data[off + 4:]))
 		payload := off + 8
 
-		if tag_eq(chunk, "fmt ") && payload + 16 <= len(data) {
-			format = endian.unchecked_get_u16le(data[payload:])
-			wav.channels = u32(endian.unchecked_get_u16le(data[payload + 2:]))
-			wav.sample_rate = endian.unchecked_get_u32le(data[payload + 4:])
-			block_align = endian.unchecked_get_u16le(data[payload + 12:])
-			bits = endian.unchecked_get_u16le(data[payload + 14:])
-			// WAVE_FORMAT_EXTENSIBLE carries the real format in the subformat GUID.
-			if format == 0xFFFE && payload + 40 <= len(data) {
-				subformat := endian.unchecked_get_u32le(data[payload + 24:])
-				if subformat == 3 {
-					format = 3
-				} else if subformat == 1 {
-					format = 1
+		if tag_eq(chunk, "fmt ") {
+			// Never read a fmt body across the declared chunk boundary.
+			if size >= 16 && payload + 16 <= len(data) {
+				format = endian.unchecked_get_u16le(data[payload:])
+				wav.channels = u32(endian.unchecked_get_u16le(data[payload + 2:]))
+				wav.sample_rate = endian.unchecked_get_u32le(data[payload + 4:])
+				block_align = endian.unchecked_get_u16le(data[payload + 12:])
+				bits = endian.unchecked_get_u16le(data[payload + 14:])
+				// WAVE_FORMAT_EXTENSIBLE carries the real format in the
+				// subformat GUID. Its first four bytes are the format tag.
+				if format == 0xFFFE && size >= 40 && payload + 40 <= len(data) {
+					subformat := endian.unchecked_get_u32le(data[payload + 24:])
+					if subformat == 3 {
+						format = 3
+					} else if subformat == 1 {
+						format = 1
+					}
 				}
+				have_fmt = true
 			}
-			have_fmt = true
 		} else if tag_eq(chunk, "data") {
 			data_off = payload
 			data_len = min(size, len(data) - payload)
 			have_data = true
 		}
 
+		// Chunks are word-aligned; an odd-sized chunk has one pad byte.
 		next := payload + size + (size % 2)
 		if next <= off {
 			break
@@ -139,44 +171,87 @@ wav_read :: proc(path: string) -> (wav: Wav, ok: bool) {
 		off = next
 	}
 
-	if !have_fmt || !have_data || wav.channels == 0 || block_align == 0 {
+	if !have_fmt || !have_data {
+		return {}, false
+	}
+	if wav.channels == 0 || wav.channels > WAV_MAX_CHANNELS || wav.sample_rate == 0 {
+		return {}, false
+	}
+	if block_align == 0 {
 		return {}, false
 	}
 
+	bytes_per_sample := 0
+	switch {
+	case format == 3 && bits == 32:
+		bytes_per_sample = 4
+	case format == 1 && bits == 16:
+		bytes_per_sample = 2
+	case format == 1 && bits == 24:
+		bytes_per_sample = 3
+	case format == 1 && bits == 32:
+		bytes_per_sample = 4
+	case:
+		return {}, false
+	}
+
+	// Samples live inside frames of `block_align` bytes. Reject headers whose
+	// frame stride cannot hold the declared channels; trusting them would read
+	// past the data chunk (and previously past the end of the file).
+	frame_bytes := int(wav.channels) * bytes_per_sample
+	if int(block_align) < frame_bytes {
+		return {}, false
+	}
 	frames := data_len / int(block_align)
 	sample_count := frames * int(wav.channels)
+	if frames > 0 && sample_count / frames != int(wav.channels) {
+		return {}, false
+	}
+
 	wav.samples = make([]f32, sample_count)
 	wav.frames = frames
+	stride := int(block_align)
 
 	switch {
 	case format == 3 && bits == 32:
-		for i in 0 ..< sample_count {
-			v, _ := endian.get_f32(data[data_off + i * 4:], .Little)
-			wav.samples[i] = v
+		for f in 0 ..< frames {
+			frame := data_off + f * stride
+			for c in 0 ..< int(wav.channels) {
+				v, _ := endian.get_f32(data[frame + c * 4:], .Little)
+				wav.samples[f * int(wav.channels) + c] = v
+			}
 		}
 	case format == 1 && bits == 16:
-		for i in 0 ..< sample_count {
-			v := i16(endian.unchecked_get_u16le(data[data_off + i * 2:]))
-			wav.samples[i] = f32(v) / 32768.0
+		for f in 0 ..< frames {
+			frame := data_off + f * stride
+			for c in 0 ..< int(wav.channels) {
+				p := frame + c * 2
+				v := i16(endian.unchecked_get_u16le(data[p:]))
+				wav.samples[f * int(wav.channels) + c] = f32(v) / 32768.0
+			}
 		}
 	case format == 1 && bits == 24:
-		for i in 0 ..< sample_count {
-			p := data_off + i * 3
-			v := u32(data[p]) | u32(data[p + 1]) << 8 | u32(data[p + 2]) << 16
-			if v & 0x800000 != 0 {
-				v |= 0xFF000000
+		for f in 0 ..< frames {
+			frame := data_off + f * stride
+			for c in 0 ..< int(wav.channels) {
+				p := frame + c * 3
+				v := u32(data[p]) | u32(data[p + 1]) << 8 | u32(data[p + 2]) << 16
+				s := i32(v)
+				if v & 0x800000 != 0 {
+					s -= 0x1000000
+				}
+				wav.samples[f * int(wav.channels) + c] = f32(s) / 8388608.0
 			}
-			wav.samples[i] = f32(i32(v)) / 8388608.0
 		}
 	case format == 1 && bits == 32:
-		for i in 0 ..< sample_count {
-			v := i32(endian.unchecked_get_u32le(data[data_off + i * 4:]))
-			wav.samples[i] = f32(v) / 2147483648.0
+		for f in 0 ..< frames {
+			frame := data_off + f * stride
+			for c in 0 ..< int(wav.channels) {
+				p := frame + c * 4
+				v := i32(endian.unchecked_get_u32le(data[p:]))
+				wav.samples[f * int(wav.channels) + c] = f32(v) / 2147483648.0
+			}
 		}
-	case:
-		delete(wav.samples)
-		wav.samples = nil
-		return {}, false
 	}
 
 	return wav, true

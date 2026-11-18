@@ -292,18 +292,22 @@ when ODIN_OS == .Linux {
 			fmt.eprintln("JACK: cannot activate client")
 			return {}, false
 		}
-		defer jack_deactivate(client)
 
 		start := time.now()
 		last_print := time.Duration(0)
 		timeout := time.Duration(f64(seconds + 3.0) * f64(time.Second))
+		timed_out := false
 		for {
 			sync.mutex_lock(&state.lock)
 			written := state.written
 			sync.mutex_unlock(&state.lock)
 
 			elapsed := time.since(start)
-			if written >= target_frames || elapsed > timeout {
+			if written >= target_frames {
+				break
+			}
+			if elapsed > timeout {
+				timed_out = true
 				break
 			}
 			if elapsed - last_print >= 250 * time.Millisecond {
@@ -319,13 +323,26 @@ when ODIN_OS == .Linux {
 			time.sleep(50 * time.Millisecond)
 		}
 
+		// Deactivate *before* reading the buffer. On a timeout the process
+		// callback can still be delivering frames; deactivating first (and
+		// copying under the same lock) keeps the copy free of races and makes
+		// the local `state` safe to leave scope.
+		_ = jack_deactivate(client)
 		sync.mutex_lock(&state.lock)
 		frames := state.written
-		sync.mutex_unlock(&state.lock)
-
 		out_frames := min(frames, target_frames)
 		samples := make([]f32, out_frames * channels)
 		copy(samples, state.buffer[:out_frames * channels])
+		sync.mutex_unlock(&state.lock)
+
+		if timed_out {
+			fmt.eprintfln("JACK: capture timed out, keeping %d of %d frames", out_frames, target_frames)
+		}
+		if out_frames == 0 {
+			delete(samples)
+			fmt.eprintln("JACK: no frames were delivered")
+			return {}, false
+		}
 
 		return Capture_Result {
 			samples = samples,
