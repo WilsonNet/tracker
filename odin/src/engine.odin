@@ -44,6 +44,14 @@ Recorder :: struct {
 	inputs:       [MAX_ENGINE_TRACKS]int,
 	peak:         [32]f32,
 	error:        bool,
+	// Live monitoring through the duplex path. `monitoring` records whether
+	// this take actually opened a duplex device (it can fall back to capture).
+	monitor:      Monitor,
+	monitoring:   bool,
+	// Device-loss bookkeeping. Deliberate stop paths set `stop_expected` first
+	// so their own `stopped` notification does not look like a hot-unplug.
+	stop_expected: u64,
+	interrupt:     u64,
 }
 
 Playback :: struct {
@@ -61,6 +69,8 @@ Playback :: struct {
 	beat_pos: int,
 	click_left: int,
 	click_phase: f32,
+	stop_expected: u64,
+	interrupt:     u64,
 }
 
 Engine :: struct {
@@ -70,6 +80,11 @@ Engine :: struct {
 	bounce_path:  string,
 	sample_rate:  u32,
 	device_index: int,
+	// Live input monitoring is opt-in and only active during a take.
+	monitor_enabled: bool,
+	// Frames to trim from the start of a new take when splitting it. The
+	// round-trip latency of the capture device belongs here; default 0.
+	latency_ms:   f32,
 	loaded:       [MAX_ENGINE_TRACKS][]f32,
 	loaded_rate:  [MAX_ENGINE_TRACKS]u32,
 	rec:          Recorder,
@@ -109,6 +124,8 @@ engine_default_device :: proc() -> int {
 engine_init :: proc(e: ^Engine, args: []string) -> bool {
 	e.sample_rate = 48_000
 	e.device_index = -1
+	e.monitor_enabled = false
+	e.latency_ms = 0
 	dir := flag_string(args, "--session", "")
 	if dir == "" {
 		home := os.get_env("HOME", context.allocator)
@@ -219,12 +236,74 @@ recorder_callback :: proc "c" (device: ^ma.device, output, input: rawptr, frame_
 		return
 	}
 	r := cast(^Recorder)device.pUserData
-	if r == nil || !r.active || input == nil || frame_count == 0 || r.channels <= 0 {
+	if r == nil || frame_count == 0 {
+		return
+	}
+	frames := int(frame_count)
+
+	// Duplex devices hand us both buffers. Monitoring writes only through the
+	// duplex output and silences itself when disabled or no take is active.
+	if output != nil && r.channels > 0 {
+		out := cast([^]f32)output
+		out_channels := int(device.playback.channels)
+		input_samples := cast([^]f32)input if input != nil else nil
+		src: []f32
+		if input_samples != nil {
+			src = input_samples[:frames * r.channels]
+		}
+		dst := out[:frames * max(out_channels, 0)]
+		monitor_mix(&r.monitor, src, dst, frames, r.channels, out_channels)
+	}
+
+	if !r.active || input == nil || r.channels <= 0 {
 		return
 	}
 	src := cast([^]f32)input
-	frames := int(frame_count)
 	recorder_push(r, src[:frames * r.channels], frames)
+}
+
+@(private)
+recorder_notification :: proc "c" (n: ^ma.device_notification) {
+	if n == nil || n.pDevice == nil {
+		return
+	}
+	r := cast(^Recorder)n.pDevice.pUserData
+	if r == nil {
+		return
+	}
+	#partial switch n.type {
+	case .stopped, .interruption_began:
+		// A deliberate stop (take end, teardown) sets this first. Anything
+		// else is an unplug or backend failure and must be recovered on the
+		// UI thread by `engine_update`.
+		if sync.atomic_load(&r.stop_expected) == 0 {
+			sync.atomic_store(&r.interrupt, 1)
+		}
+	case .started:
+		// A successful (re)start clears a stale interruption flag.
+		sync.atomic_store(&r.interrupt, 0)
+	case:
+	}
+}
+
+@(private)
+playback_notification :: proc "c" (n: ^ma.device_notification) {
+	if n == nil || n.pDevice == nil {
+		return
+	}
+	p := cast(^Playback)n.pDevice.pUserData
+	if p == nil {
+		return
+	}
+	#partial switch n.type {
+	case .stopped, .interruption_began:
+		if sync.atomic_load(&p.stop_expected) == 0 {
+			sync.atomic_store(&p.interrupt, 1)
+		}
+	case .started:
+		sync.atomic_store(&p.interrupt, 0)
+	case:
+	}
 }
 
 // Writes the whole slice, retrying short writes. A bare `os.write` may write
@@ -336,7 +415,12 @@ recorder_join_writer :: proc(e: ^Engine) {
 @(private)
 recorder_release :: proc(e: ^Engine, close_raw: bool, free_ring: bool) {
 	e.rec.active = false
+	e.rec.monitoring = false
+	monitor_set_enabled(&e.rec.monitor, false)
 	if e.rec.device_open {
+		// This stop is intentional; keep its notification out of the
+		// hot-unplug recovery path.
+		sync.atomic_store(&e.rec.stop_expected, 1)
 		_ = ma.device_stop(&e.rec.device)
 		ma.device_uninit(&e.rec.device)
 		e.rec.device_open = false
@@ -401,41 +485,89 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		ui.status_buf_set(a, "no capture devices")
 		return false
 	}
-	idx := e.device_index
-	if idx < 0 {
-		idx = 0
-		for i in 0 ..< int(count) {
-			if infos[i].isDefault {
-				idx = i
-				break
-			}
+
+	// The UI stores the selected device by name. If the index went stale (the
+	// device was unplugged and the list shifted), re-resolve by name first,
+	// then fall back to the system default instead of recording the wrong box.
+	names := make([]string, int(count))
+	default_index := 0
+	for i in 0 ..< int(count) {
+		names[i] = capture_device_name(&infos[i])
+		if infos[i].isDefault {
+			default_index = i
 		}
 	}
-	idx = clamp(idx, 0, int(count) - 1)
-
-	cfg := ma.device_config_init(.capture)
-	cfg.sampleRate = e.sample_rate
-	cfg.capture.format = .f32
-	cfg.capture.pDeviceID = &infos[idx].id
-	cfg.dataCallback = recorder_callback
-	cfg.pUserData = &e.rec
-	cfg.periodSizeInFrames = 1024
+	defer {
+		for n in names {
+			delete(n)
+		}
+		delete(names)
+	}
+	idx := engine_resolve_device_index(e.device_index, ui.app_device(a), names, default_index)
+	if idx < 0 {
+		recorder_release(e, false, false)
+		ui.status_buf_set(a, "no capture devices")
+		return false
+	}
+	e.device_index = idx
 
 	// If the device rejects the widest requested input, fall back in steps
 	// instead of failing the take outright. `ma_device_init` zeroes the device
 	// on entry, so retrying into the same struct is safe.
-	opened := false
-	last_channels := 0
 	attempts := [5]int{requested, 8, 4, 2, 1}
-	for attempt in attempts {
-		if attempt > requested || attempt == last_channels {
-			continue
+	opened := false
+	monitoring := false
+
+	// Monitoring uses a duplex device so the input and output share one clock
+	// and one callback. If duplex init fails (no output device, backend
+	// restriction), the take still records capture-only.
+	if e.monitor_enabled {
+		for playback_channels in ([2]int{2, 1}) {
+			cfg := ma.device_config_init(.duplex)
+			cfg.sampleRate = e.sample_rate
+			cfg.capture.format = .f32
+			cfg.capture.pDeviceID = &infos[idx].id
+			cfg.playback.format = .f32
+			cfg.playback.channels = u32(playback_channels)
+			cfg.dataCallback = recorder_callback
+			cfg.notificationCallback = recorder_notification
+			cfg.pUserData = &e.rec
+			cfg.periodSizeInFrames = 1024
+			for attempt in attempts {
+				if attempt > requested {
+					continue
+				}
+				cfg.capture.channels = u32(attempt)
+				if ma.device_init(&e.rec.ctx, &cfg, &e.rec.device) == .SUCCESS {
+					opened = true
+					monitoring = true
+					break
+				}
+			}
+			if opened {
+				break
+			}
 		}
-		last_channels = attempt
-		cfg.capture.channels = u32(attempt)
-		if ma.device_init(&e.rec.ctx, &cfg, &e.rec.device) == .SUCCESS {
-			opened = true
-			break
+	}
+
+	if !opened {
+		cfg := ma.device_config_init(.capture)
+		cfg.sampleRate = e.sample_rate
+		cfg.capture.format = .f32
+		cfg.capture.pDeviceID = &infos[idx].id
+		cfg.dataCallback = recorder_callback
+		cfg.notificationCallback = recorder_notification
+		cfg.pUserData = &e.rec
+		cfg.periodSizeInFrames = 1024
+		for attempt in attempts {
+			if attempt > requested {
+				continue
+			}
+			cfg.capture.channels = u32(attempt)
+			if ma.device_init(&e.rec.ctx, &cfg, &e.rec.device) == .SUCCESS {
+				opened = true
+				break
+			}
 		}
 	}
 	if !opened {
@@ -454,6 +586,11 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	}
 	e.sample_rate = e.rec.rate
 	a.sample_rate = e.rec.rate
+
+	monitor_init(&e.rec.monitor)
+	monitor_snapshot_sources(&e.rec.monitor, e.rec.armed[:], e.rec.inputs[:], e.rec.channels)
+	e.rec.monitoring = monitoring
+	monitor_set_enabled(&e.rec.monitor, monitoring)
 
 	raw, ferr := os.open(e.take_path, os.O_WRONLY | os.O_CREATE | os.O_TRUNC)
 	if ferr != nil {
@@ -494,6 +631,8 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	}
 
 	e.rec.active = true
+	sync.atomic_store(&e.rec.stop_expected, 0)
+	sync.atomic_store(&e.rec.interrupt, 0)
 	if !recorder_start_writer(e) {
 		e.rec.active = false
 		if want_playback {
@@ -530,7 +669,10 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		return false
 	}
 
-	ui.status_buf_set(a, fmt.tprintf("recording %d ch @ %d Hz%s%s", e.rec.channels, e.rec.rate, " · overdub" if overdub else "", " · click" if a.metronome else ""))
+	ui.status_buf_set(a, fmt.tprintf("recording %d ch @ %d Hz%s%s%s", e.rec.channels, e.rec.rate, " · overdub" if overdub else "", " · click" if a.metronome else "", " · monitor" if monitoring else ""))
+	if e.monitor_enabled && !monitoring {
+		ui.toast(a, "monitor unavailable · recording input only")
+	}
 	return true
 }
 
@@ -546,9 +688,13 @@ engine_record_stop :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		return false
 	}
 
+	interrupted := sync.atomic_load(&e.rec.interrupt) != 0
+	sync.atomic_store(&e.rec.interrupt, 0)
+
 	// Stop the guide first so no playback outlives the take, then stop the
 	// capture callback before telling the writer to drain and exit.
 	engine_stop_playback(e)
+	sync.atomic_store(&e.rec.stop_expected, 1)
 	_ = ma.device_stop(&e.rec.device)
 	sync.atomic_store(&e.rec.stop, 1)
 	recorder_join_writer(e)
@@ -560,8 +706,12 @@ engine_record_stop :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	ok := engine_split_take(e, a)
 	if a != nil {
 		switch {
+		case !ok && interrupted:
+			ui.status_buf_set(a, "input device lost · take empty")
 		case !ok:
 			ui.status_buf_set(a, "take failed")
+		case interrupted:
+			ui.status_buf_set(a, "input device lost · take saved")
 		case write_error:
 			ui.status_buf_set(a, "take captured · disk write error, tail may be missing")
 		case overflow > 0:
@@ -596,16 +746,27 @@ engine_split_take :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		return false
 	}
 
+	// Latency compensation: the first N frames of a take are the round-trip
+	// delay between pressing REC and the performance reaching the converter.
+	// Drop them when splitting so the new take lines up with the existing mix.
+	drop := engine_latency_frames(e.latency_ms, e.rec.rate)
+	if drop >= frames {
+		_ = os.remove(e.take_path)
+		return false
+	}
+	out_frames := frames - drop
+
 	any := false
 	for i in 0 ..< MAX_ENGINE_TRACKS {
 		if !e.rec.armed[i] {
 			continue
 		}
-		mono := make([]f32, frames)
+		mono := make([]f32, out_frames)
 		ch := recorder_input_channel(e.rec.inputs[i], channels)
 		if ch >= 0 && ch < channels {
-			for f in 0 ..< frames {
-				v, _ := endian.get_f32(data[(f * channels + ch) * 4:], .Little)
+			for f in 0 ..< out_frames {
+				src_frame := f + drop
+				v, _ := endian.get_f32(data[(src_frame * channels + ch) * 4:], .Little)
 				mono[f] = v
 			}
 		}
@@ -810,8 +971,11 @@ playback_prepare :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool) -> bool {
 	cfg.playback.format = .f32
 	cfg.playback.channels = 2
 	cfg.dataCallback = playback_callback
+	cfg.notificationCallback = playback_notification
 	cfg.pUserData = p
 	cfg.periodSizeInFrames = 1024
+	p.stop_expected = 0
+	p.interrupt = 0
 	if ma.device_init(&p.ctx, &cfg, &p.device) != .SUCCESS {
 		ma.context_uninit(&p.ctx)
 		p.ctx = {}
@@ -831,6 +995,8 @@ playback_start :: proc(e: ^Engine) -> bool {
 	if !e.play.active {
 		return false
 	}
+	sync.atomic_store(&e.play.stop_expected, 0)
+	sync.atomic_store(&e.play.interrupt, 0)
 	if ma.device_start(&e.play.device) != .SUCCESS {
 		engine_stop_playback(e)
 		return false
@@ -849,6 +1015,7 @@ engine_stop_playback :: proc(e: ^Engine) {
 	if !e.play.active {
 		return
 	}
+	sync.atomic_store(&e.play.stop_expected, 1)
 	ma.device_stop(&e.play.device)
 	ma.device_uninit(&e.play.device)
 	ma.context_uninit(&e.play.ctx)
@@ -857,6 +1024,8 @@ engine_stop_playback :: proc(e: ^Engine) {
 	e.play.active = false
 	e.play.cursor = 0
 	e.play.frames = 0
+	e.play.interrupt = 0
+	e.play.stop_expected = 0
 }
 
 engine_bounce :: proc(e: ^Engine, a: ^ui.App) -> bool {
@@ -877,6 +1046,20 @@ engine_bounce :: proc(e: ^Engine, a: ^ui.App) -> bool {
 // ---------------------------------------------------------------- polling
 
 engine_update :: proc(e: ^Engine, a: ^ui.App) {
+	// Device loss is handled on the UI thread: stop the device, drain the
+	// writer, split whatever reached disk and report a clear status. This is
+	// the only safe place to tear down a miniaudio device.
+	if e.rec.active && sync.atomic_load(&e.rec.interrupt) != 0 {
+		_ = engine_record_stop(e, a)
+		return
+	}
+	if e.play.active && sync.atomic_load(&e.play.interrupt) != 0 {
+		engine_stop_playback(e)
+		if a != nil {
+			ui.app_force_stopped(a, "output device lost · playback stopped")
+		}
+		return
+	}
 	if e.rec.active {
 		if e.play.active {
 			e.play.click_enabled = a.metronome
@@ -948,7 +1131,121 @@ engine_update :: proc(e: ^Engine, a: ^ui.App) {
 	a.master.rms_db += (-60 - a.master.rms_db) * 0.12
 }
 
+// ---------------------------------------------------------------- monitoring
+
+// Enables live input monitoring. It is delivered by a duplex capture device,
+// so enabling it mid-take only works when that take opened duplex (monitoring
+// was already on); otherwise it applies to the next take. Returns true when
+// monitoring is live now (or will be for the next take while idle).
+engine_monitor_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
+	e.monitor_enabled = true
+	live := e.rec.active && e.rec.monitoring
+	if live {
+		monitor_set_enabled(&e.rec.monitor, true)
+	}
+	if a != nil {
+		switch {
+		case live:
+			ui.status_buf_set(a, "monitor on")
+		case e.rec.active:
+			ui.status_buf_set(a, "monitor on · next take")
+		case:
+			ui.status_buf_set(a, "monitor on")
+		}
+	}
+	return live || !e.rec.active
+}
+
+// Disables monitoring immediately. A duplex take keeps running (input still
+// records); its output is silenced by the callback.
+engine_monitor_stop :: proc(e: ^Engine, a: ^ui.App) -> bool {
+	was := e.monitor_enabled || monitor_is_enabled(&e.rec.monitor)
+	e.monitor_enabled = false
+	monitor_set_enabled(&e.rec.monitor, false)
+	if a != nil {
+		ui.status_buf_set(a, "monitor off")
+	}
+	return was
+}
+
+// ---------------------------------------------------------------- latency
+
+// Frames dropped from the start of a take for the given latency. Rounded to
+// the nearest frame so odd rates (44.1 kHz, 22.05 kHz) stay within half a frame
+// of the requested millisecond value.
+engine_latency_frames :: proc(latency_ms: f32, rate: u32) -> int {
+	if latency_ms <= 0 || rate == 0 {
+		return 0
+	}
+	ms := min(latency_ms, 10_000.0)
+	return int(math.round(f64(ms) * f64(rate) / 1000.0))
+}
+
+// Sets the capture round-trip latency used to trim new takes. Values are
+// clamped to a sane 0–10 s; 0 disables compensation.
+engine_set_latency_ms :: proc(e: ^Engine, latency_ms: f32) {
+	e.latency_ms = clamp(latency_ms, 0, 10_000)
+}
+
 // ---------------------------------------------------------------- devices
+
+// Resolves the device to open. Index and name are both considered so a list
+// that shifted after an unplug does not silently pick a different device; a
+// vanished selection falls back to the system default. Pure, for tests.
+engine_resolve_device_index :: proc(
+	selected: int,
+	selected_name: string,
+	names: []string,
+	default_index: int,
+) -> int {
+	if len(names) == 0 {
+		return -1
+	}
+	if selected_name != "" {
+		for name, i in names {
+			if name == selected_name {
+				return i
+			}
+		}
+	} else if selected >= 0 && selected < len(names) {
+		return selected
+	}
+	// The selected device is gone (or its index now points at another box);
+	// fall back to the system default rather than recording the wrong device.
+	if default_index >= 0 && default_index < len(names) {
+		return default_index
+	}
+	return 0
+}
+
+engine_fallback_device_index :: proc(selected, count, default_index: int) -> int {
+	if count <= 0 {
+		return -1
+	}
+	if selected >= 0 && selected < count {
+		return selected
+	}
+	if default_index >= 0 && default_index < count {
+		return default_index
+	}
+	return 0
+}
+
+// Re-enumerates capture devices. Returns freshly allocated names owned by the
+// caller (free each string and the slice) so a later UI pass can refresh its
+// list. `e.device_index` is reconciled in place: a stale selection becomes the
+// matching name or the default device.
+engine_rescan_devices :: proc(e: ^Engine, a: ^ui.App) -> []string {
+	names, default_index := capture_device_list()
+	if e != nil {
+		selected_name := ""
+		if a != nil {
+			selected_name = ui.app_device(a)
+		}
+		e.device_index = engine_resolve_device_index(e.device_index, selected_name, names, default_index)
+	}
+	return names
+}
 
 engine_set_device :: proc(e: ^Engine, a: ^ui.App, index: int) {
 	if index == e.device_index {

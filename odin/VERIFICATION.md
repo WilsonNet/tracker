@@ -9,12 +9,12 @@ Recorded on the development machine (Arch Linux, PipeWire 1.6.11, Odin
 |---|---|---|
 | clean build | `make clean && make build` | 0.68 s, 1 binary |
 | DSP tests | `odin test src/dsp` | 70 passed |
-| engine/project/WAV | `odin test src` | 45 passed |
+| engine/project/WAV | `odin test src` | 53 passed |
 | UI state/layout/PNG | `odin test src/ui` | 38 passed |
 | vet | `odin check src -no-entry-point -vet` | clean |
 | packaging | `PREFIX=/tmp/tracker-install ./scripts/install-desktop.sh` | binary + icon + desktop entry |
 
-Total: **153 unit tests**.
+Total: **161 unit tests**.
 
 ## Native UI harness (Playwright replacement)
 
@@ -43,6 +43,8 @@ Total: **153 unit tests**.
 | bounce from native UI | `bounce.wav`, stereo float, limiter ceiling respected |
 | project save/reload | `project.json` + `track1.wav`; TAKE restored after relaunch |
 | UI loopback recording | track 1 peak **−6.02 dBFS**, master −7.9 dBFS on screen |
+| duplex monitoring take | 2 s live take through `engine_monitor_start` + `engine_record_start`; duplex opened, both tracks split |
+| hardware capture (post-change) | 96,000 frames / 2.000 s, short 0 |
 | text rendering | baked 12.5px/25px anti-aliased mono atlas, descenders/baseline tests |
 | Hyprland window rule | class `tracker`, workspace `special:tracker`, silent, no focus steal |
 | mixed-rate session | 44.1 kHz track → 48 kHz bounce |
@@ -72,7 +74,8 @@ session is Wayland):
 
 ## Known gaps
 
-See `ROADMAP.md` Phase 4: live input monitoring, latency compensation, native
-file picker, undo/redo, RF64, a11y tree, JACK GUI mode, hotplug. These are
-explicitly out of scope for the current port; everything else on the roadmap is
-implemented and exercised above.
+See `ROADMAP.md` Phase 4: native file picker, undo/redo, RF64, a11y tree and
+JACK GUI mode. Monitoring has no UI control yet and latency compensation is
+manual (no automatic round-trip measurement); hotplug recovery is covered by
+unit tests and a live duplex take, but was not exercised by physically
+unplugging the interface during the run.

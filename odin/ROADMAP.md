@@ -64,9 +64,9 @@ in the reference but not here; **new** = only relevant to the native app.
 | CI entry point | done | `scripts/check.sh` (+ `--hardware`, `--jack`, `--loopback`) |
 | Performance audit | done | `PERF.md`: render, UI, PNG, WAV, resampler benchmarks |
 | Memory/leak audit | done | suites report 0 live bytes; temp arena reset per frame; harness strings owned |
-| Device hotplug / unplug mid-take | missing | no retry path yet |
-| Latency compensation | missing | overdub alignment is approximate |
-| Live input monitoring | missing | deliberately not passed through (feedback-safe) |
+| Device hotplug / unplug mid-take | done | miniaudio notification flag → `engine_update` stops/splits; name/default fallback on next take; `engine_rescan_devices` |
+| Latency compensation | done | `Engine.latency_ms` / `engine_set_latency_ms`; split drops the first N frames (odd-rate tests) |
+| Live input monitoring | done | opt-in duplex path, −6 dB safe gain, default off; `engine_monitor_start/stop` (UI wiring pending) |
 | Undo/redo | missing | new to the native app |
 | Native file picker / recent projects | missing | fixed `--session` path |
 | RF64 / >4 GB files | missing | 32-bit RIFF size field |

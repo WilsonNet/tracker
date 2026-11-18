@@ -64,8 +64,7 @@ capture_callback :: proc "c" (device: ^ma.device, output, input: rawptr, frame_c
 	sync.mutex_unlock(&state.lock)
 }
 
-@(private)
-device_name :: proc(info: ^ma.device_info) -> string {
+capture_device_name :: proc(info: ^ma.device_info) -> string {
 	name, _ := strings.clone_from_cstring(cstring(&info.name[0]))
 	return name
 }
@@ -93,7 +92,7 @@ list_capture_devices :: proc() -> bool {
 	fmt.printfln("capture devices (%d):", count)
 	for i in 0 ..< int(count) {
 		info := &infos[i]
-		name := device_name(info)
+		name := capture_device_name(info)
 		marker := " "
 		if info.isDefault {
 			marker = "*"
@@ -119,9 +118,33 @@ capture_device_names :: proc() -> []string {
 	}
 	names := make([]string, int(count))
 	for i in 0 ..< int(count) {
-		names[i] = device_name(&infos[i])
+		names[i] = capture_device_name(&infos[i])
 	}
 	return names
+}
+
+// Enumerates capture devices and also reports which one the system considers
+// default. The caller owns the names and must free every string and the slice.
+capture_device_list :: proc() -> (names: []string, default_index: int) {
+	default_index = 0
+	ctx: ma.context_type
+	if ma.context_init(nil, 0, nil, &ctx) != .SUCCESS {
+		return nil, 0
+	}
+	defer ma.context_uninit(&ctx)
+	infos: [^]ma.device_info
+	count: u32
+	if ma.context_get_devices(&ctx, nil, nil, &infos, &count) != .SUCCESS || count == 0 {
+		return nil, 0
+	}
+	names = make([]string, int(count))
+	for i in 0 ..< int(count) {
+		names[i] = capture_device_name(&infos[i])
+		if infos[i].isDefault {
+			default_index = i
+		}
+	}
+	return
 }
 
 capture_default_index :: proc() -> int {

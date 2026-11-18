@@ -66,7 +66,7 @@ test -f "$ODIN_ROOT/vendor/miniaudio/lib/miniaudio.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 153 unit tests
+make test         # 161 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -87,7 +87,7 @@ directory is in `XDG_DATA_DIRS`.
 | target | what it does |
 |---|---|
 | `build` | compile `bin/tracker-odin` |
-| `test` | 153 unit tests: 70 DSP, 45 core/engine/project, 38 UI |
+| `test` | 161 unit tests: 70 DSP, 53 core/engine/project, 38 UI |
 | `check` | `scripts/check.sh`: unit tests, 118-action UI tour, offline bounce |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
@@ -204,7 +204,7 @@ stereo 32-bit float.
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 45 core/engine/project + 38 UI = 153 tests
+make test        # 70 DSP + 53 core/engine/project + 38 UI = 161 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui
@@ -239,7 +239,9 @@ odin/
     ui_window.odin     SDL2 window + input mapping
     ui_harness.odin    scripted native UI test runner
     ui_cmd.odin        ui-shot
-    engine.odin        ring-buffer capture, playback, bounce, overdub
+    engine.odin        ring-buffer capture, playback, bounce, overdub,
+                       hotplug recovery, latency trim
+    monitor.odin       RT-safe duplex input-to-output monitor mix
     project.odin       project.json + DSP/view mapping
     capture.odin       miniaudio enumeration/capture
     jack_capture.odin  cooperative JACK client
@@ -291,10 +293,18 @@ architectural change than this port needs today.
 
 ## Limitations
 
-- No zero-latency input monitoring. Playback/overdub is rendered and played;
-  the live input is not passed through the output (feedback-safe by default).
-- Overdub is not latency-compensated: the click/existing mix and the capture
-  start on separate devices, so sample-accurate alignment is not guaranteed.
+- Live input monitoring is engine-only for now: `engine_monitor_start` opens a
+  duplex capture/output path at −6 dB and is off by default. It is not yet
+  exposed as a UI control, and enabling it mid-take only takes effect when that
+  take already opened duplex (otherwise the next take uses it).
+- Latency compensation is manual: set `Engine.latency_ms` (or call
+  `engine_set_latency_ms`) and the split drops that many leading frames. There
+  is no automatic round-trip measurement yet, and monitoring latency itself is
+  not measured.
+- Hotplug recovery covers the miniaudio duplex/capture/playback devices: an
+  unexpected stop interrupts the take, `engine_update` stops and splits it, and
+  the next record re-resolves the device by name before falling back to the
+  default. JACK capture still has its own CLI path.
 - Preview render and bounce run synchronously on the UI thread; a long mix
   pauses the window while it renders. JACK capture is exposed through the CLI,
   not yet as a GUI mode.
