@@ -12,8 +12,14 @@ MAX_KNOBS :: 24
 MAX_TOGGLES :: 16
 MAX_DEVICES :: 16
 MAX_PALETTE :: 24
+MAX_HISTORY :: 64
+MAX_RECENT :: 8
+RECENT_PATH_MAX :: 192
+RECENT_QUERY_MAX :: 40
+DESCRIBE_MAX :: 1024
+HISTORY_LABEL_MAX :: 40
 
-Mode :: enum { Normal, Fx, Palette, Io, Bounce }
+Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent }
 Transport :: enum { Stopped, Playing, Recording }
 Key :: enum { Char, Space, Enter, Escape, Backspace, Left, Right, Up, Down, Tab }
 
@@ -36,6 +42,14 @@ Command_Kind :: enum {
 	Arm_All,
 	Clear_Arms,
 	Panic,
+	Undo,
+	Redo,
+	Open_Project,
+	Save_As,
+	Recent,
+	Open_Recent,
+	High_Contrast,
+	Reduced_Motion,
 }
 
 Command :: struct {
@@ -132,6 +146,43 @@ Toggle_Target :: struct {
 	param:  int, // 0 = bypass, 1 = ping-pong
 }
 
+// Undo snapshots contain mix/edit state only. They deliberately exclude take
+// audio (`has_audio`), meters, the running transport and the project path: an
+// undo can never delete a recorded take or re-start a render.
+Track_Snapshot :: struct {
+	input:       int,
+	level:       f32,
+	pan:         f32,
+	armed:       bool,
+	muted:       bool,
+	soloed:      bool,
+	eq:          Eq_View,
+	comp:        Comp_View,
+	send_reverb: f32,
+	send_delay:  f32,
+}
+
+Master_Snapshot :: struct {
+	comp:    Comp_View,
+	reverb:  Reverb_View,
+	delay:   Delay_View,
+	width:   Width_View,
+	limiter: Limiter_View,
+}
+
+Snapshot :: struct {
+	tracks:    [MAX_TRACKS]Track_Snapshot,
+	master:    Master_Snapshot,
+	bpm:       int,
+	metronome: bool,
+}
+
+History_Entry :: struct {
+	state:     Snapshot,
+	label_buf: [HISTORY_LABEL_MAX]u8,
+	label_len: int,
+}
+
 Layout :: struct {
 	header:    Rect,
 	transport: Rect,
@@ -178,7 +229,13 @@ Layout :: struct {
 	palette:      Rect,
 	palette_input: Rect,
 	palette_row:  [MAX_PALETTE]Rect,
-	palette_count: int,
+	palette_count: int, // visible rows (window into the full match list)
+	palette_visible: int,
+
+	recent_panel: Rect,
+	recent_input: Rect,
+	recent_row:   [MAX_RECENT]Rect,
+	recent_count: int,
 
 	io_panel: Rect,
 	io_row:   [MAX_DEVICES]Rect,
@@ -224,8 +281,42 @@ App :: struct {
 	palette_buf: [96]u8,
 	palette_len: int,
 	palette_sel: int,
+	palette_scroll: int,
 	palette_items: [MAX_PALETTE]int,
 	palette_count: int,
+
+	// Recent projects are supplied by the window layer (zenity/GUI picker).
+	// Fixed buffers keep the App free of heap ownership; the list is in-memory
+	// session state and is meant to be seeded from a settings file by main.
+	recent_projects:    [MAX_RECENT][RECENT_PATH_MAX]u8,
+	recent_project_len: [MAX_RECENT]int,
+	recent_count:       int,
+	recent_query_buf:   [RECENT_QUERY_MAX]u8,
+	recent_query_len:   int,
+	recent_items:       [MAX_RECENT]int,
+	recent_filtered:    int,
+	recent_sel:         int,
+	recent_target_buf:  [RECENT_PATH_MAX]u8,
+	recent_target_len:  int,
+
+	// Accessibility preferences live in App state so the window layer can seed
+	// them from a config file. They are not part of undo snapshots.
+	high_contrast:  bool,
+	reduced_motion: bool,
+	state_revision: u64,
+	describe_buf:   [DESCRIBE_MAX]u8,
+	describe_len:   int,
+	last_command:       Command_Kind,
+	last_command_index: int,
+
+	// 64-entry linear history. history_pos indexes the current state; entries
+	// after it are redo candidates and are discarded by the next commit.
+	history:        [MAX_HISTORY]History_Entry,
+	history_count:  int,
+	history_pos:    int,
+	history_pending: bool,
+	pending_label_buf: [HISTORY_LABEL_MAX]u8,
+	pending_label_len: int,
 
 	devices:      []string,
 	device_index: int,
@@ -280,6 +371,8 @@ app_init :: proc(a: ^App, width, height: int) {
 	status_buf_set(a, "ready")
 	project_buf_set(a, "untitled")
 	device_buf_set(a, "no input")
+	a.recent_sel = 0
+	a.history_count = 0
 	for i in 0 ..< MAX_TRACKS {
 		t := &a.tracks[i]
 		t.name = TRACK_NAMES[i]
@@ -329,6 +422,7 @@ app_init :: proc(a: ^App, width, height: int) {
 	a.master.rms_db = -60
 	a.master.gr_db = 0
 	app_resize(a, width, height)
+	app_history_reset(a)
 }
 
 app_destroy :: proc(a: ^App) {
@@ -383,6 +477,381 @@ device_buf_set :: proc(a: ^App, s: string) {
 toast :: proc(a: ^App, s: string) {
 	buf_set(a.toast_buf[:], &a.toast_len, s)
 	a.toast_time = 2.2
+}
+
+// ---------------------------------------------------------------- undo / redo
+
+@(private)
+bump_revision :: proc(a: ^App) {
+	a.state_revision += 1
+}
+
+@(private)
+app_touch :: proc(a: ^App) {
+	a.dirty = true
+	bump_revision(a)
+}
+
+app_snapshot :: proc(a: ^App) -> Snapshot {
+	s: Snapshot
+	for i in 0 ..< MAX_TRACKS {
+		t := a.tracks[i]
+		s.tracks[i] = Track_Snapshot {
+			input = t.input,
+			level = t.level,
+			pan = t.pan,
+			armed = t.armed,
+			muted = t.muted,
+			soloed = t.soloed,
+			eq = t.eq,
+			comp = t.comp,
+			send_reverb = t.send_reverb,
+			send_delay = t.send_delay,
+		}
+	}
+	s.master = Master_Snapshot {
+		comp = a.master.comp,
+		reverb = a.master.reverb,
+		delay = a.master.delay,
+		width = a.master.width,
+		limiter = a.master.limiter,
+	}
+	s.bpm = a.bpm
+	s.metronome = a.metronome
+	return s
+}
+
+app_apply_snapshot :: proc(a: ^App, s: Snapshot) {
+	for i in 0 ..< MAX_TRACKS {
+		t := &a.tracks[i]
+		ts := s.tracks[i]
+		t.input = ts.input
+		t.level = ts.level
+		t.pan = ts.pan
+		t.armed = ts.armed
+		t.muted = ts.muted
+		t.soloed = ts.soloed
+		t.eq = ts.eq
+		t.comp = ts.comp
+		t.send_reverb = ts.send_reverb
+		t.send_delay = ts.send_delay
+	}
+	a.master.comp = s.master.comp
+	a.master.reverb = s.master.reverb
+	a.master.delay = s.master.delay
+	a.master.width = s.master.width
+	a.master.limiter = s.master.limiter
+	a.bpm = s.bpm
+	a.metronome = s.metronome
+	a.dirty = true
+	bump_revision(a)
+}
+
+@(private)
+history_entry_label :: proc(e: ^History_Entry) -> string {
+	return string(e.label_buf[:e.label_len])
+}
+
+// Mark the current gesture as undoable. The label is the human name shown in
+// status/toasts ("fader", "arm", "knob"). Commits happen on mouse-up, at the
+// end of a key action, and after palette execution.
+app_history_note :: proc(a: ^App, label: string) {
+	if a.history_pending && string(a.pending_label_buf[:a.pending_label_len]) == label {
+		return
+	}
+	buf_set(a.pending_label_buf[:], &a.pending_label_len, label)
+	a.history_pending = true
+}
+
+@(private)
+history_store :: proc(a: ^App, label: string) {
+	// Compare structurally: a click that did not change anything must not
+	// consume a history slot or truncate the redo branch.
+	snap := app_snapshot(a)
+	if a.history_count > 0 && a.history[a.history_pos].state == snap {
+		a.history_pending = false
+		return
+	}
+	pos := a.history_pos + 1
+	if pos >= MAX_HISTORY {
+		// Drop the oldest entry to keep the newest 64 gestures.
+		for i in 1 ..< MAX_HISTORY {
+			a.history[i - 1] = a.history[i]
+		}
+		pos = MAX_HISTORY - 1
+		a.history_count = MAX_HISTORY - 1
+	}
+	a.history_pos = pos
+	a.history[pos].state = snap
+	buf_set(a.history[pos].label_buf[:], &a.history[pos].label_len, label)
+	a.history_count = pos + 1
+	a.history_pending = false
+}
+
+app_history_commit :: proc(a: ^App) {
+	if !a.history_pending {
+		return
+	}
+	label := string(a.pending_label_buf[:a.pending_label_len])
+	if label == "" {
+		label = "edit"
+	}
+	history_store(a, label)
+}
+
+// Reset history after a project load/replace: old snapshots belong to another
+// document. main/window can call this after project_load.
+app_history_reset :: proc(a: ^App) {
+	a.history = {}
+	a.history_count = 1
+	a.history_pos = 0
+	a.history[0].state = app_snapshot(a)
+	buf_set(a.history[0].label_buf[:], &a.history[0].label_len, "open")
+	a.history_pending = false
+	a.pending_label_len = 0
+}
+
+app_can_undo :: proc(a: ^App) -> bool {
+	return a.history_pos > 0
+}
+
+app_can_redo :: proc(a: ^App) -> bool {
+	return a.history_pos + 1 < a.history_count
+}
+
+app_undo :: proc(a: ^App) {
+	if a.transport == .Recording {
+		status_buf_set(a, "recording - stop before undo")
+		toast(a, "stop recording before undo")
+		return
+	}
+	if !app_can_undo(a) {
+		status_buf_set(a, "nothing to undo")
+		toast(a, "nothing to undo")
+		return
+	}
+	label := history_entry_label(&a.history[a.history_pos])
+	a.history_pending = false
+	a.history_pos -= 1
+	app_apply_snapshot(a, a.history[a.history_pos].state)
+	status_buf_set(a, fmt.tprintf("undid %s (takes kept)", label))
+	toast(a, fmt.tprintf("undo %s", label))
+}
+
+app_redo :: proc(a: ^App) {
+	if a.transport == .Recording {
+		status_buf_set(a, "recording - stop before redo")
+		toast(a, "stop recording before redo")
+		return
+	}
+	if !app_can_redo(a) {
+		status_buf_set(a, "nothing to redo")
+		toast(a, "nothing to redo")
+		return
+	}
+	a.history_pending = false
+	a.history_pos += 1
+	app_apply_snapshot(a, a.history[a.history_pos].state)
+	status_buf_set(a, fmt.tprintf("redid %s", history_entry_label(&a.history[a.history_pos])))
+	toast(a, "redo")
+}
+
+// ---------------------------------------------------------------- recent projects
+
+app_recent_path :: proc(a: ^App, i: int) -> string {
+	if i < 0 || i >= a.recent_count {
+		return ""
+	}
+	return string(a.recent_projects[i][:a.recent_project_len[i]])
+}
+
+app_recent_target :: proc(a: ^App) -> string {
+	return string(a.recent_target_buf[:a.recent_target_len])
+}
+
+@(private)
+recent_set :: proc(a: ^App, i: int, path: string) {
+	buf_set(a.recent_projects[i][:], &a.recent_project_len[i], path)
+}
+
+app_add_recent :: proc(a: ^App, path: string) {
+	if path == "" {
+		return
+	}
+	// Move an existing entry to the front instead of duplicating it.
+	for i in 0 ..< a.recent_count {
+		if app_recent_path(a, i) == path {
+			for j := i; j > 0; j -= 1 {
+				a.recent_projects[j] = a.recent_projects[j - 1]
+				a.recent_project_len[j] = a.recent_project_len[j - 1]
+			}
+			recent_set(a, 0, path)
+			a.recent_filtered = 0
+			return
+		}
+	}
+	n := min(a.recent_count + 1, MAX_RECENT)
+	for i := n - 1; i > 0; i -= 1 {
+		a.recent_projects[i] = a.recent_projects[i - 1]
+		a.recent_project_len[i] = a.recent_project_len[i - 1]
+	}
+	a.recent_count = n
+	recent_set(a, 0, path)
+	bump_revision(a)
+}
+
+app_set_recent :: proc(a: ^App, paths: []string) {
+	a.recent_count = 0
+	for path, i in paths {
+		if i >= MAX_RECENT {
+			break
+		}
+		recent_set(a, a.recent_count, path)
+		a.recent_count += 1
+	}
+	bump_revision(a)
+}
+
+@(private)
+contains_ci :: proc(haystack, needle: string) -> bool {
+	if needle == "" {
+		return true
+	}
+	if len(needle) > len(haystack) {
+		return false
+	}
+	for start in 0 ..= len(haystack) - len(needle) {
+		ok := true
+		for i in 0 ..< len(needle) {
+			h := haystack[start + i]
+			n := needle[i]
+			if h >= 'A' && h <= 'Z' {
+				h += 32
+			}
+			if n >= 'A' && n <= 'Z' {
+				n += 32
+			}
+			if h != n {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return true
+		}
+	}
+	return false
+}
+
+app_recent_rebuild :: proc(a: ^App) {
+	a.recent_filtered = 0
+	query := string(a.recent_query_buf[:a.recent_query_len])
+	for i in 0 ..< a.recent_count {
+		if contains_ci(app_recent_path(a, i), query) {
+			if a.recent_filtered < MAX_RECENT {
+				a.recent_items[a.recent_filtered] = i
+				a.recent_filtered += 1
+			}
+		}
+	}
+	a.recent_sel = clamp(a.recent_sel, 0, max(a.recent_filtered - 1, 0))
+	app_layout(a)
+}
+
+app_recent_open :: proc(a: ^App) {
+	a.mode = .Recent
+	a.recent_query_len = 0
+	a.recent_sel = 0
+	app_recent_rebuild(a)
+	status_buf_set(a, "recent projects")
+	bump_revision(a)
+}
+
+app_recent_choose :: proc(a: ^App) {
+	if a.recent_filtered == 0 {
+		status_buf_set(a, "no recent projects")
+		toast(a, "no recent projects")
+		return
+	}
+	sel := clamp(a.recent_sel, 0, a.recent_filtered - 1)
+	idx := a.recent_items[sel]
+	path := app_recent_path(a, idx)
+	buf_set(a.recent_target_buf[:], &a.recent_target_len, path)
+	a.last_command = .Open_Recent
+	a.last_command_index = idx
+	emit(a, .Open_Recent, idx)
+	a.mode = .Normal
+	status_buf_set(a, fmt.tprintf("open %s", path))
+	bump_revision(a)
+}
+
+// ---------------------------------------------------------------- accessibility
+
+app_tokens :: proc(a: ^App) -> Tokens {
+	return theme_tokens(a.high_contrast)
+}
+
+@(private)
+describe_append :: proc(out: []u8, n: ^int, format: string, args: ..any) {
+	if n^ >= len(out) || n^ < 0 {
+		return
+	}
+	s := fmt.bprintf(out[n^:], format, ..args)
+	n^ += len(s)
+}
+
+app_describe :: proc(a: ^App) -> string {
+	out: [DESCRIBE_MAX]u8
+	n := 0
+	mode_name := "Normal"
+	switch a.mode {
+	case .Normal:
+		mode_name = "Normal"
+	case .Fx:
+		mode_name = "Fx rack"
+	case .Palette:
+		mode_name = "Command palette"
+	case .Io:
+		mode_name = "Input devices"
+	case .Bounce:
+		mode_name = "Bounce"
+	case .Recent:
+		mode_name = "Recent projects"
+	}
+	transport := "stopped"
+	switch a.transport {
+	case .Stopped:
+		transport = "stopped"
+	case .Playing:
+		transport = "playing"
+	case .Recording:
+		transport = "recording"
+	}
+	describe_append(out[:], &n, "mode %s. transport %s. ", mode_name, transport)
+	if a.selected >= MAX_TRACKS {
+		describe_append(out[:], &n, "selected master. ")
+	} else {
+		describe_append(out[:], &n, "selected track %d. ", a.selected + 1)
+	}
+	describe_append(out[:], &n, "tempo %d bpm. metronome %s. high contrast %s. reduced motion %s. ",
+		a.bpm, "on" if a.metronome else "off",
+		"on" if a.high_contrast else "off",
+		"on" if a.reduced_motion else "off")
+	for t, i in a.tracks {
+		describe_append(out[:], &n, "track %d %s: %s, mute %s, solo %s, level %d percent, pan %s, peak %.1f dB. ",
+			i + 1, t.name,
+			"armed" if t.armed else "disarmed",
+			"on" if t.muted else "off",
+			"on" if t.soloed else "off",
+			int(t.level / 1.5 * 100.0 + 0.5),
+			"center" if abs(t.pan) < 0.02 else fmt.tprintf("%s%.0f", "left " if t.pan < 0 else "right ", abs(t.pan) * 100),
+			t.peak_db)
+	}
+	describe_append(out[:], &n, "undo %d of %d. redo %d. status %s.",
+		a.history_pos, a.history_count - 1,
+		a.history_count - 1 - a.history_pos, app_status(a))
+	buf_set(a.describe_buf[:], &a.describe_len, string(out[:min(n, DESCRIBE_MAX)]))
+	return string(a.describe_buf[:a.describe_len])
 }
 
 app_set_devices :: proc(a: ^App, names: []string, selected: int) {
@@ -586,10 +1055,31 @@ app_layout :: proc(a: ^App) {
 		}
 	}
 
-	l.palette = Rect{(w - 560) * 0.5, max(96, (h - 460) * 0.5), 560, 460}
+	l.palette = Rect{(w - 560) * 0.5, max(76, (h - min(480, h - 160)) * 0.5), 560, min(480, h - 160)}
 	l.palette_input = Rect{l.palette.x + 14, l.palette.y + 38, l.palette.w - 28, 28}
+	palette_visible := max(int((l.palette.h - 110) / 26), 1)
+	if a.palette_count > 0 {
+		if a.palette_sel < a.palette_scroll {
+			a.palette_scroll = a.palette_sel
+		}
+		if a.palette_sel >= a.palette_scroll + palette_visible {
+			a.palette_scroll = a.palette_sel - palette_visible + 1
+		}
+		a.palette_scroll = clamp(a.palette_scroll, 0, max(a.palette_count - palette_visible, 0))
+	} else {
+		a.palette_scroll = 0
+	}
+	l.palette_visible = palette_visible
+	l.palette_count = max(min(a.palette_count - a.palette_scroll, palette_visible), 0)
 	for i in 0 ..< MAX_PALETTE {
-		l.palette_row[i] = Rect{l.palette.x + 10, l.palette.y + 78 + f32(i) * 25, l.palette.w - 20, 24}
+		l.palette_row[i] = Rect{l.palette.x + 10, l.palette.y + 78 + f32(i) * 26, l.palette.w - 20, 24}
+	}
+
+	l.recent_panel = Rect{(w - 620) * 0.5, max(96, (h - 380) * 0.5), 620, 380}
+	l.recent_input = Rect{l.recent_panel.x + 14, l.recent_panel.y + 38, l.recent_panel.w - 28, 28}
+	l.recent_count = a.recent_filtered
+	for i in 0 ..< MAX_RECENT {
+		l.recent_row[i] = Rect{l.recent_panel.x + 10, l.recent_panel.y + 78 + f32(i) * 30, l.recent_panel.w - 20, 28}
 	}
 
 	l.io_panel = Rect{w - 440, 124, 426, h - 160}
@@ -597,7 +1087,6 @@ app_layout :: proc(a: ^App) {
 	for i in 0 ..< MAX_DEVICES {
 		l.io_row[i] = Rect{l.io_panel.x + 12, l.io_panel.y + 78 + f32(i) * 30, l.io_panel.w - 24, 26}
 	}
-	l.palette_count = a.palette_count
 	if a.fx_focus >= l.knob_count + l.toggle_count {
 		a.fx_focus = -1
 	}
@@ -624,11 +1113,13 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		a.frames = 0
 		status_buf_set(a, "playing preview")
 		emit(a, .Play)
+		bump_revision(a)
 	case .Stop:
 		a.transport = .Stopped
 		a.frames = 0
 		status_buf_set(a, "stopped")
 		emit(a, .Stop)
+		bump_revision(a)
 	case .Record_Start:
 		if a.transport == .Recording {
 			return
@@ -646,12 +1137,14 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		}
 		a.transport = .Recording
 		a.frames = 0
-		status_buf_set(a, "recording")
+		status_buf_set(a, "recording (undo is paused; takes are kept)")
 		emit(a, .Record_Start)
+		bump_revision(a)
 	case .Record_Stop:
 		a.transport = .Stopped
-		status_buf_set(a, "take captured")
+		status_buf_set(a, "take captured (undo keeps audio)")
 		emit(a, .Record_Stop)
+		bump_revision(a)
 	case .Bounce:
 		if a.transport == .Recording {
 			toast(a, "stop recording before bounce")
@@ -667,12 +1160,27 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		a.bounce_active = true
 		status_buf_set(a, "bouncing")
 		emit(a, .Bounce)
+		bump_revision(a)
 	case .Save:
+		a.last_command = .Save
 		emit(a, .Save)
 		status_buf_set(a, "saving project")
 	case .Load:
+		a.last_command = .Load
 		emit(a, .Load)
 		status_buf_set(a, "loading project")
+	case .Open_Project:
+		a.last_command = .Open_Project
+		a.last_command_index = 0
+		emit(a, .Open_Project)
+		status_buf_set(a, "open project: waiting for picker")
+		toast(a, "choose a project")
+	case .Save_As:
+		a.last_command = .Save_As
+		a.last_command_index = 0
+		emit(a, .Save_As)
+		status_buf_set(a, "save project as: waiting for picker")
+		toast(a, "choose a destination")
 	case .Select_Device:
 		a.device_index = clamp(index, 0, max(len(a.devices) - 1, 0))
 		if len(a.devices) > 0 {
@@ -680,21 +1188,48 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		}
 		emit(a, .Select_Device, a.device_index)
 		status_buf_set(a, "input device selected")
+		bump_revision(a)
 	case .Fx:
 		a.mode = .Fx if a.mode != .Fx else .Normal
 		if a.mode != .Fx {
 			a.fx_focus = -1
 		}
 		status_buf_set(a, "fx rack")
+		bump_revision(a)
 	case .Io:
 		a.mode = .Io if a.mode != .Io else .Normal
+		bump_revision(a)
+	case .Recent:
+		if a.mode == .Recent {
+			a.mode = .Normal
+			status_buf_set(a, "recent projects closed")
+			bump_revision(a)
+		} else {
+			app_recent_open(a)
+		}
+	case .Open_Recent:
+		a.last_command = .Open_Recent
+		a.last_command_index = index
+		if index >= 0 && index < a.recent_count {
+			buf_set(a.recent_target_buf[:], &a.recent_target_len, app_recent_path(a, index))
+		}
+		emit(a, .Open_Recent, index)
+		a.mode = .Normal
+		status_buf_set(a, fmt.tprintf("open %s", app_recent_target(a)))
+		bump_revision(a)
 	case .Metronome:
 		a.metronome = !a.metronome
 		status_buf_set(a, "metronome on" if a.metronome else "metronome off")
+		app_history_note(a, "metronome")
+		app_touch(a)
 	case .Bpm_Up:
 		a.bpm = clamp(a.bpm + 1, 40, 240)
+		app_history_note(a, "tempo")
+		app_touch(a)
 	case .Bpm_Down:
 		a.bpm = clamp(a.bpm - 1, 40, 240)
+		app_history_note(a, "tempo")
+		app_touch(a)
 	case .Arm_All:
 		if a.transport == .Recording {
 			toast(a, "stop recording to change arms")
@@ -704,6 +1239,8 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 			a.tracks[i].armed = true
 		}
 		status_buf_set(a, "all tracks armed")
+		app_history_note(a, "arms")
+		app_touch(a)
 	case .Clear_Arms:
 		if a.transport == .Recording {
 			toast(a, "stop recording to change arms")
@@ -713,6 +1250,8 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 			a.tracks[i].armed = false
 		}
 		status_buf_set(a, "arms cleared")
+		app_history_note(a, "arms")
+		app_touch(a)
 	case .Panic:
 		a.transport = .Stopped
 		a.frames = 0
@@ -721,6 +1260,21 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		status_buf_set(a, "stopped")
 		toast(a, "panic stop")
 		emit(a, .Stop)
+		bump_revision(a)
+	case .Undo:
+		app_undo(a)
+	case .Redo:
+		app_redo(a)
+	case .High_Contrast:
+		a.high_contrast = !a.high_contrast
+		status_buf_set(a, "high contrast on" if a.high_contrast else "high contrast off")
+		toast(a, "high contrast on" if a.high_contrast else "high contrast off")
+		bump_revision(a)
+	case .Reduced_Motion:
+		a.reduced_motion = !a.reduced_motion
+		status_buf_set(a, "reduced motion on" if a.reduced_motion else "reduced motion off")
+		toast(a, "reduced motion on" if a.reduced_motion else "reduced motion off")
+		bump_revision(a)
 	}
 }
 

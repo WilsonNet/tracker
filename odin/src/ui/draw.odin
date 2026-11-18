@@ -196,7 +196,8 @@ module_title :: proc(m: Fx_Module) -> string {
 
 app_draw :: proc(a: ^App, c: ^Canvas) {
 	app_layout(a)
-	canvas_clear(c, BG)
+	ACTIVE_TOKENS = app_tokens(a)
+	canvas_clear(c, ACTIVE_TOKENS.bg)
 
 	draw_header(a, c)
 	draw_transport(a, c)
@@ -214,51 +215,53 @@ app_draw :: proc(a: ^App, c: ^Canvas) {
 		draw_io(a, c)
 	} else if a.mode == .Bounce {
 		draw_bounce(a, c)
+	} else if a.mode == .Recent {
+		draw_recent(a, c)
 	}
 }
 
 @(private)
 draw_header :: proc(a: ^App, c: ^Canvas) {
 	l := &a.layout
-	canvas_fill(c, l.header, PANEL)
-	canvas_hline(c, 0, f32(a.width), l.header.h - 1, LINE)
-	canvas_fill(c, Rect{16, 10, 3, 26}, AMBER)
-	canvas_text(c, 27, 6, "TRACKER", AMBER, 2)
-	canvas_vline(c, 142, 10, 36, LINE_BRIGHT)
-	canvas_text_clip(c, 156, 9, max(f32(a.width) - 456, 120), app_project(a), TEXT)
-	canvas_text(c, 156, 25, "MULTITRACK RECORDER · ODIN NATIVE", MUTED)
+	canvas_fill(c, l.header, ACTIVE_TOKENS.panel)
+	canvas_hline(c, 0, f32(a.width), l.header.h - 1, ACTIVE_TOKENS.line)
+	canvas_fill(c, Rect{16, 10, 3, 26}, ACTIVE_TOKENS.amber)
+	canvas_text(c, 27, 6, "TRACKER", ACTIVE_TOKENS.amber, 2)
+	canvas_vline(c, 142, 10, 36, ACTIVE_TOKENS.line_bright)
+	canvas_text_clip(c, 156, 9, max(f32(a.width) - 456, 120), app_project(a), ACTIVE_TOKENS.text)
+	canvas_text(c, 156, 25, "MULTITRACK RECORDER · ODIN NATIVE", ACTIVE_TOKENS.muted)
 	// Top-right: sample rate, then the device name to its left. Both live on
 	// the first row so the BPM stepper on row two never paints over them.
 	right := f32(a.width) - 16
-	canvas_text_right(c, right, 8, fmt.tprintf("%d kHz", a.sample_rate / 1000), DIM)
+	canvas_text_right(c, right, 8, fmt.tprintf("%d kHz", a.sample_rate / 1000), ACTIVE_TOKENS.dim)
 	device_right := right - 62
-	canvas_text_clip(c, device_right - 210, 8, 210, app_device(a), MUTED)
-	draw_button(c, l.bpm_minus, "-", false, is_hover(a, l.bpm_minus), a.bpm > 40, DIM)
-	draw_button(c, l.bpm_plus, "+", false, is_hover(a, l.bpm_plus), a.bpm < 240, DIM)
-	canvas_text_center(c, (l.bpm_minus.x + l.bpm_minus.w + l.bpm_plus.x) * 0.5, 28, fmt.tprintf("%d BPM", a.bpm), DIM)
-	draw_toggle(c, l.click, "CLICK", a.metronome, is_hover(a, l.click), true, TEAL)
+	canvas_text_clip(c, device_right - 210, 8, 210, app_device(a), ACTIVE_TOKENS.muted)
+	draw_button(c, l.bpm_minus, "-", false, is_hover(a, l.bpm_minus), a.bpm > 40, ACTIVE_TOKENS.dim)
+	draw_button(c, l.bpm_plus, "+", false, is_hover(a, l.bpm_plus), a.bpm < 240, ACTIVE_TOKENS.dim)
+	canvas_text_center(c, (l.bpm_minus.x + l.bpm_minus.w + l.bpm_plus.x) * 0.5, 28, fmt.tprintf("%d BPM", a.bpm), ACTIVE_TOKENS.dim)
+	draw_toggle(c, l.click, "CLICK", a.metronome, is_hover(a, l.click), true, ACTIVE_TOKENS.teal)
 }
 
 @(private)
 draw_transport :: proc(a: ^App, c: ^Canvas) {
 	l := &a.layout
-	canvas_fill(c, l.transport, BG)
-	canvas_hline(c, 0, f32(a.width), l.transport.y + l.transport.h - 1, LINE)
+	canvas_fill(c, l.transport, ACTIVE_TOKENS.bg)
+	canvas_hline(c, 0, f32(a.width), l.transport.y + l.transport.h - 1, ACTIVE_TOKENS.line)
 
 	rec_on := a.transport == .Recording
 	play_on := a.transport == .Playing
-	draw_button(c, l.rec, "REC", rec_on, is_hover(a, l.rec), true, RED)
-	draw_button(c, l.play, "PLAY", play_on, is_hover(a, l.play), true, TEAL)
+	draw_button(c, l.rec, "REC", rec_on, is_hover(a, l.rec), true, ACTIVE_TOKENS.red)
+	draw_button(c, l.play, "PLAY", play_on, is_hover(a, l.play), true, ACTIVE_TOKENS.teal)
 	draw_button(c, l.stop, "STOP", false, is_hover(a, l.stop), a.transport != .Stopped)
-	draw_button(c, l.bounce, "BOUNCE", a.mode == .Bounce, is_hover(a, l.bounce), a.transport != .Recording, AMBER)
-	draw_button(c, l.fx, "FX", a.mode == .Fx, is_hover(a, l.fx), true, AMBER)
-	draw_button(c, l.io, "I/O", a.mode == .Io, is_hover(a, l.io), true, AMBER)
+	draw_button(c, l.bounce, "BOUNCE", a.mode == .Bounce, is_hover(a, l.bounce), a.transport != .Recording, ACTIVE_TOKENS.amber)
+	draw_button(c, l.fx, "FX", a.mode == .Fx, is_hover(a, l.fx), true, ACTIVE_TOKENS.amber)
+	draw_button(c, l.io, "I/O", a.mode == .Io, is_hover(a, l.io), true, ACTIVE_TOKENS.amber)
 
-	tc_col: Color = TEXT
+	tc_col: Color = ACTIVE_TOKENS.text
 	if rec_on {
-		tc_col = RED
+		tc_col = ACTIVE_TOKENS.red
 	} else if play_on {
-		tc_col = TEAL
+		tc_col = ACTIVE_TOKENS.teal
 	}
 	cx := max(f32(a.width) * 0.5, l.io.x + l.io.w + 120)
 	canvas_text_center(c, cx, 54, timecode(a.frames, a.sample_rate), tc_col, 2)
@@ -268,17 +271,17 @@ draw_transport :: proc(a: ^App, c: ^Canvas) {
 	} else if play_on {
 		state = "PLAYING"
 	}
-	canvas_text_center(c, cx, 88, state, MUTED)
+	canvas_text_center(c, cx, 88, state, ACTIVE_TOKENS.muted)
 
 	// Bounce progress under its button.
 	if a.mode == .Bounce {
 		r := Rect{l.bounce.x, l.bounce.y + l.bounce.h + 4, l.bounce.w, 4}
-		canvas_fill(c, r, PANEL_3)
-		canvas_fill(c, Rect{r.x, r.y, r.w * clamp(a.bounce_progress, 0, 1), r.h}, AMBER)
+		canvas_fill(c, r, ACTIVE_TOKENS.panel_3)
+		canvas_fill(c, Rect{r.x, r.y, r.w * clamp(a.bounce_progress, 0, 1), r.h}, ACTIVE_TOKENS.amber)
 	}
 
-	canvas_text_right(c, f32(a.width) - 16, 62, "TAKE 01", DIM)
-	canvas_text_right(c, f32(a.width) - 16, 78, fmt.tprintf("%d ARM", arm_count(a)), MUTED)
+	canvas_text_right(c, f32(a.width) - 16, 62, "TAKE 01", ACTIVE_TOKENS.dim)
+	canvas_text_right(c, f32(a.width) - 16, 78, fmt.tprintf("%d ARM", arm_count(a)), ACTIVE_TOKENS.muted)
 }
 
 @(private)
@@ -301,87 +304,90 @@ draw_track :: proc(a: ^App, c: ^Canvas, i: int) {
 	recording := a.transport == .Recording && t.armed
 	audible := app_track_audible(a, i)
 
-	border: Color = LINE
+	border: Color = ACTIVE_TOKENS.line
 	if selected {
-		border = AMBER_DIM
+		border = ACTIVE_TOKENS.amber_dim
 	}
 	if t.armed {
-		border = AMBER
+		border = ACTIVE_TOKENS.amber
 	}
 	if recording {
-		pulse := u8(0x88 + 0x60 * (0.5 + 0.5 * math.sin(a.time * 7.0)))
-		border = with_alpha(RED, pulse)
+		pulse := u8(0xE8)
+		if !a.reduced_motion {
+			pulse = u8(0x88 + 0x60 * (0.5 + 0.5 * math.sin(a.time * 7.0)))
+		}
+		border = with_alpha(ACTIVE_TOKENS.red, pulse)
 	}
-	canvas_fill(c, r, PANEL)
+	canvas_fill(c, r, ACTIVE_TOKENS.panel)
 	canvas_rect(c, r, border, 2 if recording else 1)
 
-	num_col: Color = AMBER if selected || t.armed else MUTED
+	num_col: Color = ACTIVE_TOKENS.amber if selected || t.armed else ACTIVE_TOKENS.muted
 	if recording {
-		num_col = RED
+		num_col = ACTIVE_TOKENS.red
 	}
 	canvas_text(c, r.x + 10, r.y + 8, fmt.tprintf("%02d", i + 1), num_col, 2)
-	canvas_text_clip(c, r.x + 50, r.y + 11, r.w - 104, t.name, TEXT)
+	canvas_text_clip(c, r.x + 50, r.y + 11, r.w - 104, t.name, ACTIVE_TOKENS.text)
 	if recording {
-		canvas_fill(c, Rect{r.x + r.w - 44, r.y + 10, 34, 18}, with_alpha(RED, 0x33))
-		canvas_rect(c, Rect{r.x + r.w - 44, r.y + 10, 34, 18}, RED)
-		canvas_text(c, r.x + r.w - 38, r.y + 12, "REC", RED)
+		canvas_fill(c, Rect{r.x + r.w - 44, r.y + 10, 34, 18}, with_alpha(ACTIVE_TOKENS.red, 0x33))
+		canvas_rect(c, Rect{r.x + r.w - 44, r.y + 10, 34, 18}, ACTIVE_TOKENS.red)
+		canvas_text(c, r.x + r.w - 38, r.y + 12, "REC", ACTIVE_TOKENS.red)
 	} else if !audible {
-		canvas_text_right(c, r.x + r.w - 10, r.y + 12, "MUTE" if t.muted else "SOLO", MUTED)
+		canvas_text_right(c, r.x + r.w - 10, r.y + 12, "MUTE" if t.muted else "SOLO", ACTIVE_TOKENS.muted)
 	} else if t.has_audio {
-		canvas_text_right(c, r.x + r.w - 10, r.y + 12, "TAKE", MUTED)
+		canvas_text_right(c, r.x + r.w - 10, r.y + 12, "TAKE", ACTIVE_TOKENS.muted)
 	}
 
 	in_btn := l.input[i]
 	in_hover := is_hover(a, in_btn) && a.transport != .Recording
-	canvas_fill(c, in_btn, PANEL_2 if !in_hover else PANEL_3)
-	canvas_rect(c, in_btn, LINE_BRIGHT)
-	canvas_text(c, in_btn.x + 6, in_btn.y + 8, fmt.tprintf("IN %d", t.input), AMBER if a.transport != .Recording else MUTED)
+	canvas_fill(c, in_btn, ACTIVE_TOKENS.panel_2 if !in_hover else ACTIVE_TOKENS.panel_3)
+	canvas_rect(c, in_btn, ACTIVE_TOKENS.line_bright)
+	canvas_text(c, in_btn.x + 6, in_btn.y + 8, fmt.tprintf("IN %d", t.input), ACTIVE_TOKENS.amber if a.transport != .Recording else ACTIVE_TOKENS.muted)
 
 	// FX summary chips.
 	chip_x := r.x + 10
 	chips := [4]Chip{
-		{"EQ", t.eq.enabled, AMBER},
-		{"CMP", t.comp.enabled, AMBER},
-		{"REV", t.send_reverb > 0.001, TEAL},
-		{"DLY", t.send_delay > 0.001, TEAL},
+		{"EQ", t.eq.enabled, ACTIVE_TOKENS.amber},
+		{"CMP", t.comp.enabled, ACTIVE_TOKENS.amber},
+		{"REV", t.send_reverb > 0.001, ACTIVE_TOKENS.teal},
+		{"DLY", t.send_delay > 0.001, ACTIVE_TOKENS.teal},
 	}
 	for chip in chips {
 		w: f32 = 30
 		cr := Rect{chip_x, r.y + 62, w, 16}
-		canvas_fill(c, cr, with_alpha(chip.col, 0x22) if chip.on else PANEL_2)
-		canvas_rect(c, cr, with_alpha(chip.col, 0xAA) if chip.on else LINE)
-		canvas_text_center(c, cr.x + w * 0.5, cr.y + 1, chip.label, chip.col if chip.on else MUTED)
+		canvas_fill(c, cr, with_alpha(chip.col, 0x22) if chip.on else ACTIVE_TOKENS.panel_2)
+		canvas_rect(c, cr, with_alpha(chip.col, 0xAA) if chip.on else ACTIVE_TOKENS.line)
+		canvas_text_center(c, cr.x + w * 0.5, cr.y + 1, chip.label, chip.col if chip.on else ACTIVE_TOKENS.muted)
 		chip_x += w + 4
 	}
 
-	draw_toggle(c, l.arm[i], "A", t.armed, is_hover(a, l.arm[i]), a.transport != .Recording, AMBER)
-	draw_toggle(c, l.solo[i], "S", t.soloed, is_hover(a, l.solo[i]), true, TEAL)
-	draw_toggle(c, l.mute[i], "M", t.muted, is_hover(a, l.mute[i]), true, RED)
+	draw_toggle(c, l.arm[i], "A", t.armed, is_hover(a, l.arm[i]), a.transport != .Recording, ACTIVE_TOKENS.amber)
+	draw_toggle(c, l.solo[i], "S", t.soloed, is_hover(a, l.solo[i]), true, ACTIVE_TOKENS.teal)
+	draw_toggle(c, l.mute[i], "M", t.muted, is_hover(a, l.mute[i]), true, ACTIVE_TOKENS.red)
 
 	// Pan knob.
 	pr := l.pan[i]
 	pcx := pr.x + pr.w * 0.5
 	pcy := pr.y + pr.h * 0.5 - 4
 	draw_knob(c, pcx, pcy, 18, (t.pan + 1) * 0.5, audible)
-	canvas_text_center(c, pcx, pcy + 23, "PAN", MUTED)
-	canvas_text_center(c, pcx, pcy + 36, pan_label(t.pan), DIM)
+	canvas_text_center(c, pcx, pcy + 23, "PAN", ACTIVE_TOKENS.muted)
+	canvas_text_center(c, pcx, pcy + 36, pan_label(t.pan), ACTIVE_TOKENS.dim)
 
 	// Fader and meter.
 	norm := clamp(t.level / 1.5, 0, 1)
 	draw_fader(c, l.fader[i], norm, is_hover(a, l.fader[i]), audible)
-	draw_meter(c, l.meter[i], t.peak_db, t.peak_db, AMBER if audible else MUTED)
-	canvas_text_center(c, l.fader[i].x + l.fader[i].w * 0.5, l.fader[i].y + l.fader[i].h + 4, fmt.tprintf("%.0f%%", norm * 100), DIM)
+	draw_meter(c, l.meter[i], t.peak_db, t.peak_db, ACTIVE_TOKENS.amber if audible else ACTIVE_TOKENS.muted)
+	canvas_text_center(c, l.fader[i].x + l.fader[i].w * 0.5, l.fader[i].y + l.fader[i].h + 4, fmt.tprintf("%.0f%%", norm * 100), ACTIVE_TOKENS.dim)
 
 	// GR meter.
 	if t.comp.enabled {
 		draw_gr(c, l.gr[i], t.gr_db)
-		gr_ink: Color = BLACK if t.gr_db < -1.0 else MUTED
+		gr_ink: Color = ACTIVE_TOKENS.black if t.gr_db < -1.0 else ACTIVE_TOKENS.muted
 		canvas_text_right(c, l.gr[i].x + l.gr[i].w - 2, l.gr[i].y + 3, fmt.tprintf("%.1f", t.gr_db), gr_ink)
 	} else {
-		canvas_fill(c, l.gr[i], PANEL_2)
-		canvas_rect(c, l.gr[i], LINE)
-		canvas_text(c, l.gr[i].x + 4, l.gr[i].y + 3, "GR", MUTED)
-		canvas_text_right(c, l.gr[i].x + l.gr[i].w - 2, l.gr[i].y + 3, "byp", MUTED)
+		canvas_fill(c, l.gr[i], ACTIVE_TOKENS.panel_2)
+		canvas_rect(c, l.gr[i], ACTIVE_TOKENS.line)
+		canvas_text(c, l.gr[i].x + 4, l.gr[i].y + 3, "GR", ACTIVE_TOKENS.muted)
+		canvas_text_right(c, l.gr[i].x + l.gr[i].w - 2, l.gr[i].y + 3, "byp", ACTIVE_TOKENS.muted)
 	}
 
 }
@@ -390,75 +396,78 @@ draw_track :: proc(a: ^App, c: ^Canvas, i: int) {
 draw_master :: proc(a: ^App, c: ^Canvas) {
 	l := &a.layout
 	r := l.master
-	canvas_fill(c, r, PANEL_2)
-	canvas_rect(c, r, AMBER_DIM if a.selected >= MAX_TRACKS else LINE_BRIGHT)
-	canvas_text(c, r.x + 12, r.y + 10, "MASTER", AMBER)
-	canvas_text(c, r.x + 12, r.y + 28, "STEREO BUS", MUTED)
+	canvas_fill(c, r, ACTIVE_TOKENS.panel_2)
+	canvas_rect(c, r, ACTIVE_TOKENS.amber_dim if a.selected >= MAX_TRACKS else ACTIVE_TOKENS.line_bright)
+	canvas_text(c, r.x + 12, r.y + 10, "MASTER", ACTIVE_TOKENS.amber)
+	canvas_text(c, r.x + 12, r.y + 28, "STEREO BUS", ACTIVE_TOKENS.muted)
 
-	canvas_text(c, r.x + 16, r.y + 54, "PEAK", MUTED)
-	canvas_text_right(c, r.x + r.w - 14, r.y + 54, fmt.tprintf("%.1f dB", a.master.peak_db), TEXT)
+	canvas_text(c, r.x + 16, r.y + 54, "PEAK", ACTIVE_TOKENS.muted)
+	canvas_text_right(c, r.x + r.w - 14, r.y + 54, fmt.tprintf("%.1f dB", a.master.peak_db), ACTIVE_TOKENS.text)
 
-	draw_meter(c, l.master_meter, a.master.peak_db, a.master.peak_db, AMBER)
-	canvas_text(c, l.master_meter.x + l.master_meter.w + 12, l.master_meter.y + 6, "L/R", MUTED)
-	canvas_text(c, l.master_meter.x + l.master_meter.w + 12, l.master_meter.y + 26, fmt.tprintf("%.0f", a.master.peak_db), DIM)
+	draw_meter(c, l.master_meter, a.master.peak_db, a.master.peak_db, ACTIVE_TOKENS.amber)
+	canvas_text(c, l.master_meter.x + l.master_meter.w + 12, l.master_meter.y + 6, "L/R", ACTIVE_TOKENS.muted)
+	canvas_text(c, l.master_meter.x + l.master_meter.w + 12, l.master_meter.y + 26, fmt.tprintf("%.0f", a.master.peak_db), ACTIVE_TOKENS.dim)
 
 	gr := Rect{r.x + 14, r.y + r.h - 100, r.w - 28, 18}
 	draw_gr(c, gr, a.master.gr_db)
-	master_gr_ink: Color = BLACK if a.master.gr_db < -1.0 else MUTED
+	master_gr_ink: Color = ACTIVE_TOKENS.black if a.master.gr_db < -1.0 else ACTIVE_TOKENS.muted
 	canvas_text_right(c, gr.x + gr.w - 2, gr.y + 3, fmt.tprintf("%.1f", a.master.gr_db), master_gr_ink)
 
 	y := r.y + r.h - 70
-	canvas_text(c, r.x + 14, y, "REV", TEAL if a.master.reverb.enabled else MUTED)
-	canvas_text(c, r.x + 54, y, "DLY", TEAL if a.master.delay.enabled else MUTED)
-	canvas_text(c, r.x + 94, y, "WID", AMBER if a.master.width.enabled else MUTED)
-	canvas_text(c, r.x + 14, y + 16, fmt.tprintf("CEIL %.1f", a.master.limiter.ceiling_db), MUTED)
+	canvas_text(c, r.x + 14, y, "REV", ACTIVE_TOKENS.teal if a.master.reverb.enabled else ACTIVE_TOKENS.muted)
+	canvas_text(c, r.x + 54, y, "DLY", ACTIVE_TOKENS.teal if a.master.delay.enabled else ACTIVE_TOKENS.muted)
+	canvas_text(c, r.x + 94, y, "WID", ACTIVE_TOKENS.amber if a.master.width.enabled else ACTIVE_TOKENS.muted)
+	canvas_text(c, r.x + 14, y + 16, fmt.tprintf("CEIL %.1f", a.master.limiter.ceiling_db), ACTIVE_TOKENS.muted)
 
 }
 
 @(private)
 draw_status :: proc(a: ^App, c: ^Canvas) {
 	l := &a.layout
-	canvas_fill(c, l.status, PANEL)
-	canvas_hline(c, 0, f32(a.width), l.status.y, LINE)
+	canvas_fill(c, l.status, ACTIVE_TOKENS.panel)
+	canvas_hline(c, 0, f32(a.width), l.status.y, ACTIVE_TOKENS.line)
 
 	mode_text := "NORMAL"
-	mode_col: Color = AMBER
+	mode_col: Color = ACTIVE_TOKENS.amber
 	switch a.mode {
 	case .Normal:
 		mode_text = "NORMAL"
-		mode_col = AMBER
+		mode_col = ACTIVE_TOKENS.amber
 	case .Fx:
 		mode_text = "FX"
-		mode_col = AMBER
+		mode_col = ACTIVE_TOKENS.amber
 	case .Palette:
 		mode_text = "CMD"
-		mode_col = TEAL
+		mode_col = ACTIVE_TOKENS.teal
 	case .Io:
 		mode_text = "I/O"
-		mode_col = TEAL
+		mode_col = ACTIVE_TOKENS.teal
 	case .Bounce:
 		mode_text = "BOUNCE"
-		mode_col = RED
+		mode_col = ACTIVE_TOKENS.red
+	case .Recent:
+		mode_text = "RECENT"
+		mode_col = ACTIVE_TOKENS.teal
 	}
 	if a.transport == .Recording {
 		mode_text = "REC"
-		mode_col = RED
+		mode_col = ACTIVE_TOKENS.red
 	}
 	badge := Rect{12, l.status.y + 5, 58, 18}
 	draw_badge(c, badge, mode_text, mode_col)
-	canvas_text(c, 82, l.status.y + 7, app_status(a), DIM)
+	canvas_text(c, 82, l.status.y + 7, app_status(a), ACTIVE_TOKENS.dim)
 
 	// Toast.
 	if a.toast_time > 0 {
 		tw := text_width(app_toast(a)) + 24
 		tx := clamp(f32(a.width) - tw - 300, 8, f32(a.width) - tw - 8)
 		tr := Rect{tx, l.status.y - 30, tw, 22}
-		canvas_fill(c, tr, PANEL_2)
-		canvas_rect(c, tr, with_alpha(AMBER, 0xAA))
-		canvas_text(c, tr.x + 10, tr.y + 4, app_toast(a), AMBER)
+		canvas_fill(c, tr, ACTIVE_TOKENS.panel_2)
+		canvas_rect(c, tr, with_alpha(ACTIVE_TOKENS.amber, 0xAA))
+		canvas_text(c, tr.x + 10, tr.y + 4, app_toast(a), ACTIVE_TOKENS.amber)
 	}
 
-	canvas_text_right(c, f32(a.width) - 12, l.status.y + 7, "SPACE PLAY   R REC   X FX   : CMD", MUTED)
+	canvas_text_right(c, f32(a.width) - 12, l.status.y + 7, "SPACE PLAY   R REC   X FX   : CMD", ACTIVE_TOKENS.muted)
 }
 
 // ---------------------------------------------------------------- FX rack
@@ -477,36 +486,36 @@ fx_channel_active :: proc(a: ^App, i: int) -> bool {
 draw_fx :: proc(a: ^App, c: ^Canvas) {
 	l := &a.layout
 	canvas_fill(c, Rect{0, 0, f32(a.width), f32(a.height)}, 0xC00A0A0A)
-	draw_panel(c, l.fx_panel, PANEL_2, AMBER_DIM)
+	draw_panel(c, l.fx_panel, ACTIVE_TOKENS.panel_2, ACTIVE_TOKENS.amber_dim)
 
-	canvas_text(c, l.fx_panel.x + 14, l.fx_panel.y + 14, "FX", AMBER, 2)
+	canvas_text(c, l.fx_panel.x + 14, l.fx_panel.y + 14, "FX", ACTIVE_TOKENS.amber, 2)
 	for i in 0 ..< 5 {
 		label := fmt.tprintf("%d", i + 1)
 		if i == 4 {
 			label = "MST"
 		}
-		draw_button(c, l.fx_tab[i], label, a.fx_channel == i, is_hover(a, l.fx_tab[i]), true, AMBER)
+		draw_button(c, l.fx_tab[i], label, a.fx_channel == i, is_hover(a, l.fx_tab[i]), true, ACTIVE_TOKENS.amber)
 		if fx_channel_active(a, i) {
-			canvas_fill(c, Rect{l.fx_tab[i].x + l.fx_tab[i].w * 0.5 - 1.5, l.fx_tab[i].y + l.fx_tab[i].h + 2, 3, 3}, AMBER)
+			canvas_fill(c, Rect{l.fx_tab[i].x + l.fx_tab[i].w * 0.5 - 1.5, l.fx_tab[i].y + l.fx_tab[i].h + 2, 3, 3}, ACTIVE_TOKENS.amber)
 		}
 	}
-	draw_button(c, l.fx_close, "X", false, is_hover(a, l.fx_close), true, DIM)
+	draw_button(c, l.fx_close, "X", false, is_hover(a, l.fx_close), true, ACTIVE_TOKENS.dim)
 
 	chan := "MASTER"
 	if a.fx_channel < MAX_TRACKS {
 		chan = fmt.tprintf("TRACK %d", a.fx_channel + 1)
 	}
-	canvas_text(c, l.fx_panel.x + 306, l.fx_panel.y + 18, chan, TEXT)
-	canvas_text_right(c, l.fx_panel.x + l.fx_panel.w - 48, l.fx_panel.y + 18, "DRAG/SHIFT FINE · TAB FOCUS · ESC", MUTED)
+	canvas_text(c, l.fx_panel.x + 306, l.fx_panel.y + 18, chan, ACTIVE_TOKENS.text)
+	canvas_text_right(c, l.fx_panel.x + l.fx_panel.w - 48, l.fx_panel.y + 18, "DRAG/SHIFT FINE · TAB FOCUS · ESC", ACTIVE_TOKENS.muted)
 
 	// Module panels.
 	for mi in 0 ..< l.fx_module_count {
 		p := l.fx_module[mi]
 		m := l.fx_module_id[mi]
-		canvas_fill(c, p, PANEL)
-		canvas_rect(c, p, LINE_BRIGHT)
-		canvas_text(c, p.x + 10, p.y + 10, fmt.tprintf("%02d", mi + 1), MUTED)
-		canvas_text(c, p.x + 34, p.y + 10, module_title(m), TEXT)
+		canvas_fill(c, p, ACTIVE_TOKENS.panel)
+		canvas_rect(c, p, ACTIVE_TOKENS.line_bright)
+		canvas_text(c, p.x + 10, p.y + 10, fmt.tprintf("%02d", mi + 1), ACTIVE_TOKENS.muted)
+		canvas_text(c, p.x + 34, p.y + 10, module_title(m), ACTIVE_TOKENS.text)
 
 		// Visual.
 		vis := Rect{p.x + 10, p.y + 32, p.w - 20, 52}
@@ -526,11 +535,11 @@ draw_fx :: proc(a: ^App, c: ^Canvas) {
 			n := value_to_norm(v, lo, hi, log)
 			enabled := bypass_state(a, m)
 			draw_knob(c, cx, cy, 18, n, enabled)
-			canvas_text_center(c, cx, cy + 23, param_label(m, t.param), MUTED)
+			canvas_text_center(c, cx, cy + 23, param_label(m, t.param), ACTIVE_TOKENS.muted)
 			compact := p.w / 3 < 68
-			canvas_text_center(c, cx, cy + 37, knob_value_text(m, t.param, v, compact), enabled ? TEXT : MUTED)
+			canvas_text_center(c, cx, cy + 37, knob_value_text(m, t.param, v, compact), enabled ? ACTIVE_TOKENS.text : ACTIVE_TOKENS.muted)
 			if a.fx_focus == k {
-				canvas_rect(c, Rect{kr.x - 3, kr.y - 3, kr.w + 6, kr.h + 6}, AMBER)
+				canvas_rect(c, Rect{kr.x - 3, kr.y - 3, kr.w + 6, kr.h + 6}, ACTIVE_TOKENS.amber)
 			}
 		}
 	}
@@ -541,14 +550,14 @@ draw_fx :: proc(a: ^App, c: ^Canvas) {
 		bypassed := app_toggle_value(a, t)
 		lit := toggle_lit(a, t)
 		label := ("BYP" if bypassed else "ON") if t.param == 0 else "P-P"
-		col: Color = AMBER
+		col: Color = ACTIVE_TOKENS.amber
 		if t.module == .DELAY {
-			col = TEAL
+			col = ACTIVE_TOKENS.teal
 		}
 		draw_toggle(c, l.toggle[i], label, lit, is_hover(a, l.toggle[i]), true, col)
 		if a.fx_focus == l.knob_count + i {
 			r := l.toggle[i]
-			canvas_rect(c, Rect{r.x - 2, r.y - 2, r.w + 4, r.h + 4}, AMBER)
+			canvas_rect(c, Rect{r.x - 2, r.y - 2, r.w + 4, r.h + 4}, ACTIVE_TOKENS.amber)
 		}
 	}
 }
@@ -618,40 +627,44 @@ draw_module_visual :: proc(a: ^App, c: ^Canvas, m: Fx_Module, r: Rect) {
 draw_palette :: proc(a: ^App, c: ^Canvas) {
 	l := &a.layout
 	canvas_fill(c, Rect{0, 0, f32(a.width), f32(a.height)}, 0xC00A0A0A)
-	draw_panel(c, l.palette, PANEL_2, AMBER)
-	canvas_text(c, l.palette.x + 16, l.palette.y + 14, "COMMAND", AMBER)
-	canvas_text_right(c, l.palette.x + l.palette.w - 16, l.palette.y + 14, "ESC", MUTED)
+	draw_panel(c, l.palette, ACTIVE_TOKENS.panel_2, ACTIVE_TOKENS.amber)
+	canvas_text(c, l.palette.x + 16, l.palette.y + 14, "COMMAND", ACTIVE_TOKENS.amber)
+	canvas_text_right(c, l.palette.x + l.palette.w - 16, l.palette.y + 14, "ESC", ACTIVE_TOKENS.muted)
 
 	input_rect := l.palette_input
-	canvas_fill(c, input_rect, BG)
-	canvas_rect(c, input_rect, with_alpha(AMBER, 0xAA))
-	canvas_text(c, input_rect.x + 8, input_rect.y + 7, ":", AMBER)
+	canvas_fill(c, input_rect, ACTIVE_TOKENS.bg)
+	canvas_rect(c, input_rect, with_alpha(ACTIVE_TOKENS.amber, 0xAA))
+	canvas_text(c, input_rect.x + 8, input_rect.y + 7, ":", ACTIVE_TOKENS.amber)
 	typed := string(a.palette_buf[:a.palette_len])
-	canvas_text_clip(c, input_rect.x + 22, input_rect.y + 7, input_rect.w - 34, typed, TEXT)
+	canvas_text_clip(c, input_rect.x + 22, input_rect.y + 7, input_rect.w - 34, typed, ACTIVE_TOKENS.text)
 	cursor_x := input_rect.x + 22 + text_width(typed)
-	if cursor_x < input_rect.x + input_rect.w - 8 && int(a.time * 2) % 2 == 0 {
-		canvas_fill(c, Rect{cursor_x + 1, input_rect.y + 7, 2, 14}, AMBER)
+	if cursor_x < input_rect.x + input_rect.w - 8 && (a.reduced_motion || int(a.time * 2) % 2 == 0) {
+		canvas_fill(c, Rect{cursor_x + 1, input_rect.y + 7, 2, 14}, ACTIVE_TOKENS.amber)
 	}
 
 	if a.palette_count == 0 {
-		canvas_text(c, l.palette.x + 16, l.palette.y + 86, "no matching command", MUTED)
+		canvas_text(c, l.palette.x + 16, l.palette.y + 86, "no matching command", ACTIVE_TOKENS.muted)
 	}
-	for i in 0 ..< a.palette_count {
+	for i in 0 ..< l.palette_count {
 		row := l.palette_row[i]
-		selected := i == a.palette_sel
+		idx := a.palette_scroll + i
+		selected := idx == a.palette_sel
 		hov := is_hover(a, row)
 		if selected {
-			canvas_fill(c, row, AMBER_WASH)
-			canvas_fill(c, Rect{row.x, row.y, 2, row.h}, AMBER)
+			canvas_fill(c, row, ACTIVE_TOKENS.amber_wash)
+			canvas_fill(c, Rect{row.x, row.y, 2, row.h}, ACTIVE_TOKENS.amber)
 		} else if hov {
-			canvas_fill(c, row, PANEL_3)
+			canvas_fill(c, row, ACTIVE_TOKENS.panel_3)
 		}
-		cmd := PALETTE_COMMANDS[a.palette_items[i]]
-		canvas_text_clip(c, row.x + 10, row.y + 7, row.w - 110, cmd.name, TEXT if selected else DIM)
+		cmd := PALETTE_COMMANDS[a.palette_items[idx]]
+		canvas_text_clip(c, row.x + 10, row.y + 7, row.w - 110, cmd.name, ACTIVE_TOKENS.text if selected else ACTIVE_TOKENS.dim)
 		hint := command_hint(cmd.kind)
-		canvas_text_right(c, row.x + row.w - 8, row.y + 7, hint, MUTED)
+		canvas_text_right(c, row.x + row.w - 8, row.y + 7, hint, ACTIVE_TOKENS.muted)
 	}
-	canvas_text(c, l.palette.x + 16, l.palette.y + l.palette.h - 22, "ENTER RUN  ·  UP/DOWN SELECT  ·  ESC CLOSE", MUTED)
+	canvas_text(c, l.palette.x + 16, l.palette.y + l.palette.h - 22, "ENTER RUN  ·  UP/DOWN SELECT  ·  ESC CLOSE", ACTIVE_TOKENS.muted)
+	if a.palette_count > l.palette_count {
+		canvas_text_right(c, l.palette.x + l.palette.w - 16, l.palette.y + l.palette.h - 22, fmt.tprintf("%d/%d", a.palette_scroll + 1, a.palette_count), ACTIVE_TOKENS.muted)
+	}
 }
 
 @(private)
@@ -661,8 +674,14 @@ command_hint :: proc(kind: Command_Kind) -> string {
 		return "transport"
 	case .Bounce:
 		return "render"
-	case .Save, .Load:
+	case .Save, .Load, .Save_As:
 		return "project"
+	case .Open_Project, .Recent, .Open_Recent:
+		return "project"
+	case .Undo, .Redo:
+		return "history"
+	case .High_Contrast, .Reduced_Motion:
+		return "a11y"
 	case .Select_Device:
 		return "audio"
 	case .Fx, .Io, .Arm_All, .Clear_Arms, .Panic:
@@ -675,9 +694,9 @@ command_hint :: proc(kind: Command_Kind) -> string {
 draw_io :: proc(a: ^App, c: ^Canvas) {
 	l := &a.layout
 	canvas_fill(c, Rect{0, 0, f32(a.width), f32(a.height)}, 0x990A0A0A)
-	draw_panel(c, l.io_panel, PANEL_2, AMBER_DIM)
-	canvas_text(c, l.io_panel.x + 14, l.io_panel.y + 14, "INPUT DEVICES", AMBER, 2)
-	canvas_text(c, l.io_panel.x + 14, l.io_panel.y + 48, "cooperative PipeWire / JACK sources", MUTED)
+	draw_panel(c, l.io_panel, ACTIVE_TOKENS.panel_2, ACTIVE_TOKENS.amber_dim)
+	canvas_text(c, l.io_panel.x + 14, l.io_panel.y + 14, "INPUT DEVICES", ACTIVE_TOKENS.amber, 2)
+	canvas_text(c, l.io_panel.x + 14, l.io_panel.y + 48, "cooperative PipeWire / JACK sources", ACTIVE_TOKENS.muted)
 
 	l.io_count = min(len(a.devices), MAX_DEVICES)
 	for i in 0 ..< l.io_count {
@@ -685,23 +704,67 @@ draw_io :: proc(a: ^App, c: ^Canvas) {
 		sel := i == a.device_index
 		hov := is_hover(a, row)
 		if sel {
-			canvas_fill(c, row, AMBER_WASH)
-			canvas_rect(c, row, with_alpha(AMBER, 0xAA))
+			canvas_fill(c, row, ACTIVE_TOKENS.amber_wash)
+			canvas_rect(c, row, with_alpha(ACTIVE_TOKENS.amber, 0xAA))
 		} else if hov {
-			canvas_fill(c, row, PANEL_3)
-			canvas_rect(c, row, LINE)
+			canvas_fill(c, row, ACTIVE_TOKENS.panel_3)
+			canvas_rect(c, row, ACTIVE_TOKENS.line)
 		} else {
-			canvas_fill(c, row, PANEL)
-			canvas_rect(c, row, LINE)
+			canvas_fill(c, row, ACTIVE_TOKENS.panel)
+			canvas_rect(c, row, ACTIVE_TOKENS.line)
 		}
 		marker := "*" if sel else " "
-		canvas_text(c, row.x + 8, row.y + 6, marker, AMBER)
-		canvas_text_clip(c, row.x + 22, row.y + 6, row.w - 32, a.devices[i], TEXT if sel else DIM)
+		canvas_text(c, row.x + 8, row.y + 6, marker, ACTIVE_TOKENS.amber)
+		canvas_text_clip(c, row.x + 22, row.y + 6, row.w - 32, a.devices[i], ACTIVE_TOKENS.text if sel else ACTIVE_TOKENS.dim)
 	}
 	if l.io_count == 0 {
-		canvas_text(c, l.io_panel.x + 14, l.io_panel.y + 64, "no devices reported", MUTED)
+		canvas_text(c, l.io_panel.x + 14, l.io_panel.y + 64, "no devices reported", ACTIVE_TOKENS.muted)
 	}
-	canvas_text(c, l.io_panel.x + 14, l.io_panel.y + l.io_panel.h - 24, "click to select  ·  ESC close", MUTED)
+	canvas_text(c, l.io_panel.x + 14, l.io_panel.y + l.io_panel.h - 24, "click to select  ·  ESC close", ACTIVE_TOKENS.muted)
+}
+
+@(private)
+draw_recent :: proc(a: ^App, c: ^Canvas) {
+	l := &a.layout
+	canvas_fill(c, Rect{0, 0, f32(a.width), f32(a.height)}, with_alpha(ACTIVE_TOKENS.bg, 0xC0))
+	draw_panel(c, l.recent_panel, ACTIVE_TOKENS.panel_2, ACTIVE_TOKENS.amber)
+	canvas_text(c, l.recent_panel.x + 16, l.recent_panel.y + 14, "RECENT PROJECTS", ACTIVE_TOKENS.amber)
+	canvas_text_right(c, l.recent_panel.x + l.recent_panel.w - 16, l.recent_panel.y + 14, "ESC", ACTIVE_TOKENS.muted)
+
+	input_rect := l.recent_input
+	canvas_fill(c, input_rect, ACTIVE_TOKENS.bg)
+	canvas_rect(c, input_rect, with_alpha(ACTIVE_TOKENS.amber, 0xAA))
+	canvas_text(c, input_rect.x + 8, input_rect.y + 7, "/", ACTIVE_TOKENS.amber)
+	typed := string(a.recent_query_buf[:a.recent_query_len])
+	canvas_text_clip(c, input_rect.x + 22, input_rect.y + 7, input_rect.w - 34, typed, ACTIVE_TOKENS.text)
+	cursor_x := input_rect.x + 22 + text_width(typed)
+	if cursor_x < input_rect.x + input_rect.w - 8 && (a.reduced_motion || int(a.time * 2) % 2 == 0) {
+		canvas_fill(c, Rect{cursor_x + 1, input_rect.y + 7, 2, 14}, ACTIVE_TOKENS.amber)
+	}
+
+	if a.recent_filtered == 0 {
+		msg := "no recent projects" if a.recent_count == 0 else "no matching project"
+		canvas_text(c, l.recent_panel.x + 16, l.recent_panel.y + 86, msg, ACTIVE_TOKENS.muted)
+		if a.recent_count == 0 {
+			canvas_text(c, l.recent_panel.x + 16, l.recent_panel.y + 106, "use : open project  (the window supplies the picker)", ACTIVE_TOKENS.dim)
+		}
+	}
+	for i in 0 ..< min(l.recent_count, MAX_RECENT) {
+		row := l.recent_row[i]
+		selected := i == a.recent_sel
+		hov := is_hover(a, row)
+		if selected {
+			canvas_fill(c, row, ACTIVE_TOKENS.amber_wash)
+			canvas_fill(c, Rect{row.x, row.y, 2, row.h}, ACTIVE_TOKENS.amber)
+		} else if hov {
+			canvas_fill(c, row, ACTIVE_TOKENS.panel_3)
+		}
+		path := app_recent_path(a, a.recent_items[i])
+		canvas_text(c, row.x + 10, row.y + 8, ">", ACTIVE_TOKENS.amber if selected else ACTIVE_TOKENS.muted)
+		canvas_text_clip(c, row.x + 24, row.y + 8, row.w - 60, path, ACTIVE_TOKENS.text if selected else ACTIVE_TOKENS.dim)
+		canvas_text_right(c, row.x + row.w - 8, row.y + 8, fmt.tprintf("%d", a.recent_items[i] + 1), ACTIVE_TOKENS.muted)
+	}
+	canvas_text(c, l.recent_panel.x + 16, l.recent_panel.y + l.recent_panel.h - 22, "TYPE FILTER  ·  ENTER OPEN  ·  UP/DOWN SELECT  ·  ESC CLOSE", ACTIVE_TOKENS.muted)
 }
 
 @(private)
@@ -710,15 +773,15 @@ draw_bounce :: proc(a: ^App, c: ^Canvas) {
 	w: f32 = 460
 	h: f32 = 168
 	r := Rect{(f32(a.width) - w) * 0.5, (f32(a.height) - h) * 0.5, w, h}
-	draw_panel(c, r, PANEL_2, AMBER)
-	canvas_text(c, r.x + 20, r.y + 18, "BOUNCING MIX", AMBER)
-	canvas_text(c, r.x + 20, r.y + 40, "track chains -> master comp -> reverb", MUTED)
-	canvas_text(c, r.x + 20, r.y + 54, "-> delay -> width -> limiter", MUTED)
+	draw_panel(c, r, ACTIVE_TOKENS.panel_2, ACTIVE_TOKENS.amber)
+	canvas_text(c, r.x + 20, r.y + 18, "BOUNCING MIX", ACTIVE_TOKENS.amber)
+	canvas_text(c, r.x + 20, r.y + 40, "track chains -> master comp -> reverb", ACTIVE_TOKENS.muted)
+	canvas_text(c, r.x + 20, r.y + 54, "-> delay -> width -> limiter", ACTIVE_TOKENS.muted)
 	bar := Rect{r.x + 20, r.y + 74, r.w - 40, 18}
-	canvas_fill(c, bar, PANEL_3)
-	canvas_fill(c, Rect{bar.x, bar.y, bar.w * clamp(a.bounce_progress, 0, 1), bar.h}, AMBER)
-	canvas_rect(c, bar, LINE_BRIGHT)
-	canvas_text(c, r.x + 20, r.y + 104, fmt.tprintf("%.0f%%", a.bounce_progress * 100), TEXT)
-	canvas_text_right(c, r.x + r.w - 20, r.y + 104, "writing bounce.wav", MUTED)
-	canvas_text(c, r.x + 20, r.y + h - 24, "ESC dismiss (render continues)", MUTED)
+	canvas_fill(c, bar, ACTIVE_TOKENS.panel_3)
+	canvas_fill(c, Rect{bar.x, bar.y, bar.w * clamp(a.bounce_progress, 0, 1), bar.h}, ACTIVE_TOKENS.amber)
+	canvas_rect(c, bar, ACTIVE_TOKENS.line_bright)
+	canvas_text(c, r.x + 20, r.y + 104, fmt.tprintf("%.0f%%", a.bounce_progress * 100), ACTIVE_TOKENS.text)
+	canvas_text_right(c, r.x + r.w - 20, r.y + 104, "writing bounce.wav", ACTIVE_TOKENS.muted)
+	canvas_text(c, r.x + 20, r.y + h - 24, "ESC dismiss (render continues)", ACTIVE_TOKENS.muted)
 }

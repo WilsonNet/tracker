@@ -47,6 +47,7 @@ Harness_Script :: struct {
 	height:  int              `json:"height"`,
 	demo:    bool             `json:"demo"`,
 	devices: []string         `json:"devices"`,
+	recent:  []string         `json:"recent"`,
 	actions: []Harness_Action `json:"actions"`,
 }
 
@@ -76,6 +77,13 @@ harness_script_destroy :: proc(s: ^Harness_Script) {
 	}
 	delete(s.devices)
 	s.devices = nil
+	for path in s.recent {
+		if len(path) > 0 {
+			delete(path)
+		}
+	}
+	delete(s.recent)
+	s.recent = nil
 	for &action in s.actions {
 		for field in ([]^string{&action.type, &action.id, &action.key, &action.text, &action.name, &action.path, &action.equals}) {
 			if len(field^) > 0 {
@@ -163,6 +171,9 @@ run_ui_test :: proc(args: []string) -> bool {
 	a.demo = script.demo
 	if len(script.devices) > 0 {
 		ui.app_set_devices(&a, script.devices, 0)
+	}
+	if len(script.recent) > 0 {
+		ui.app_set_recent(&a, script.recent)
 	}
 
 	c: ui.Canvas

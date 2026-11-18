@@ -66,7 +66,7 @@ test -f "$ODIN_ROOT/vendor/miniaudio/lib/miniaudio.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 159 unit tests
+make test         # 153 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -87,7 +87,7 @@ directory is in `XDG_DATA_DIRS`.
 | target | what it does |
 |---|---|
 | `build` | compile `bin/tracker-odin` |
-| `test` | 159 unit tests: 70 DSP, 51 core/engine/project/JACK, 38 UI |
+| `test` | 166 unit tests: 70 DSP, 45 core/engine/project, 51 UI |
 | `check` | `scripts/check.sh`: unit tests, 118-action UI tour, offline bounce |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
@@ -113,9 +113,19 @@ directory is in `XDG_DATA_DIRS`.
 - **I/O panel:** live PipeWire/JACK source list from miniaudio.
 - **Playwright replacement:** `ui-test` (below) drives the exact same state
   machine headlessly.
+- **Undo/redo:** 64 gestures of track/master/tempo state. `u` undo, `U` redo,
+  or `: undo` / `: redo`. Recording is paused for undo and take audio is never
+  removed — the status line says `(takes kept)`.
+- **Recent projects:** `: recent projects` opens a filterable list; `: open
+  project` and `: save project as` emit `Open_Project` / `Save_As` so the
+  window layer can supply a native picker (zenity) later.
+- **Accessibility:** `: high contrast` and `: reduced motion` are runtime
+  toggles. `app_describe()` returns a screen-reader-oriented text snapshot and
+  `state_revision` lets the CLI print changes (`--a11y-log` hook).
 - **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `1–4` arm, `j/k`
   select, `J/K` level, `m` mute, `s` solo, `a` arm, `i` I/O, `x` FX,
-  `c` click, `[`/`]` FX channel, `:` command palette, `Esc` close.
+  `c` click, `u`/`U` undo/redo, `[`/`]` FX channel, `:` command palette,
+  `Esc` close.
 
 Sessions live in `~/.local/share/tracker/session` by default and contain
 `project.json`, `track1.wav` … `track4.wav`, and `bounce.wav` (plus a
@@ -154,7 +164,7 @@ Targets: `track.N`, `master`, `arm.N`, `solo.N`, `mute.N`, `input.N`,
 `fader.N`, `pan.N`, `transport.rec|play|stop`, `bounce`, `fx`, `io`,
 `bpm.plus|minus`, `metronome`, `fx.tab.N`, `fx.close`,
 `knob.<module>.<param>`, `fx.bypass.<module>`, `fx.pingpong.delay`,
-`palette.row.N`, `io.row.N`. Targets are availability-gated by the current
+`palette.row.N`, `recent.panel`, `recent.input`, `recent.row.N`, `io.row.N`. Targets are availability-gated by the current
 overlay/mode; clicking a track control while the FX rack is open fails instead
 of silently closing the rack.
 Track tabs expose `eq`, `comp` and `send`; the `MST` tab (`fx.tab.4`) exposes
@@ -167,11 +177,16 @@ Assertion paths: `transport`, `mode`, `selected`, `armed.N`, `muted.N`,
 `metronome`, `palette.open`, `palette.text`, `palette.count`, `palette.sel`,
 `fx.open`, `fx.channel`, `fx.focus`, `bounce.progress`, `bounce.running`,
 `device`, `device.count`, `input.count`, `armed.count`, `solo.any`, `dirty`,
-`project`, `status`, plus every knob and bypass target.
+`project`, `status`, `palette.scroll`, `palette.visible`, `recent.open`,
+`recent.count`, `recent.total`, `recent.sel`, `recent.filter`, `recent.path`,
+`recent.target`, `command`, `command.index`, `revision`, `a11y.high_contrast`,
+`a11y.reduced_motion`, `undo.depth`, `redo.depth`, `undo.can`, `redo.can`,
+`describe`, plus every knob and bypass target.
 
 Actions: `click`, `drag` (`dy`), `key`, `type`, `wait` (`frames` or `ms`),
 `screenshot`, `assert` (`equals`, or `min`/`max` + `hasMin`/`hasMax`),
-`resize`. The full tour is **118 actions / 10 screenshots**. A `report.json`
+`resize`, and a script-level `recent` list. The full tour is **207 actions /
+16 screenshots**. A `report.json`
 with every result is written next to the screenshots.
 
 `ui-shot` renders one frame to PNG for fast visual iteration:
@@ -201,43 +216,10 @@ with every result is written next to the screenshots.
 mixed-rate files to the project rate, renders through the full chain and writes
 stereo 32-bit float.
 
-## Asynchronous JACK take API
-
-`jack_session.odin` is the GUI-facing capture path. Unlike `record --jack` it
-does not take a duration; start a take, poll it, then stop it:
-
-```odin
-session: Jack_Session
-defer jack_session_destroy(&session)
-
-// requested rate 0 = adopt whatever the JACK server runs at.
-if !jack_session_start(&session, 2, 0) {
-	fmt.eprintln(jack_session_detail(&session))
-	return
-}
-// ... UI runs; poll jack_session_frames / jack_session_peak / xruns ...
-result, ok := jack_session_stop(&session)
-defer capture_destroy(&result) // safe when the take failed
-_ = ok
-```
-
-- The JACK process callback only writes into a lock-free ring. A writer thread
-  drains it into 16k-frame chunks, so a take is not capped at a preallocated
-  duration.
-- `port_names` selects source ports; empty means the first N physical graph
-  outputs. The actual server rate is reported in `session.rate`; a non-zero
-  requested rate that differs is rejected with a clear message.
-- `jack_session_stop` deactivates the client first, drains the writer, and
-  returns interleaved samples in a standard `Capture_Result`. A second stop is
-  a safe no-op. `max_seconds` (default 0) is an optional cap, not a target.
-- Tests: `TRACKER_JACK_LIVE=1 odin test src -define:ODIN_TEST_THREADS=1 \
-  -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lSDL2"` adds a 1-second
-  live take to the synthetic ring/writer tests.
-
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 51 core/engine/project/JACK + 38 UI = 159 tests
+make test        # 70 DSP + 45 core/engine/project + 51 UI = 166 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui
@@ -276,7 +258,6 @@ odin/
     project.odin       project.json + DSP/view mapping
     capture.odin       miniaudio enumeration/capture
     jack_capture.odin  cooperative JACK client
-    jack_session.odin  asynchronous GUI JACK take (ring + writer/chunks)
     wav.odin           float32 WAV + PCM import
     dsp/               biquad, EQ, comp, limiter, reverb, delay, widener,
                        resample, render
@@ -330,16 +311,17 @@ architectural change than this port needs today.
 - Overdub is not latency-compensated: the click/existing mix and the capture
   start on separate devices, so sample-accurate alignment is not guaranteed.
 - Preview render and bounce run synchronously on the UI thread; a long mix
-  pauses the window while it renders. JACK capture is exposed through the CLI
-  and the asynchronous `jack_session` API; the window still records through
-  miniaudio until it is wired to that session.
-- The session path is fixed per run (`--session`); there is no native file
-  picker or recent-projects list.
-- No undo/redo, comping, RF64 (>4 GB), or screen-reader accessibility yet.
+  pauses the window while it renders. JACK capture is exposed through the CLI,
+  not yet as a GUI mode.
+- The session path is fixed per run (`--session`). The recent-project overlay
+  and `Open_Project` / `Save_As` / `Open_Recent` commands are implemented; the
+  window still needs to connect them to zenity/file dialogs.
+- Recent projects are in-memory App state (fixed buffers); loading them from a
+  settings file belongs to the window layer. Undo history resets on app start.
+- Accessibility is a textual snapshot plus high-contrast/reduced-motion
+  preferences, not an OS-level accessibility tree. No comping or RF64 (>4 GB).
 - `ui-test` covers the state machine and rendering, not OS-level window focus or
   audio-device hotplug.
-- A JACK session keeps its take in fixed chunks in RAM (≈384 MB/hour at
-  48 kHz stereo) until `jack_session_stop` returns the interleaved samples.
 - The embedded text atlas is generated from Noto Sans Mono (Apache-2.0); see
   `assets/FONT-LICENSE.txt`. On a machine with JetBrains Mono installed,
   `scripts/gen_font.py` regenerates from it instead.

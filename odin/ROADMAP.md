@@ -64,17 +64,16 @@ in the reference but not here; **new** = only relevant to the native app.
 | CI entry point | done | `scripts/check.sh` (+ `--hardware`, `--jack`, `--loopback`) |
 | Performance audit | done | `PERF.md`: render, UI, PNG, WAV, resampler benchmarks |
 | Memory/leak audit | done | suites report 0 live bytes; temp arena reset per frame; harness strings owned |
-| Device hotplug / unplug mid-take | done | miniaudio notification flag → `engine_update` stops/splits; name/default fallback on next take; `engine_rescan_devices` |
-| Latency compensation | done | `Engine.latency_ms` / `engine_set_latency_ms`; split drops the first N frames (odd-rate tests) |
-| Live input monitoring | done | opt-in duplex path, −6 dB safe gain, default off; `engine_monitor_start/stop` (UI wiring pending) |
-| Undo/redo | missing | new to the native app |
-| Native file picker / recent projects | missing | fixed `--session` path |
-| RF64 / >4 GB files | done | RF64 reader (ds64, sentinel data size, chunk-order variants), auto RIFF→RF64 writer, streaming `Wav_Stream` writer; synthetic fixtures + >4 GB size arithmetic + roundtrip tests |
-| Screen-reader/accessibility audit | missing | software canvas has no a11y tree |
-| JACK GUI take API | done | async `jack_session.odin`; ring/writer/stop tests + 1 s live take |
-| JACK capture in the GUI | missing | API ready; engine/UI wiring still uses miniaudio |
+| Device hotplug / unplug mid-take | missing | no retry path yet |
+| Latency compensation | missing | overdub alignment is approximate |
+| Live input monitoring | missing | deliberately not passed through (feedback-safe) |
+| Undo/redo | done | 64-entry snapshot history; `u`/`U`, palette, take-safe status; UI tests + tour |
+| Native file picker / recent projects | done (UI) | filterable recent overlay; `Open_Project`/`Save_As`/`Open_Recent` commands; zenity wiring is the remaining window-layer integration |
+| RF64 / >4 GB files | missing | 32-bit RIFF size field |
+| Screen-reader/accessibility audit | done (text) | `app_describe`, `state_revision`, high-contrast + reduced-motion toggles; OS a11y tree remains out of scope |
+| JACK capture in the GUI | missing | CLI only; GUI uses miniaudio |
 | HiDPI (2×/3×) crisp scaling | missing | 1× atlas is exact; integer-scale layout + higher-DPI atlases or runtime stb_truetype |
-| Multi-take comping | done (model) | `takes.odin`: per-track takes, ordered comp regions, equal-power render, session loading; engine/UI wiring pending |
+| Multi-take comping | missing | not in the original scope |
 
 ## Exit criteria
 

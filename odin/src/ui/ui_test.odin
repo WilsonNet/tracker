@@ -3,6 +3,7 @@ package ui
 import "core:fmt"
 import "core:math"
 import "core:os"
+import "core:strings"
 import "core:testing"
 
 @(test)
@@ -189,7 +190,7 @@ ui_draws_every_overlay_without_panicking :: proc(t: ^testing.T) {
 	canvas_init(&c, 1180, 760)
 	defer canvas_destroy(&c)
 
-	modes := [5]Mode{.Normal, .Fx, .Palette, .Io, .Bounce}
+	modes := [6]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent}
 	for mode in modes {
 		a.mode = mode
 		app_draw(&a, &c)
@@ -415,12 +416,18 @@ ui_palette_query_case_backspace_and_rows :: proc(t: ^testing.T) {
 	app_key(&a, .Escape)
 	open_palette(&a)
 	app_layout(&a)
-	for i in 0 ..< a.palette_count {
+	for i in 0 ..< a.layout.palette_count {
 		row := a.layout.palette_row[i]
 		testing.expectf(t, rect_within(row, a.layout.palette), "palette row %d escapes the panel", i)
 		testing.expectf(t, row.y + row.h <= a.layout.palette.y + a.layout.palette.h - 26, "palette row %d hits the footer", i)
 	}
 	testing.expect(t, a.palette_count == len(PALETTE_COMMANDS), "all commands should be listed")
+	testing.expectf(t, a.layout.palette_count < a.palette_count, "palette should window %d/%d rows", a.layout.palette_count, a.palette_count)
+	// Selection follows the scroll window to the last command.
+	a.palette_sel = a.palette_count - 1
+	app_layout(&a)
+	testing.expectf(t, a.palette_scroll > 0, "scroll did not follow selection: %d", a.palette_scroll)
+	testing.expectf(t, a.palette_sel < a.palette_scroll + a.layout.palette_count, "selected row is outside the window")
 }
 
 @(test)
@@ -680,11 +687,12 @@ ui_layout_geometry_across_sizes :: proc(t: ^testing.T) {
 		app_layout(&a)
 
 		testing.expect(t, rect_within(a.layout.palette, Rect{0, 0, f32(a.width), f32(a.height)}), "palette off-screen")
-		for i in 0 ..< a.palette_count {
+		for i in 0 ..< a.layout.palette_count {
 			row := a.layout.palette_row[i]
 			testing.expectf(t, rect_within(row, a.layout.palette), "%dx%d palette row %d escapes", size[0], size[1], i)
 			testing.expectf(t, row.y + row.h <= a.layout.palette.y + a.layout.palette.h - 26, "%dx%d palette row %d hits footer", size[0], size[1], i)
 		}
+		testing.expectf(t, a.layout.palette_count >= 10, "%dx%d palette window too small: %d", size[0], size[1], a.layout.palette_count)
 
 		a.mode = .Normal
 		app_layout(&a)
@@ -785,7 +793,7 @@ ui_interactive_targets_meet_minimum_size :: proc(t: ^testing.T) {
 @(test)
 ui_render_is_nonblank_in_every_mode_and_size :: proc(t: ^testing.T) {
 	sizes := [3][2]int{{900, 620}, {1180, 760}, {1920, 1080}}
-	modes := [5]Mode{.Normal, .Fx, .Palette, .Io, .Bounce}
+	modes := [6]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent}
 	for size in sizes {
 		a: App
 		app_init(&a, size[0], size[1])
@@ -1042,4 +1050,326 @@ ui_font_text_screenshot_has_grayscale_edges :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	defer delete(data)
 	testing.expect(t, err == nil && len(data) > 1_000, "font screenshot missing or tiny")
+}
+
+
+// ---------------------------------------------------------------- undo / redo
+
+@(test)
+ui_undo_redo_arm_mute_solo :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	testing.expect(t, app_click_id(&a, "arm.0"), "arm")
+	testing.expect(t, a.tracks[0].armed, "armed")
+	testing.expect(t, app_click_id(&a, "mute.0"), "mute")
+	testing.expect(t, a.tracks[0].muted, "muted")
+	testing.expect(t, app_click_id(&a, "solo.0"), "solo")
+	testing.expect(t, a.tracks[0].soloed, "soloed")
+
+	app_key(&a, .Char, 'u')
+	testing.expect(t, !a.tracks[0].soloed && a.tracks[0].muted && a.tracks[0].armed, "undo solo")
+	app_key(&a, .Char, 'u')
+	testing.expect(t, !a.tracks[0].muted && a.tracks[0].armed, "undo mute")
+	app_key(&a, .Char, 'u')
+	testing.expect(t, !a.tracks[0].armed, "undo arm")
+	testing.expect(t, strings.contains(app_status(&a), "undid arm"), "undo status")
+	testing.expect(t, strings.contains(app_status(&a), "takes kept"), "take safety documented")
+
+	app_key(&a, .Char, 'U')
+	app_key(&a, .Char, 'U')
+	app_key(&a, .Char, 'U')
+	testing.expect(t, a.tracks[0].armed && a.tracks[0].muted && a.tracks[0].soloed, "redo all")
+	testing.expect(t, app_value_is(&a, "redo.can", "false"), "redo exhausted")
+}
+
+@(test)
+ui_undo_redo_fader_pan_knob :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	testing.expect(t, app_drag_id(&a, "fader.0", -60), "fader drag")
+	raised := a.tracks[0].level
+	testing.expectf(t, raised > 0.9, "fader raised: %v", raised)
+	app_key(&a, .Char, 'u')
+	testing.expectf(t, abs(a.tracks[0].level - 0.8) < 0.001, "fader undo: %v", a.tracks[0].level)
+	app_key(&a, .Char, 'U')
+	testing.expectf(t, a.tracks[0].level > 0.9, "fader redo: %v", a.tracks[0].level)
+
+	testing.expect(t, app_drag_id(&a, "pan.1", -60), "pan drag")
+	panned := a.tracks[1].pan
+	app_key(&a, .Char, 'u')
+	testing.expectf(t, abs(a.tracks[1].pan) < 0.001, "pan undo: %v", a.tracks[1].pan)
+	app_key(&a, .Char, 'U')
+	testing.expectf(t, a.tracks[1].pan == panned, "pan redo")
+
+	app_execute(&a, .Fx)
+	testing.expect(t, app_drag_id(&a, "knob.eq.low", -40), "knob drag")
+	boost := a.tracks[0].eq.low_db
+	testing.expectf(t, boost > 3, "knob boosted: %v", boost)
+	app_key(&a, .Char, 'u')
+	testing.expectf(t, abs(a.tracks[0].eq.low_db) < 0.001, "knob undo: %v", a.tracks[0].eq.low_db)
+	app_key(&a, .Char, 'U')
+	testing.expectf(t, a.tracks[0].eq.low_db == boost, "knob redo")
+}
+
+@(test)
+ui_undo_truncates_the_redo_branch :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	app_click_id(&a, "arm.0")
+	app_key(&a, .Char, 'u')
+	testing.expect(t, app_value_is(&a, "redo.depth", "1"), "one redo candidate")
+	// A fresh edit after undo discards the abandoned redo branch.
+	app_click_id(&a, "mute.0")
+	testing.expect(t, app_value_is(&a, "redo.depth", "0"), "redo branch truncated")
+	before := a.tracks[0].muted
+	app_key(&a, .Char, 'U')
+	testing.expect(t, a.tracks[0].muted == before, "redo did nothing after truncation")
+	testing.expect(t, app_status(&a) == "nothing to redo", "redo refusal status")
+}
+
+@(test)
+ui_undo_never_removes_a_recording_take :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	app_click_id(&a, "arm.0")
+	app_key(&a, .Char, 'r')
+	testing.expect(t, a.transport == .Recording, "recording")
+	a.tracks[0].has_audio = true
+	app_key(&a, .Char, 'u')
+	testing.expect(t, a.transport == .Recording, "undo refused mid-take")
+	testing.expect(t, app_status(&a) == "recording - stop before undo", "refusal status")
+	testing.expect(t, a.tracks[0].armed, "arm untouched during take")
+
+	app_key(&a, .Char, 'r')
+	testing.expect(t, a.transport == .Stopped, "take stopped")
+	testing.expect(t, strings.contains(app_status(&a), "undo keeps audio"), "take safety status")
+	app_key(&a, .Char, 'u')
+	testing.expect(t, !a.tracks[0].armed, "arm undone after take")
+	testing.expect(t, a.tracks[0].has_audio, "take audio survives undo")
+}
+
+@(test)
+ui_history_is_capped_at_64_entries :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	for _ in 0 ..< 70 {
+		app_key(&a, .Char, 'c')
+	}
+	testing.expectf(t, a.history_count == MAX_HISTORY, "history count %d", a.history_count)
+	testing.expect(t, a.history_pos == MAX_HISTORY - 1, "history position at the tip")
+	testing.expect(t, a.metronome == false, "70 toggles return to off")
+}
+
+@(test)
+ui_state_revision_tracks_mutations :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	start := a.state_revision
+	testing.expect(t, app_value_is(&a, "revision", fmt.tprintf("%d", start)), "initial revision")
+	app_click_id(&a, "arm.0")
+	testing.expect(t, a.state_revision > start, "click bumps revision")
+	mid := a.state_revision
+	app_key(&a, .Char, 'u')
+	testing.expect(t, a.state_revision > mid, "undo bumps revision")
+}
+
+// ---------------------------------------------------------------- recent projects
+
+@(test)
+ui_recent_filter_select_and_emit :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_recent(&a, []string{"/home/studio/live-set", "/home/studio/album-2026", "/tmp/sketch"})
+	testing.expectf(t, a.recent_count == 3, "recent count %d", a.recent_count)
+
+	app_recent_open(&a)
+	testing.expect(t, a.mode == .Recent, "recent overlay")
+	testing.expect(t, app_target_available(&a, "recent.row.0"), "recent row live")
+	testing.expect(t, !app_target_available(&a, "arm.0"), "workspace covered")
+	testing.expectf(t, a.recent_filtered == 3, "filtered %d", a.recent_filtered)
+
+	type_query(&a, "live")
+	testing.expectf(t, a.recent_filtered == 1, "filter live -> %d", a.recent_filtered)
+	testing.expect(t, app_value_is(&a, "recent.path", "/home/studio/live-set"), "filtered path")
+	app_key(&a, .Enter)
+	testing.expect(t, a.mode == .Normal, "selection closes overlay")
+	testing.expect(t, a.last_command == .Open_Recent, "Open_Recent emitted")
+	testing.expect(t, app_value_is(&a, "command", "Open_Recent"), "command path")
+	testing.expect(t, app_value_is(&a, "recent.target", "/home/studio/live-set"), "recent target")
+	testing.expect(t, app_value_is(&a, "command.index", "0"), "command index")
+}
+
+@(test)
+ui_recent_empty_state_and_duplicate_handling :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_recent_open(&a)
+	testing.expect(t, a.recent_filtered == 0, "empty list")
+	testing.expect(t, !app_target_available(&a, "recent.row.0"), "no rows when empty")
+	app_key(&a, .Enter)
+	testing.expect(t, app_status(&a) == "no recent projects", "empty status")
+	testing.expect(t, a.mode == .Recent, "empty overlay stays open")
+
+	c: Canvas
+	canvas_init(&c, 1180, 760)
+	defer canvas_destroy(&c)
+	app_draw(&a, &c)
+	testing.expect(t, canvas_nonblank(&c), "empty recent overlay renders")
+
+	app_key(&a, .Escape)
+	app_add_recent(&a, "/a")
+	app_add_recent(&a, "/b")
+	app_add_recent(&a, "/a")
+	testing.expectf(t, a.recent_count == 2, "dedupe count %d", a.recent_count)
+	testing.expect(t, app_recent_path(&a, 0) == "/a", "duplicate moved to front")
+}
+
+@(test)
+ui_project_picker_commands_emit :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	open_palette(&a)
+	type_query(&a, "open project")
+	testing.expectf(t, a.palette_count == 1, "open project match %d", a.palette_count)
+	app_key(&a, .Enter)
+	testing.expect(t, a.last_command == .Open_Project, "Open_Project")
+	testing.expect(t, app_value_is(&a, "command", "Open_Project"), "command assert path")
+	testing.expect(t, a.last_command_index == 0, "picker index cleared")
+
+	open_palette(&a)
+	type_query(&a, "save project as")
+	testing.expectf(t, a.palette_count == 1, "save as match %d", a.palette_count)
+	app_key(&a, .Enter)
+	testing.expect(t, a.last_command == .Save_As, "Save_As")
+	testing.expect(t, strings.contains(app_status(&a), "picker"), "picker status")
+}
+
+// ---------------------------------------------------------------- accessibility
+
+@(test)
+ui_high_contrast_tokens_raise_contrast :: proc(t: ^testing.T) {
+	base := theme_tokens(false)
+	high := theme_tokens(true)
+	testing.expect(t, base.text != high.text, "text token should change")
+	testing.expect(t, base.dim != high.dim, "dim token should change")
+	cases := [4]struct {
+		name: string,
+		lo:   Color,
+		hi:   Color,
+		min:  f32,
+	}{
+		{"text on bg", base.text, high.text, 15.0},
+		{"dim on bg", base.dim, high.dim, 7.0},
+		{"muted on bg", base.muted, high.muted, 5.0},
+		{"amber on bg", base.amber, high.amber, 7.0},
+	}
+	for c in cases {
+		rb := contrast_ratio(c.lo, base.bg)
+		rh := contrast_ratio(c.hi, high.bg)
+		testing.expectf(t, rh > rb, "%s did not improve: %.2f -> %.2f", c.name, rb, rh)
+		testing.expectf(t, rh >= c.min, "%s high contrast %.2f < %.1f", c.name, rh, c.min)
+	}
+}
+
+@(test)
+ui_accessibility_toggles_from_palette :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	open_palette(&a)
+	type_query(&a, "high contrast")
+	app_key(&a, .Enter)
+	testing.expect(t, a.high_contrast, "high contrast on")
+	testing.expect(t, app_value_is(&a, "a11y.high_contrast", "true"), "high contrast path")
+	testing.expect(t, app_tokens(&a).text == TOKENS_HIGH_CONTRAST.text, "app tokens switch")
+	open_palette(&a)
+	type_query(&a, "high contrast")
+	app_key(&a, .Enter)
+	testing.expect(t, !a.high_contrast, "high contrast off")
+
+	open_palette(&a)
+	type_query(&a, "reduced motion")
+	app_key(&a, .Enter)
+	testing.expect(t, a.reduced_motion, "reduced motion on")
+	testing.expect(t, app_value_is(&a, "a11y.reduced_motion", "true"), "motion path")
+}
+
+@(private)
+frames_equal :: proc(a, b: ^Canvas) -> bool {
+	if len(a.pixels) != len(b.pixels) {
+		return false
+	}
+	for p, i in a.pixels {
+		if p != b.pixels[i] {
+			return false
+		}
+	}
+	return true
+}
+
+@(test)
+ui_reduced_motion_freezes_the_recording_pulse :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	a.tracks[0].armed = true
+	a.transport = .Recording
+
+	c1: Canvas
+	c2: Canvas
+	canvas_init(&c1, 1180, 760)
+	canvas_init(&c2, 1180, 760)
+	defer canvas_destroy(&c1)
+	defer canvas_destroy(&c2)
+
+	a.time = 0
+	app_draw(&a, &c1)
+	a.time = 1.31
+	app_draw(&a, &c2)
+	testing.expect(t, !frames_equal(&c1, &c2), "normal recording pulse should animate")
+
+	a.reduced_motion = true
+	a.time = 0
+	app_draw(&a, &c1)
+	a.time = 1.31
+	app_draw(&a, &c2)
+	testing.expect(t, frames_equal(&c1, &c2), "reduced motion must freeze the pulse")
+}
+
+@(test)
+ui_describe_is_a_screen_reader_snapshot :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_click_id(&a, "arm.0")
+	app_click_id(&a, "mute.1")
+	app_click_id(&a, "solo.2")
+	app_execute(&a, .Fx)
+	text := app_describe(&a)
+	for want in ([]string{
+		"mode Fx rack", "transport stopped", "selected track 3",
+		"track 1 Track 1: armed", "mute on", "solo on", "level 53 percent",
+		"tempo 120 bpm", "undo", "status",
+	}) {
+		testing.expectf(t, strings.contains(text, want), "describe missing %q in %q", want, text)
+	}
+	app_key(&a, .Escape)
+	app_click_id(&a, "mute.0")
+	text2 := app_describe(&a)
+	testing.expect(t, strings.contains(text2, "track 1 Track 1: armed, mute on"), "describe reflects mute")
+	testing.expect(t, text2 != text, "describe changes with state")
 }

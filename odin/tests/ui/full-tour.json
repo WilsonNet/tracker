@@ -3,125 +3,956 @@
   "width": 1180,
   "height": 760,
   "demo": true,
-  "devices": ["Scarlett 4i4", "MX Brio", "Ryzen Mic"],
+  "devices": [
+    "Scarlett 4i4",
+    "MX Brio",
+    "Ryzen Mic"
+  ],
   "actions": [
-    {"type": "screenshot", "name": "initial"},
-    {"type": "click", "id": "bpm.plus"},
-    {"type": "assert", "path": "bpm", "equals": "121"},
-    {"type": "click", "id": "metronome"},
-    {"type": "assert", "path": "metronome", "equals": "true"},
-    {"type": "click", "id": "arm.0"},
-    {"type": "assert", "path": "armed.0", "equals": "true"},
-    {"type": "click", "id": "arm.1"},
-    {"type": "assert", "path": "armed.1", "equals": "true"},
-    {"type": "click", "id": "input.0"},
-    {"type": "assert", "path": "input.0", "equals": "2"},
-    {"type": "key", "key": "I"},
-    {"type": "assert", "path": "input.0", "equals": "3"},
-    {"type": "click", "id": "solo.0"},
-    {"type": "assert", "path": "solo.0", "equals": "true"},
-    {"type": "assert", "path": "audible.0", "equals": "true"},
-    {"type": "assert", "path": "audible.1", "equals": "false"},
-    {"type": "key", "key": "s"},
-    {"type": "assert", "path": "solo.0", "equals": "false"},
-    {"type": "assert", "path": "audible.1", "equals": "true"},
-    {"type": "key", "key": "r"},
-    {"type": "assert", "path": "transport", "equals": "Recording"},
-    {"type": "wait", "frames": 45},
-    {"type": "screenshot", "name": "recording"},
-    {"type": "click", "id": "bounce"},
-    {"type": "assert", "path": "transport", "equals": "Recording"},
-    {"type": "assert", "path": "bounce.running", "equals": "false"},
-    {"type": "click", "id": "arm.2"},
-    {"type": "assert", "path": "armed.2", "equals": "false"},
-    {"type": "key", "key": "r"},
-    {"type": "assert", "path": "transport", "equals": "Stopped"},
-    {"type": "key", "key": "space"},
-    {"type": "assert", "path": "transport", "equals": "Playing"},
-    {"type": "wait", "frames": 30},
-    {"type": "screenshot", "name": "playing"},
-    {"type": "key", "key": "space"},
-    {"type": "drag", "id": "fader.0", "dy": -50},
-    {"type": "assert", "path": "level.0", "min": 0.9, "hasMin": true},
-    {"type": "click", "id": "mute.0"},
-    {"type": "assert", "path": "muted.0", "equals": "true"},
-    {"type": "click", "id": "mute.0"},
-    {"type": "click", "id": "fx"},
-    {"type": "assert", "path": "fx.open", "equals": "true"},
-    {"type": "screenshot", "name": "fx-track"},
-    {"type": "key", "key": "tab"},
-    {"type": "assert", "path": "fx.focus", "equals": "knob.eq.low"},
-    {"type": "key", "key": "right"},
-    {"type": "assert", "path": "knob.eq.low", "min": 0.3, "hasMin": true},
-    {"type": "key", "key": "enter"},
-    {"type": "assert", "path": "knob.eq.low", "max": 0.01, "hasMax": true},
-    {"type": "key", "key": "shift+tab"},
-    {"type": "assert", "path": "fx.focus", "equals": "fx.bypass.comp"},
-    {"type": "key", "key": "enter"},
-    {"type": "assert", "path": "fx.bypass.comp", "equals": "true"},
-    {"type": "key", "key": "tab"},
-    {"type": "assert", "path": "fx.focus", "equals": "knob.eq.low"},
-    {"type": "click", "id": "fx.bypass.comp"},
-    {"type": "assert", "path": "fx.bypass.comp", "equals": "false"},
-    {"type": "click", "id": "fx.tab.4"},
-    {"type": "assert", "path": "fx.channel", "equals": "4"},
-    {"type": "screenshot", "name": "fx-master"},
-    {"type": "assert", "path": "fx.bypass.reverb", "equals": "true"},
-    {"type": "click", "id": "fx.bypass.reverb"},
-    {"type": "assert", "path": "fx.bypass.reverb", "equals": "false"},
-    {"type": "click", "id": "fx.bypass.delay"},
-    {"type": "assert", "path": "fx.bypass.delay", "equals": "false"},
-    {"type": "drag", "id": "knob.delay.time", "dy": -40},
-    {"type": "assert", "path": "knob.delay.time", "min": 330, "hasMin": true},
-    {"type": "click", "id": "fx.close"},
-    {"type": "assert", "path": "mode", "equals": "Normal"},
-    {"type": "key", "key": ":"},
-    {"type": "type", "text": "tempo"},
-    {"type": "assert", "path": "palette.text", "equals": "tempo"},
-    {"type": "assert", "path": "palette.count", "equals": "2"},
-    {"type": "key", "key": "down"},
-    {"type": "assert", "path": "palette.sel", "equals": "1"},
-    {"type": "key", "key": "backspace"},
-    {"type": "assert", "path": "palette.text", "equals": "temp"},
-    {"type": "assert", "path": "palette.sel", "equals": "0"},
-    {"type": "key", "key": "escape"},
-    {"type": "assert", "path": "mode", "equals": "Normal"},
-    {"type": "key", "key": ":"},
-    {"type": "type", "text": "met"},
-    {"type": "click", "id": "palette.row.0"},
-    {"type": "assert", "path": "mode", "equals": "Normal"},
-    {"type": "assert", "path": "metronome", "equals": "false"},
-    {"type": "key", "key": ":"},
-    {"type": "type", "text": "bo"},
-    {"type": "assert", "path": "palette.text", "equals": "bo"},
-    {"type": "screenshot", "name": "palette"},
-    {"type": "key", "key": "enter"},
-    {"type": "assert", "path": "mode", "equals": "Bounce"},
-    {"type": "wait", "frames": 80},
-    {"type": "assert", "path": "bounce.progress", "min": 1.0, "hasMin": true},
-    {"type": "assert", "path": "bounce.running", "equals": "false"},
-    {"type": "key", "key": "b"},
-    {"type": "assert", "path": "mode", "equals": "Bounce"},
-    {"type": "assert", "path": "bounce.running", "equals": "true"},
-    {"type": "key", "key": "escape"},
-    {"type": "assert", "path": "mode", "equals": "Normal"},
-    {"type": "assert", "path": "bounce.running", "equals": "true"},
-    {"type": "wait", "frames": 80},
-    {"type": "assert", "path": "bounce.running", "equals": "false"},
-    {"type": "assert", "path": "bounce.progress", "min": 1.0, "hasMin": true},
-    {"type": "click", "id": "io"},
-    {"type": "assert", "path": "mode", "equals": "Io"},
-    {"type": "screenshot", "name": "io"},
-    {"type": "click", "id": "io.row.1"},
-    {"type": "assert", "path": "device", "equals": "MX Brio"},
-    {"type": "assert", "path": "mode", "equals": "Normal"},
-    {"type": "resize", "width": 900, "height": 620},
-    {"type": "screenshot", "name": "compact"},
-    {"type": "resize", "width": 1920, "height": 1080},
-    {"type": "screenshot", "name": "wide"},
-    {"type": "resize", "width": 1180, "height": 760},
-    {"type": "key", "key": "3"},
-    {"type": "assert", "path": "armed.2", "equals": "true"},
-    {"type": "screenshot", "name": "final"}
+    {
+      "type": "screenshot",
+      "name": "initial"
+    },
+    {
+      "type": "click",
+      "id": "bpm.plus"
+    },
+    {
+      "type": "assert",
+      "path": "bpm",
+      "equals": "121"
+    },
+    {
+      "type": "click",
+      "id": "metronome"
+    },
+    {
+      "type": "assert",
+      "path": "metronome",
+      "equals": "true"
+    },
+    {
+      "type": "click",
+      "id": "arm.0"
+    },
+    {
+      "type": "assert",
+      "path": "armed.0",
+      "equals": "true"
+    },
+    {
+      "type": "click",
+      "id": "arm.1"
+    },
+    {
+      "type": "assert",
+      "path": "armed.1",
+      "equals": "true"
+    },
+    {
+      "type": "click",
+      "id": "input.0"
+    },
+    {
+      "type": "assert",
+      "path": "input.0",
+      "equals": "2"
+    },
+    {
+      "type": "key",
+      "key": "I"
+    },
+    {
+      "type": "assert",
+      "path": "input.0",
+      "equals": "3"
+    },
+    {
+      "type": "click",
+      "id": "solo.0"
+    },
+    {
+      "type": "assert",
+      "path": "solo.0",
+      "equals": "true"
+    },
+    {
+      "type": "assert",
+      "path": "audible.0",
+      "equals": "true"
+    },
+    {
+      "type": "assert",
+      "path": "audible.1",
+      "equals": "false"
+    },
+    {
+      "type": "key",
+      "key": "s"
+    },
+    {
+      "type": "assert",
+      "path": "solo.0",
+      "equals": "false"
+    },
+    {
+      "type": "assert",
+      "path": "audible.1",
+      "equals": "true"
+    },
+    {
+      "type": "key",
+      "key": "r"
+    },
+    {
+      "type": "assert",
+      "path": "transport",
+      "equals": "Recording"
+    },
+    {
+      "type": "wait",
+      "frames": 45
+    },
+    {
+      "type": "screenshot",
+      "name": "recording"
+    },
+    {
+      "type": "click",
+      "id": "bounce"
+    },
+    {
+      "type": "assert",
+      "path": "transport",
+      "equals": "Recording"
+    },
+    {
+      "type": "assert",
+      "path": "bounce.running",
+      "equals": "false"
+    },
+    {
+      "type": "click",
+      "id": "arm.2"
+    },
+    {
+      "type": "assert",
+      "path": "armed.2",
+      "equals": "false"
+    },
+    {
+      "type": "key",
+      "key": "r"
+    },
+    {
+      "type": "assert",
+      "path": "transport",
+      "equals": "Stopped"
+    },
+    {
+      "type": "key",
+      "key": "space"
+    },
+    {
+      "type": "assert",
+      "path": "transport",
+      "equals": "Playing"
+    },
+    {
+      "type": "wait",
+      "frames": 30
+    },
+    {
+      "type": "screenshot",
+      "name": "playing"
+    },
+    {
+      "type": "key",
+      "key": "space"
+    },
+    {
+      "type": "drag",
+      "id": "fader.0",
+      "dy": -50
+    },
+    {
+      "type": "assert",
+      "path": "level.0",
+      "min": 0.9,
+      "hasMin": true
+    },
+    {
+      "type": "click",
+      "id": "mute.0"
+    },
+    {
+      "type": "assert",
+      "path": "muted.0",
+      "equals": "true"
+    },
+    {
+      "type": "click",
+      "id": "mute.0"
+    },
+    {
+      "type": "click",
+      "id": "fx"
+    },
+    {
+      "type": "assert",
+      "path": "fx.open",
+      "equals": "true"
+    },
+    {
+      "type": "screenshot",
+      "name": "fx-track"
+    },
+    {
+      "type": "key",
+      "key": "tab"
+    },
+    {
+      "type": "assert",
+      "path": "fx.focus",
+      "equals": "knob.eq.low"
+    },
+    {
+      "type": "key",
+      "key": "right"
+    },
+    {
+      "type": "assert",
+      "path": "knob.eq.low",
+      "min": 0.3,
+      "hasMin": true
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "assert",
+      "path": "knob.eq.low",
+      "max": 0.01,
+      "hasMax": true
+    },
+    {
+      "type": "key",
+      "key": "shift+tab"
+    },
+    {
+      "type": "assert",
+      "path": "fx.focus",
+      "equals": "fx.bypass.comp"
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "assert",
+      "path": "fx.bypass.comp",
+      "equals": "true"
+    },
+    {
+      "type": "key",
+      "key": "tab"
+    },
+    {
+      "type": "assert",
+      "path": "fx.focus",
+      "equals": "knob.eq.low"
+    },
+    {
+      "type": "click",
+      "id": "fx.bypass.comp"
+    },
+    {
+      "type": "assert",
+      "path": "fx.bypass.comp",
+      "equals": "false"
+    },
+    {
+      "type": "click",
+      "id": "fx.tab.4"
+    },
+    {
+      "type": "assert",
+      "path": "fx.channel",
+      "equals": "4"
+    },
+    {
+      "type": "screenshot",
+      "name": "fx-master"
+    },
+    {
+      "type": "assert",
+      "path": "fx.bypass.reverb",
+      "equals": "true"
+    },
+    {
+      "type": "click",
+      "id": "fx.bypass.reverb"
+    },
+    {
+      "type": "assert",
+      "path": "fx.bypass.reverb",
+      "equals": "false"
+    },
+    {
+      "type": "click",
+      "id": "fx.bypass.delay"
+    },
+    {
+      "type": "assert",
+      "path": "fx.bypass.delay",
+      "equals": "false"
+    },
+    {
+      "type": "drag",
+      "id": "knob.delay.time",
+      "dy": -40
+    },
+    {
+      "type": "assert",
+      "path": "knob.delay.time",
+      "min": 330,
+      "hasMin": true
+    },
+    {
+      "type": "click",
+      "id": "fx.close"
+    },
+    {
+      "type": "assert",
+      "path": "mode",
+      "equals": "Normal"
+    },
+    {
+      "type": "key",
+      "key": ":"
+    },
+    {
+      "type": "type",
+      "text": "tempo"
+    },
+    {
+      "type": "assert",
+      "path": "palette.text",
+      "equals": "tempo"
+    },
+    {
+      "type": "assert",
+      "path": "palette.count",
+      "equals": "2"
+    },
+    {
+      "type": "key",
+      "key": "down"
+    },
+    {
+      "type": "assert",
+      "path": "palette.sel",
+      "equals": "1"
+    },
+    {
+      "type": "key",
+      "key": "backspace"
+    },
+    {
+      "type": "assert",
+      "path": "palette.text",
+      "equals": "temp"
+    },
+    {
+      "type": "assert",
+      "path": "palette.sel",
+      "equals": "0"
+    },
+    {
+      "type": "key",
+      "key": "escape"
+    },
+    {
+      "type": "assert",
+      "path": "mode",
+      "equals": "Normal"
+    },
+    {
+      "type": "key",
+      "key": ":"
+    },
+    {
+      "type": "type",
+      "text": "met"
+    },
+    {
+      "type": "click",
+      "id": "palette.row.0"
+    },
+    {
+      "type": "assert",
+      "path": "mode",
+      "equals": "Normal"
+    },
+    {
+      "type": "assert",
+      "path": "metronome",
+      "equals": "false"
+    },
+    {
+      "type": "key",
+      "key": ":"
+    },
+    {
+      "type": "type",
+      "text": "bo"
+    },
+    {
+      "type": "assert",
+      "path": "palette.text",
+      "equals": "bo"
+    },
+    {
+      "type": "screenshot",
+      "name": "palette"
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "assert",
+      "path": "mode",
+      "equals": "Bounce"
+    },
+    {
+      "type": "wait",
+      "frames": 80
+    },
+    {
+      "type": "assert",
+      "path": "bounce.progress",
+      "min": 1.0,
+      "hasMin": true
+    },
+    {
+      "type": "assert",
+      "path": "bounce.running",
+      "equals": "false"
+    },
+    {
+      "type": "key",
+      "key": "b"
+    },
+    {
+      "type": "assert",
+      "path": "mode",
+      "equals": "Bounce"
+    },
+    {
+      "type": "assert",
+      "path": "bounce.running",
+      "equals": "true"
+    },
+    {
+      "type": "key",
+      "key": "escape"
+    },
+    {
+      "type": "assert",
+      "path": "mode",
+      "equals": "Normal"
+    },
+    {
+      "type": "assert",
+      "path": "bounce.running",
+      "equals": "true"
+    },
+    {
+      "type": "wait",
+      "frames": 80
+    },
+    {
+      "type": "assert",
+      "path": "bounce.running",
+      "equals": "false"
+    },
+    {
+      "type": "assert",
+      "path": "bounce.progress",
+      "min": 1.0,
+      "hasMin": true
+    },
+    {
+      "type": "click",
+      "id": "io"
+    },
+    {
+      "type": "assert",
+      "path": "mode",
+      "equals": "Io"
+    },
+    {
+      "type": "screenshot",
+      "name": "io"
+    },
+    {
+      "type": "click",
+      "id": "io.row.1"
+    },
+    {
+      "type": "assert",
+      "path": "device",
+      "equals": "MX Brio"
+    },
+    {
+      "type": "assert",
+      "path": "mode",
+      "equals": "Normal"
+    },
+    {
+      "type": "resize",
+      "width": 900,
+      "height": 620
+    },
+    {
+      "type": "screenshot",
+      "name": "compact"
+    },
+    {
+      "type": "resize",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "type": "screenshot",
+      "name": "wide"
+    },
+    {
+      "type": "resize",
+      "width": 1180,
+      "height": 760
+    },
+    {
+      "type": "key",
+      "key": "3"
+    },
+    {
+      "type": "assert",
+      "path": "armed.2",
+      "equals": "true"
+    },
+    {
+      "type": "click",
+      "id": "mute.1"
+    },
+    {
+      "type": "assert",
+      "path": "muted.1",
+      "equals": "true"
+    },
+    {
+      "type": "key",
+      "key": "u"
+    },
+    {
+      "type": "assert",
+      "path": "muted.1",
+      "equals": "false"
+    },
+    {
+      "type": "assert",
+      "path": "status",
+      "equals": "undid mute (takes kept)"
+    },
+    {
+      "type": "key",
+      "key": "U"
+    },
+    {
+      "type": "assert",
+      "path": "muted.1",
+      "equals": "true"
+    },
+    {
+      "type": "key",
+      "key": "u"
+    },
+    {
+      "type": "drag",
+      "id": "fader.0",
+      "dy": -40
+    },
+    {
+      "type": "assert",
+      "path": "level.0",
+      "min": 1.15,
+      "hasMin": true
+    },
+    {
+      "type": "key",
+      "key": "u"
+    },
+    {
+      "type": "assert",
+      "path": "level.0",
+      "max": 1.05,
+      "hasMax": true
+    },
+    {
+      "type": "key",
+      "key": "U"
+    },
+    {
+      "type": "assert",
+      "path": "level.0",
+      "min": 1.15,
+      "hasMin": true
+    },
+    {
+      "type": "click",
+      "id": "fx"
+    },
+    {
+      "type": "click",
+      "id": "fx.tab.0"
+    },
+    {
+      "type": "drag",
+      "id": "knob.eq.low",
+      "dy": -40
+    },
+    {
+      "type": "assert",
+      "path": "knob.eq.low",
+      "min": 3,
+      "hasMin": true
+    },
+    {
+      "type": "key",
+      "key": "u"
+    },
+    {
+      "type": "assert",
+      "path": "knob.eq.low",
+      "max": 0.01,
+      "hasMax": true
+    },
+    {
+      "type": "key",
+      "key": "U"
+    },
+    {
+      "type": "assert",
+      "path": "knob.eq.low",
+      "min": 3,
+      "hasMin": true
+    },
+    {
+      "type": "click",
+      "id": "fx.close"
+    },
+    {
+      "type": "key",
+      "key": ":"
+    },
+    {
+      "type": "type",
+      "text": "open"
+    },
+    {
+      "type": "assert",
+      "path": "palette.count",
+      "equals": "1"
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "assert",
+      "path": "command",
+      "equals": "Open_Project"
+    },
+    {
+      "type": "assert",
+      "path": "mode",
+      "equals": "Normal"
+    },
+    {
+      "type": "key",
+      "key": ":"
+    },
+    {
+      "type": "type",
+      "text": "save project as"
+    },
+    {
+      "type": "assert",
+      "path": "palette.count",
+      "equals": "1"
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "assert",
+      "path": "command",
+      "equals": "Save_As"
+    },
+    {
+      "type": "key",
+      "key": ":"
+    },
+    {
+      "type": "type",
+      "text": "recent"
+    },
+    {
+      "type": "assert",
+      "path": "palette.count",
+      "equals": "1"
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "assert",
+      "path": "recent.open",
+      "equals": "true"
+    },
+    {
+      "type": "assert",
+      "path": "recent.total",
+      "equals": "3"
+    },
+    {
+      "type": "assert",
+      "path": "recent.count",
+      "equals": "3"
+    },
+    {
+      "type": "assert",
+      "path": "recent.path",
+      "equals": "/home/studio/live-set"
+    },
+    {
+      "type": "screenshot",
+      "name": "recent"
+    },
+    {
+      "type": "type",
+      "text": "live"
+    },
+    {
+      "type": "assert",
+      "path": "recent.count",
+      "equals": "1"
+    },
+    {
+      "type": "assert",
+      "path": "recent.path",
+      "equals": "/home/studio/live-set"
+    },
+    {
+      "type": "screenshot",
+      "name": "recent-filter"
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "assert",
+      "path": "command",
+      "equals": "Open_Recent"
+    },
+    {
+      "type": "assert",
+      "path": "recent.target",
+      "equals": "/home/studio/live-set"
+    },
+    {
+      "type": "assert",
+      "path": "mode",
+      "equals": "Normal"
+    },
+    {
+      "type": "key",
+      "key": ":"
+    },
+    {
+      "type": "type",
+      "text": "recent"
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "type",
+      "text": "zzz"
+    },
+    {
+      "type": "assert",
+      "path": "recent.count",
+      "equals": "0"
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "assert",
+      "path": "status",
+      "equals": "no recent projects"
+    },
+    {
+      "type": "assert",
+      "path": "recent.open",
+      "equals": "true"
+    },
+    {
+      "type": "key",
+      "key": "escape"
+    },
+    {
+      "type": "assert",
+      "path": "mode",
+      "equals": "Normal"
+    },
+    {
+      "type": "key",
+      "key": ":"
+    },
+    {
+      "type": "type",
+      "text": "high"
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "assert",
+      "path": "a11y.high_contrast",
+      "equals": "true"
+    },
+    {
+      "type": "screenshot",
+      "name": "high-contrast"
+    },
+    {
+      "type": "key",
+      "key": ":"
+    },
+    {
+      "type": "type",
+      "text": "high"
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "assert",
+      "path": "a11y.high_contrast",
+      "equals": "false"
+    },
+    {
+      "type": "key",
+      "key": ":"
+    },
+    {
+      "type": "type",
+      "text": "reduced"
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "assert",
+      "path": "a11y.reduced_motion",
+      "equals": "true"
+    },
+    {
+      "type": "screenshot",
+      "name": "reduced-motion"
+    },
+    {
+      "type": "key",
+      "key": ":"
+    },
+    {
+      "type": "type",
+      "text": "reduced"
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "assert",
+      "path": "a11y.reduced_motion",
+      "equals": "false"
+    },
+    {
+      "type": "assert",
+      "path": "revision",
+      "min": 10,
+      "hasMin": true
+    },
+    {
+      "type": "resize",
+      "width": 900,
+      "height": 620
+    },
+    {
+      "type": "key",
+      "key": ":"
+    },
+    {
+      "type": "type",
+      "text": "recent"
+    },
+    {
+      "type": "key",
+      "key": "enter"
+    },
+    {
+      "type": "screenshot",
+      "name": "recent-compact"
+    },
+    {
+      "type": "resize",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "type": "screenshot",
+      "name": "recent-wide"
+    },
+    {
+      "type": "key",
+      "key": "escape"
+    },
+    {
+      "type": "resize",
+      "width": 1180,
+      "height": 760
+    },
+    {
+      "type": "screenshot",
+      "name": "final"
+    }
+  ],
+  "recent": [
+    "/home/studio/live-set",
+    "/home/studio/album-2026",
+    "/tmp/sketch"
   ]
 }

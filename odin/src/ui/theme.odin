@@ -26,6 +26,84 @@ GREEN       :: 0xFF62B36E
 BLACK       :: 0xFF000000
 WHITE       :: 0xFFFFFFFF
 
+// Runtime design tokens. The base set mirrors the DESIGN.md palette; the
+// high-contrast set raises ink and border luminance for studio/vision use.
+Tokens :: struct {
+	bg:           Color,
+	panel:        Color,
+	panel_2:      Color,
+	panel_3:      Color,
+	line:         Color,
+	line_bright:  Color,
+	amber:        Color,
+	amber_bright: Color,
+	amber_dim:    Color,
+	amber_faint:  Color,
+	amber_wash:   Color,
+	text:         Color,
+	dim:          Color,
+	muted:        Color,
+	red:          Color,
+	red_dim:      Color,
+	teal:         Color,
+	teal_dim:     Color,
+	green:        Color,
+	black:        Color,
+	white:        Color,
+}
+
+TOKENS_DEFAULT := Tokens {
+	bg           = BG,
+	panel        = PANEL,
+	panel_2      = PANEL_2,
+	panel_3      = PANEL_3,
+	line         = LINE,
+	line_bright  = LINE_BRIGHT,
+	amber        = AMBER,
+	amber_bright = AMBER_BRIGHT,
+	amber_dim    = AMBER_DIM,
+	amber_faint  = AMBER_FAINT,
+	amber_wash   = AMBER_WASH,
+	text         = TEXT,
+	dim          = DIM,
+	muted        = MUTED,
+	red          = RED,
+	red_dim      = RED_DIM,
+	teal         = TEAL,
+	teal_dim     = TEAL_DIM,
+	green        = GREEN,
+	black        = BLACK,
+	white        = WHITE,
+}
+
+TOKENS_HIGH_CONTRAST := Tokens {
+	bg           = 0xFF000000,
+	panel        = 0xFF0D0D0D,
+	panel_2      = 0xFF171717,
+	panel_3      = 0xFF262626,
+	line         = 0xFF4D4D4D,
+	line_bright  = 0xFF707070,
+	amber        = 0xFFFFA23A,
+	amber_bright = 0xFFFFB65C,
+	amber_dim    = 0xFFB87533,
+	amber_faint  = 0x55FFA23A,
+	amber_wash   = 0x2AFFA23A,
+	text         = 0xFFFFFFFF,
+	dim          = 0xFFD2D2D2,
+	muted        = 0xFFB0B0B0,
+	red          = 0xFFFF5C54,
+	red_dim      = 0xFF7A2420,
+	teal         = 0xFF44D8E0,
+	teal_dim     = 0xFF1A6064,
+	green        = 0xFF7FD98C,
+	black        = BLACK,
+	white        = WHITE,
+}
+
+theme_tokens :: proc(high_contrast: bool) -> Tokens {
+	return TOKENS_HIGH_CONTRAST if high_contrast else TOKENS_DEFAULT
+}
+
 rgb :: proc(r, g, b: u8, a: u8 = 255) -> Color {
 	return (Color(a) << 24) | (Color(r) << 16) | (Color(g) << 8) | Color(b)
 }
@@ -74,3 +152,8 @@ norm_to_value :: proc(norm, lo, hi: f32, logarithmic: bool) -> f32 {
 	}
 	return lo + (hi - lo) * t
 }
+
+// Set by app_draw before any widgets run. The UI is single-threaded (one App
+// per window/harness), and tests drive rendering through app_draw, so this
+// keeps widget call sites free of a token argument on every primitive.
+ACTIVE_TOKENS: Tokens = TOKENS_DEFAULT

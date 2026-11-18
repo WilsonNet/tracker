@@ -26,6 +26,13 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"metronome", .Metronome},
 	{"tempo up", .Bpm_Up},
 	{"tempo down", .Bpm_Down},
+	{"undo", .Undo},
+	{"redo", .Redo},
+	{"open project", .Open_Project},
+	{"save project as", .Save_As},
+	{"recent projects", .Recent},
+	{"high contrast", .High_Contrast},
+	{"reduced motion", .Reduced_Motion},
 }
 
 // Longest query that still fits the palette input without clipping.
@@ -386,7 +393,8 @@ app_knob_value :: proc(a: ^App, t: Knob_Target) -> f32 {
 app_set_knob :: proc(a: ^App, t: Knob_Target, value: f32) {
 	lo, hi, log := knob_spec(t.module, t.param)
 	v := clamp(value, lo, hi)
-	a.dirty = true
+	app_history_note(a, "knob")
+	app_touch(a)
 
 	if a.fx_channel >= MAX_TRACKS {
 		#partial switch t.module {
@@ -534,7 +542,8 @@ toggle_lit :: proc(a: ^App, t: Toggle_Target) -> bool {
 }
 
 app_flip_toggle :: proc(a: ^App, t: Toggle_Target) {
-	a.dirty = true
+	app_history_note(a, "fx")
+	app_touch(a)
 	if t.module == .DELAY && t.param == 1 {
 		a.master.delay.ping_pong = !a.master.delay.ping_pong
 		return
@@ -581,6 +590,7 @@ app_palette_rebuild :: proc(a: ^App) {
 	// A changed query invalidates the old selection position. Reset to the
 	// first match so Enter can never run an item that scrolled out of view.
 	a.palette_sel = 0
+	a.palette_scroll = 0
 	app_layout(a)
 }
 
@@ -604,6 +614,7 @@ app_palette_execute :: proc(a: ^App) {
 		return
 	}
 	app_execute(a, cmd.kind)
+	app_history_commit(a)
 }
 
 @(private)
@@ -646,6 +657,41 @@ app_palette_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
 	return false
 }
 
+@(private)
+app_recent_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
+	#partial switch key {
+	case .Escape:
+		a.mode = .Normal
+		status_buf_set(a, "recent projects closed")
+		bump_revision(a)
+	case .Enter:
+		app_recent_choose(a)
+	case .Backspace:
+		if a.recent_query_len > 0 {
+			a.recent_query_len -= 1
+			app_recent_rebuild(a)
+		}
+	case .Up:
+		a.recent_sel = max(a.recent_sel - 1, 0)
+	case .Down:
+		a.recent_sel = min(a.recent_sel + 1, max(a.recent_filtered - 1, 0))
+	case .Char:
+		if ch >= 32 && ch <= 126 && a.recent_query_len < RECENT_QUERY_MAX {
+			a.recent_query_buf[a.recent_query_len] = ch
+			a.recent_query_len += 1
+			app_recent_rebuild(a)
+		}
+	case .Space:
+		if a.recent_query_len < RECENT_QUERY_MAX {
+			a.recent_query_buf[a.recent_query_len] = ' '
+			a.recent_query_len += 1
+			app_recent_rebuild(a)
+		}
+	case:
+	}
+	return true
+}
+
 // ---------------------------------------------------------------- pointer
 
 app_set_shift :: proc(a: ^App, down: bool) {
@@ -670,12 +716,14 @@ app_mouse_move :: proc(a: ^App, x, y: f32) {
 		h := max(a.layout.fader[i].h - 4, 1)
 		norm := clamp(a.drag.start_norm - (y - a.drag.start_y) / h, 0, 1)
 		a.tracks[i].level = norm * 1.5
-		a.dirty = true
+		app_history_note(a, "fader")
+		app_touch(a)
 	case .Pan:
 		i := a.drag.index
 		norm := clamp(a.drag.start_norm - (y - a.drag.start_y) / 120.0, 0, 1)
 		a.tracks[i].pan = norm * 2 - 1
-		a.dirty = true
+		app_history_note(a, "pan")
+		app_touch(a)
 	case .Knob:
 		lo, hi, log := knob_spec(a.drag.target.module, a.drag.target.param)
 		speed: f32 = 300.0
@@ -726,8 +774,25 @@ app_mouse_down :: proc(a: ^App, x, y: f32, button: int = 0) {
 		}
 		for i in 0 ..< l.palette_count {
 			if rect_contains(l.palette_row[i], x, y) {
-				a.palette_sel = i
+				a.palette_sel = a.palette_scroll + i
 				app_palette_execute(a)
+				return
+			}
+		}
+		return
+	}
+
+	if a.mode == .Recent {
+		if !rect_contains(l.recent_panel, x, y) {
+			a.mode = .Normal
+			status_buf_set(a, "recent projects closed")
+			bump_revision(a)
+			return
+		}
+		for i in 0 ..< min(l.recent_count, MAX_RECENT) {
+			if rect_contains(l.recent_row[i], x, y) {
+				a.recent_sel = i
+				app_recent_choose(a)
 				return
 			}
 		}
@@ -839,16 +904,22 @@ app_mouse_down :: proc(a: ^App, x, y: f32, button: int = 0) {
 			}
 			a.tracks[i].armed = !a.tracks[i].armed
 			a.selected = i
+			app_history_note(a, "arm")
+			app_touch(a)
 			return
 		}
 		if rect_contains(l.solo[i], x, y) {
 			a.tracks[i].soloed = !a.tracks[i].soloed
 			a.selected = i
+			app_history_note(a, "solo")
+			app_touch(a)
 			return
 		}
 		if rect_contains(l.mute[i], x, y) {
 			a.tracks[i].muted = !a.tracks[i].muted
 			a.selected = i
+			app_history_note(a, "mute")
+			app_touch(a)
 			return
 		}
 		if rect_contains(l.input[i], x, y) {
@@ -859,6 +930,8 @@ app_mouse_down :: proc(a: ^App, x, y: f32, button: int = 0) {
 			}
 			a.tracks[i].input = (a.tracks[i].input % max(a.input_count, 1)) + 1
 			a.selected = i
+			app_history_note(a, "input")
+			app_touch(a)
 			return
 		}
 		if rect_contains(l.fader[i], x, y) {
@@ -885,6 +958,7 @@ app_mouse_up :: proc(a: ^App) {
 	a.mouse_down = false
 	a.drag.kind = .None
 	a.shift_down = false
+	app_history_commit(a)
 }
 
 // Double-click resets a continuous control to its default. Returns true when a
@@ -895,12 +969,14 @@ app_double_click :: proc(a: ^App, x, y: f32) -> bool {
 		for i in 0 ..< MAX_TRACKS {
 			if rect_contains(l.fader[i], x, y) {
 				a.tracks[i].level = 0.8
-				a.dirty = true
+				app_history_note(a, "fader")
+				app_touch(a)
 				return true
 			}
 			if rect_contains(l.pan[i], x, y) {
 				a.tracks[i].pan = 0
-				a.dirty = true
+				app_history_note(a, "pan")
+				app_touch(a)
 				return true
 			}
 		}
@@ -993,9 +1069,17 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 	// SDL2 reports the modifier state on every KEYDOWN; refresh the drag
 	// modifier here so Shift-drag works without a second input channel.
 	a.shift_down = shift
+	// Every key gesture is one undo step, including keyboard toggles and
+	// arrow-key trims. Palette execution commits inside app_palette_execute.
+	defer app_history_commit(a)
 
 	if a.mode == .Palette {
 		if app_palette_key(a, key, ch) {
+			return
+		}
+	}
+	if a.mode == .Recent {
+		if app_recent_key(a, key, ch) {
 			return
 		}
 	}
@@ -1046,6 +1130,8 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 		case 'I':
 			if a.selected < MAX_TRACKS && a.transport != .Recording {
 				a.tracks[a.selected].input = (a.tracks[a.selected].input % max(a.input_count, 1)) + 1
+				app_history_note(a, "input")
+				app_touch(a)
 			} else if a.transport == .Recording {
 				toast(a, "stop recording to change input")
 			}
@@ -1074,21 +1160,35 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 		case 'J':
 			if a.selected < MAX_TRACKS {
 				a.tracks[a.selected].level = clamp(a.tracks[a.selected].level - 0.05, 0, 1.5)
+				app_history_note(a, "fader")
+				app_touch(a)
 			}
 			return
 		case 'K':
 			if a.selected < MAX_TRACKS {
 				a.tracks[a.selected].level = clamp(a.tracks[a.selected].level + 0.05, 0, 1.5)
+				app_history_note(a, "fader")
+				app_touch(a)
 			}
+			return
+		case 'u':
+			app_undo(a)
+			return
+		case 'U':
+			app_redo(a)
 			return
 		case 'm':
 			if a.selected < MAX_TRACKS {
 				a.tracks[a.selected].muted = !a.tracks[a.selected].muted
+				app_history_note(a, "mute")
+				app_touch(a)
 			}
 			return
 		case 's':
 			if a.selected < MAX_TRACKS {
 				a.tracks[a.selected].soloed = !a.tracks[a.selected].soloed
+				app_history_note(a, "solo")
+				app_touch(a)
 			}
 			return
 		case 'a':
@@ -1098,6 +1198,8 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 					status_buf_set(a, "stop recording to change arms")
 				} else {
 					a.tracks[a.selected].armed = !a.tracks[a.selected].armed
+					app_history_note(a, "arm")
+					app_touch(a)
 				}
 			}
 			return
@@ -1110,6 +1212,8 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 			}
 			a.tracks[idx].armed = !a.tracks[idx].armed
 			a.selected = idx
+			app_history_note(a, "arm")
+			app_touch(a)
 			return
 		case '[':
 			a.fx_channel = (a.fx_channel + 4) % 5
@@ -1141,6 +1245,8 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 			fx_focus_step(a, 1, shift)
 		} else if a.selected < MAX_TRACKS {
 			a.tracks[a.selected].pan = clamp(a.tracks[a.selected].pan + (0.01 if shift else 0.05), -1, 1)
+			app_history_note(a, "pan")
+			app_touch(a)
 		}
 		return
 	case .Left:
@@ -1148,6 +1254,8 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 			fx_focus_step(a, -1, shift)
 		} else if a.selected < MAX_TRACKS {
 			a.tracks[a.selected].pan = clamp(a.tracks[a.selected].pan - (0.01 if shift else 0.05), -1, 1)
+			app_history_note(a, "pan")
+			app_touch(a)
 		}
 		return
 	case .Backspace:
@@ -1202,6 +1310,10 @@ app_target_rect :: proc(a: ^App, name: string) -> (Rect, bool) {
 		return l.palette, true
 	case "palette.input":
 		return l.palette_input, true
+	case "recent.panel":
+		return l.recent_panel, true
+	case "recent.input":
+		return l.recent_input, true
 	case "io.panel":
 		return l.io_panel, true
 	case "master":
@@ -1250,6 +1362,11 @@ app_target_rect :: proc(a: ^App, name: string) -> (Rect, bool) {
 			return l.palette_row[i], true
 		}
 	}
+	for i in 0 ..< min(l.recent_count, MAX_RECENT) {
+		if name == fmt.tprintf("recent.row.%d", i) {
+			return l.recent_row[i], true
+		}
+	}
 	for i in 0 ..< l.io_count {
 		if name == fmt.tprintf("io.row.%d", i) {
 			return l.io_row[i], true
@@ -1273,19 +1390,23 @@ app_target_available :: proc(a: ^App, name: string) -> bool {
 		strings.has_prefix(name, "knob.")
 	is_palette := name == "palette" || name == "palette.input" ||
 		strings.has_prefix(name, "palette.row.")
+	is_recent := name == "recent.panel" || name == "recent.input" ||
+		strings.has_prefix(name, "recent.row.")
 	is_io := name == "io.panel" || strings.has_prefix(name, "io.row.")
 
 	switch a.mode {
 	case .Normal:
 		// Header, transport and track controls are only interactive in Normal;
 		// the FX/IO buttons themselves stay live so they can close their panel.
-		return !is_palette && !is_io && !(is_fx && name != "fx")
+		return !is_palette && !is_recent && !is_io && !(is_fx && name != "fx")
 	case .Fx:
 		return is_fx
 	case .Palette:
 		return is_palette
 	case .Io:
 		return is_io || name == "io"
+	case .Recent:
+		return is_recent
 	case .Bounce:
 		return false
 	}
@@ -1373,6 +1494,60 @@ app_key_name :: proc(a: ^App, name: string) -> bool {
 	return true
 }
 
+command_name :: proc(kind: Command_Kind) -> string {
+	switch kind {
+	case .Play:
+		return "Play"
+	case .Stop:
+		return "Stop"
+	case .Record_Start:
+		return "Record_Start"
+	case .Record_Stop:
+		return "Record_Stop"
+	case .Bounce:
+		return "Bounce"
+	case .Save:
+		return "Save"
+	case .Load:
+		return "Load"
+	case .Select_Device:
+		return "Select_Device"
+	case .Fx:
+		return "Fx"
+	case .Io:
+		return "Io"
+	case .Metronome:
+		return "Metronome"
+	case .Bpm_Up:
+		return "Bpm_Up"
+	case .Bpm_Down:
+		return "Bpm_Down"
+	case .Arm_All:
+		return "Arm_All"
+	case .Clear_Arms:
+		return "Clear_Arms"
+	case .Panic:
+		return "Panic"
+	case .Undo:
+		return "Undo"
+	case .Redo:
+		return "Redo"
+	case .Open_Project:
+		return "Open_Project"
+	case .Save_As:
+		return "Save_As"
+	case .Recent:
+		return "Recent"
+	case .Open_Recent:
+		return "Open_Recent"
+	case .High_Contrast:
+		return "High_Contrast"
+	case .Reduced_Motion:
+		return "Reduced_Motion"
+	}
+	return "None"
+}
+
 app_value :: proc(a: ^App, path: string) -> (string, bool) {
 	switch path {
 	case "transport":
@@ -1396,6 +1571,8 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 			return "Io", true
 		case .Bounce:
 			return "Bounce", true
+		case .Recent:
+			return "Recent", true
 		}
 	case "selected":
 		return fmt.tprintf("%d", a.selected), true
@@ -1413,6 +1590,47 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 		return fmt.tprintf("%d", a.palette_count), true
 	case "palette.sel":
 		return fmt.tprintf("%d", a.palette_sel), true
+	case "palette.scroll":
+		return fmt.tprintf("%d", a.palette_scroll), true
+	case "palette.visible":
+		return fmt.tprintf("%d", a.layout.palette_count), true
+	case "recent.open":
+		return "true" if a.mode == .Recent else "false", true
+	case "recent.count":
+		return fmt.tprintf("%d", a.recent_filtered), true
+	case "recent.total":
+		return fmt.tprintf("%d", a.recent_count), true
+	case "recent.sel":
+		return fmt.tprintf("%d", a.recent_sel), true
+	case "recent.filter":
+		return string(a.recent_query_buf[:a.recent_query_len]), true
+	case "recent.path":
+		if a.recent_filtered == 0 {
+			return "", true
+		}
+		return app_recent_path(a, a.recent_items[clamp(a.recent_sel, 0, a.recent_filtered - 1)]), true
+	case "recent.target":
+		return app_recent_target(a), true
+	case "command":
+		return command_name(a.last_command), true
+	case "command.index":
+		return fmt.tprintf("%d", a.last_command_index), true
+	case "revision":
+		return fmt.tprintf("%d", a.state_revision), true
+	case "a11y.high_contrast":
+		return "true" if a.high_contrast else "false", true
+	case "a11y.reduced_motion":
+		return "true" if a.reduced_motion else "false", true
+	case "undo.depth":
+		return fmt.tprintf("%d", a.history_pos), true
+	case "redo.depth":
+		return fmt.tprintf("%d", a.history_count - 1 - a.history_pos), true
+	case "undo.can":
+		return "true" if app_can_undo(a) else "false", true
+	case "redo.can":
+		return "true" if app_can_redo(a) else "false", true
+	case "describe":
+		return app_describe(a), true
 	case "fx.open":
 		return "true" if a.mode == .Fx else "false", true
 	case "fx.channel":
