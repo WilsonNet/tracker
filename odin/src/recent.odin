@@ -64,12 +64,13 @@ recent_save :: proc(path: string, projects: []string) -> bool {
 	doc := Recent_File{projects = projects}
 	data, err := json.marshal(doc, json.Marshal_Options{pretty = true, use_spaces = true, spaces = 2})
 	if err != nil {
+		fmt.eprintfln("recent marshal: %v", err)
 		return false
 	}
 	defer delete(data)
 	dir := recent_config_dir()
 	defer delete(dir)
-	if err := os.make_directory_all(dir); err != nil {
+	if !ensure_dir(dir) {
 		return false
 	}
 	return write_file_atomic(path, data)
