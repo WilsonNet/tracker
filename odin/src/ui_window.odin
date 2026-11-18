@@ -159,6 +159,10 @@ run_ui_window :: proc(args: []string) -> bool {
 					ui.toast(&a, "save failed")
 				}
 			case .Load:
+				engine_stop_playback(&e)
+				if e.rec.active {
+					_ = engine_record_stop(&e, &a)
+				}
 				if project_load(&a, e.session_dir, e.project_path) {
 					_ = engine_load_tracks(&e, &a)
 					engine_match_device(&e, &a, ui.app_device(&a))

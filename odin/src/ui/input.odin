@@ -891,12 +891,6 @@ app_target_rect :: proc(a: ^App, name: string) -> (Rect, bool) {
 		return l.io_panel, true
 	}
 	for i in 0 ..< MAX_TRACKS {
-		switch name {
-		case "track.0":
-			if i == 0 {
-				return l.track[i], true
-			}
-		}
 		if name == fmt.tprintf("track.%d", i) {
 			return l.track[i], true
 		}
