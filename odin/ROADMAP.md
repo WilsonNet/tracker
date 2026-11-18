@@ -73,7 +73,7 @@ in the reference but not here; **new** = only relevant to the native app.
 | Screen-reader/accessibility audit | missing | software canvas has no a11y tree |
 | JACK capture in the GUI | missing | CLI only; GUI uses miniaudio |
 | HiDPI (2×/3×) crisp scaling | missing | 1× atlas is exact; integer-scale layout + higher-DPI atlases or runtime stb_truetype |
-| Multi-take comping | missing | not in the original scope |
+| Multi-take comping | done (model) | `takes.odin`: per-track takes, ordered comp regions, equal-power render, session loading; engine/UI wiring pending |
 
 ## Exit criteria
 

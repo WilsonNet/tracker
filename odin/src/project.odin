@@ -38,6 +38,11 @@ Project_Track :: struct {
 	send_delay:  f32            `json:"sendDelay"`,
 	eq:          dsp.Eq_Params  `json:"eq"`,
 	comp:        dsp.Comp_Params `json:"comp"`,
+	// Multi-take comping. Optional in the file: projects without it keep
+	// working and are exposed as a single "Take 1" built from `file`.
+	takes:       []Take        `json:"takes,omitempty"`,
+	active_take: int           `json:"activeTake,omitempty"`,
+	regions:     []Comp_Region `json:"compRegions,omitempty"`,
 }
 
 Project_Master :: struct {
@@ -246,6 +251,12 @@ app_apply_settings :: proc(a: ^ui.App, s: dsp.Fx_Settings) {
 }
 
 project_from_app :: proc(a: ^ui.App) -> Project_Doc {
+	return project_from_app_with_takes(a, nil)
+}
+
+// `takes` is borrowed: the returned document only points at its slices and
+// strings, so the caller must keep it alive until `json.marshal` completes.
+project_from_app_with_takes :: proc(a: ^ui.App, takes: []Take_List) -> Project_Doc {
 	doc := project_default()
 	doc.name = ui.app_project(a)
 	doc.sample_rate = a.sample_rate
@@ -265,6 +276,13 @@ project_from_app :: proc(a: ^ui.App) -> Project_Doc {
 		doc.tracks[i].send_delay = t.send_delay
 		doc.tracks[i].eq = eq_params_from_view(t.eq)
 		doc.tracks[i].comp = comp_params_from_view(t.comp)
+		if len(takes) > i && len(takes[i].takes) > 0 {
+			// Canonical file stays the first thing a legacy reader opens.
+			doc.tracks[i].file = fmt.tprintf("track%d.wav", i + 1)
+			doc.tracks[i].takes = takes[i].takes
+			doc.tracks[i].active_take = takes[i].active
+			doc.tracks[i].regions = takes[i].comp
+		}
 	}
 	doc.master.comp = comp_params_from_view(a.master.comp)
 	doc.master.reverb = dsp.Reverb_Params {
@@ -358,6 +376,20 @@ project_load_doc_free :: proc(d: ^Project_Load_Doc) {
 			delete(d.tracks[i].file)
 			d.tracks[i].file = ""
 		}
+		for &take in d.tracks[i].takes {
+			if len(take.name) > 0 {
+				delete(take.name)
+				take.name = ""
+			}
+			if len(take.file) > 0 {
+				delete(take.file)
+				take.file = ""
+			}
+		}
+		delete(d.tracks[i].takes)
+		d.tracks[i].takes = nil
+		delete(d.tracks[i].regions)
+		d.tracks[i].regions = nil
 	}
 }
 
@@ -445,7 +477,13 @@ truncate_utf8 :: proc(s: string, max_bytes: int) -> string {
 }
 
 project_save :: proc(a: ^ui.App, path: string) -> bool {
-	doc := project_from_app(a)
+	return project_save_with_takes(a, nil, path)
+}
+
+// Saves the app plus optional per-track take lists. The take data is borrowed
+// for the duration of the call; the lists remain the caller's.
+project_save_with_takes :: proc(a: ^ui.App, takes: []Take_List, path: string) -> bool {
+	doc := project_from_app_with_takes(a, takes)
 	defer delete(doc.tracks)
 	data, err := json.marshal(doc, json.Marshal_Options{pretty = true, use_spaces = true, spaces = 2})
 	if err != nil {
@@ -457,6 +495,13 @@ project_save :: proc(a: ^ui.App, path: string) -> bool {
 }
 
 project_load :: proc(a: ^ui.App, dir, path: string) -> bool {
+	return project_load_with_takes(a, dir, path, nil)
+}
+
+// Loads a project and, when `takes` is non-nil, fills it with one list per
+// track (up to four). Existing lists are cleared first. Projects without a
+// `takes` array expose their legacy `file` as a single take named "Take 1".
+project_load_with_takes :: proc(a: ^ui.App, dir, path: string, takes: []Take_List) -> bool {
 	if dir == "" {
 		fmt.eprintln("cannot load a project without a session directory")
 		return false
@@ -567,6 +612,16 @@ project_load :: proc(a: ^ui.App, dir, path: string) -> bool {
 			track_path := fmt.tprintf("%s/%s", dir, file)
 			tr.has_audio = os.exists(track_path) && !os.is_directory(track_path)
 		}
+		for take in src.takes {
+			if tr.has_audio {
+				break
+			}
+			if take.file == "" || !project_file_is_local(take.file) {
+				continue
+			}
+			take_path := fmt.tprintf("%s/%s", dir, take.file)
+			tr.has_audio = os.exists(take_path) && !os.is_directory(take_path)
+		}
 	}
 
 	m := doc.master
@@ -601,6 +656,46 @@ project_load :: proc(a: ^ui.App, dir, path: string) -> bool {
 		ceiling_db = lp.ceiling_db,
 		release_ms = lp.release_ms,
 		lookahead_ms = lp.lookahead_ms,
+	}
+
+	for i in 0 ..< min(len(takes), 4) {
+		list := &takes[i]
+		take_list_clear(list)
+		src := doc.tracks[i]
+
+		if len(src.takes) > 0 {
+			for take in src.takes {
+				if take.file == "" || !project_file_is_local(take.file) {
+					continue
+				}
+				rate := take.sample_rate
+				if rate < PROJECT_SAMPLE_RATE_MIN || rate > PROJECT_SAMPLE_RATE_MAX {
+					rate = 0
+				}
+				_ = take_list_add(
+					list,
+					take.name,
+					take.file,
+					rate,
+					take.offset,
+					take.gain,
+					take.muted,
+					take.id,
+				)
+			}
+		} else if src.file != "" && project_file_is_local(src.file) {
+			// Backward compatibility: a plain `file` project is one take.
+			_ = take_list_add(list, "Take 1", src.file, sample_rate, 0, 1, false, 1)
+		}
+
+		if len(list.takes) > 0 {
+			if src.active_take <= TAKE_ID_NONE || !take_list_select(list, src.active_take) {
+				list.active = list.takes[0].id
+			}
+		}
+		for region in src.regions {
+			_ = comp_add_region(list, region.take_id, region.start_frame, region.end_frame)
+		}
 	}
 	return true
 }
