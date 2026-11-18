@@ -120,12 +120,16 @@ harness_shot_name_is_safe :: proc(name: string) -> bool {
 }
 
 run_ui_test :: proc(args: []string) -> bool {
-	if !validate_flags(args, []string{"--script", "--out"}, nil) {
+	if !validate_flags(args, []string{"--script", "--out", "--scale"}, nil) {
 		return false
 	}
 	script_path, has_script := flag_value(args, "--script")
 	if !has_script {
 		fmt.eprintln("ui-test needs --script FILE.json")
+		return false
+	}
+	scale, scale_ok := ui_scale_from_flags(args, "--scale")
+	if !scale_ok {
 		return false
 	}
 	out_dir := flag_string(args, "--out", "/tmp/tracker-ui-test")
@@ -177,7 +181,7 @@ run_ui_test :: proc(args: []string) -> bool {
 	}
 
 	c: ui.Canvas
-	ui.canvas_init(&c, width, height)
+	ui.canvas_init(&c, ui.canvas_pixel_size(width, scale), ui.canvas_pixel_size(height, scale), scale)
 	defer ui.canvas_destroy(&c)
 
 	results: [dynamic]Harness_Result
@@ -318,8 +322,8 @@ run_ui_test :: proc(args: []string) -> bool {
 				detail = fmt.tprintf("resize %dx%d is outside %d..%d", w, h, MIN_CLI_DIM, MAX_CLI_DIM)
 			} else {
 				ui.app_resize(&a, w, h)
-				ui.canvas_resize(&c, w, h)
-				detail = fmt.tprintf("resize %dx%d", w, h)
+				ui.canvas_resize(&c, ui.canvas_pixel_size(w, scale), ui.canvas_pixel_size(h, scale))
+				detail = fmt.tprintf("resize %dx%d @ %.2fx", w, h, scale)
 			}
 		case:
 			ok = false

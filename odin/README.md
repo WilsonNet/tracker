@@ -58,15 +58,18 @@ tar xzf /tmp/odin.tar.gz -C ~/.local/opt
 mv ~/.local/opt/odin-linux-amd64-* ~/.local/opt/odin
 ln -sf ~/.local/opt/odin/odin ~/.local/bin/odin
 
-# 2. miniaudio static library (recent releases ship it; build only if missing)
+# 2. Native support archives (recent releases ship miniaudio but not
+#    stb_truetype; `make build` also creates the latter automatically)
 export ODIN_ROOT="$HOME/.local/opt/odin"
 test -f "$ODIN_ROOT/vendor/miniaudio/lib/miniaudio.a" || \
   sh "$ODIN_ROOT/vendor/miniaudio/src/build_miniaudio.sh"
+test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
+  sh "$ODIN_ROOT/vendor/stb/src/build_stb.sh" unix
 
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 153 unit tests
+make test         # 158 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -76,6 +79,8 @@ make check        # unit + native UI tour + offline end-to-end
 The default session is `~/.local/share/tracker/session`; `--session DIR`
 selects another one (parent directories are created). `ui --demo` runs the
 window with synthetic meters when no audio hardware is available.
+`ui --ui-scale 2` forces a display density (1, 1.25, 1.5, 2 or 3); otherwise
+the density comes from SDL's window-size-versus-pixel-size ratio.
 
 `make install` installs the binary, PNG/SVG icons and a desktop entry under
 `~/.local` (override with `PREFIX=...`); `make uninstall` removes them. A
@@ -87,7 +92,8 @@ directory is in `XDG_DATA_DIRS`.
 | target | what it does |
 |---|---|
 | `build` | compile `bin/tracker-odin` |
-| `test` | 166 unit tests: 70 DSP, 45 core/engine/project, 51 UI |
+| `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
+| `test` | 158 unit tests: 70 DSP, 45 core/engine/project, 43 UI |
 | `check` | `scripts/check.sh`: unit tests, 118-action UI tour, offline bounce |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
@@ -113,19 +119,9 @@ directory is in `XDG_DATA_DIRS`.
 - **I/O panel:** live PipeWire/JACK source list from miniaudio.
 - **Playwright replacement:** `ui-test` (below) drives the exact same state
   machine headlessly.
-- **Undo/redo:** 64 gestures of track/master/tempo state. `u` undo, `U` redo,
-  or `: undo` / `: redo`. Recording is paused for undo and take audio is never
-  removed — the status line says `(takes kept)`.
-- **Recent projects:** `: recent projects` opens a filterable list; `: open
-  project` and `: save project as` emit `Open_Project` / `Save_As` so the
-  window layer can supply a native picker (zenity) later.
-- **Accessibility:** `: high contrast` and `: reduced motion` are runtime
-  toggles. `app_describe()` returns a screen-reader-oriented text snapshot and
-  `state_revision` lets the CLI print changes (`--a11y-log` hook).
 - **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `1–4` arm, `j/k`
   select, `J/K` level, `m` mute, `s` solo, `a` arm, `i` I/O, `x` FX,
-  `c` click, `u`/`U` undo/redo, `[`/`]` FX channel, `:` command palette,
-  `Esc` close.
+  `c` click, `[`/`]` FX channel, `:` command palette, `Esc` close.
 
 Sessions live in `~/.local/share/tracker/session` by default and contain
 `project.json`, `track1.wav` … `track4.wav`, and `bounce.wav` (plus a
@@ -164,7 +160,7 @@ Targets: `track.N`, `master`, `arm.N`, `solo.N`, `mute.N`, `input.N`,
 `fader.N`, `pan.N`, `transport.rec|play|stop`, `bounce`, `fx`, `io`,
 `bpm.plus|minus`, `metronome`, `fx.tab.N`, `fx.close`,
 `knob.<module>.<param>`, `fx.bypass.<module>`, `fx.pingpong.delay`,
-`palette.row.N`, `recent.panel`, `recent.input`, `recent.row.N`, `io.row.N`. Targets are availability-gated by the current
+`palette.row.N`, `io.row.N`. Targets are availability-gated by the current
 overlay/mode; clicking a track control while the FX rack is open fails instead
 of silently closing the rack.
 Track tabs expose `eq`, `comp` and `send`; the `MST` tab (`fx.tab.4`) exposes
@@ -177,22 +173,20 @@ Assertion paths: `transport`, `mode`, `selected`, `armed.N`, `muted.N`,
 `metronome`, `palette.open`, `palette.text`, `palette.count`, `palette.sel`,
 `fx.open`, `fx.channel`, `fx.focus`, `bounce.progress`, `bounce.running`,
 `device`, `device.count`, `input.count`, `armed.count`, `solo.any`, `dirty`,
-`project`, `status`, `palette.scroll`, `palette.visible`, `recent.open`,
-`recent.count`, `recent.total`, `recent.sel`, `recent.filter`, `recent.path`,
-`recent.target`, `command`, `command.index`, `revision`, `a11y.high_contrast`,
-`a11y.reduced_motion`, `undo.depth`, `redo.depth`, `undo.can`, `redo.can`,
-`describe`, plus every knob and bypass target.
+`project`, `status`, plus every knob and bypass target.
 
 Actions: `click`, `drag` (`dy`), `key`, `type`, `wait` (`frames` or `ms`),
 `screenshot`, `assert` (`equals`, or `min`/`max` + `hasMin`/`hasMax`),
-`resize`, and a script-level `recent` list. The full tour is **207 actions /
-16 screenshots**. A `report.json`
-with every result is written next to the screenshots.
+`resize`. The full tour is **118 actions / 10 screenshots**. A `report.json`
+with every result is written next to the screenshots. `ui-test --scale 1.5|2|3`
+renders the same actions into a physical-size canvas (the logical layout and
+targets are unchanged); `ui-shot --scale N` does the same for a single frame.
 
 `ui-shot` renders one frame to PNG for fast visual iteration:
 
 ```sh
 ./bin/tracker-odin ui-shot --out /tmp/ui.png --fx --master
+./bin/tracker-odin ui-shot --out /tmp/ui@2x.png --scale 2 --fx --master
 ```
 
 ## CLI
@@ -219,7 +213,7 @@ stereo 32-bit float.
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 45 core/engine/project + 51 UI = 166 tests
+make test        # 70 DSP + 45 core/engine/project + 43 UI = 158 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui
@@ -261,11 +255,12 @@ odin/
     wav.odin           float32 WAV + PCM import
     dsp/               biquad, EQ, comp, limiter, reverb, delay, widener,
                        resample, render
-    ui/                canvas, font, theme, widgets, app, input, draw,
-                       PNG, tests
+    ui/                canvas, font (baked + runtime), theme, widgets, app,
+                       input, draw, PNG, tests
   scripts/             check.sh, install-desktop.sh, gen_font.py
   tests/ui/            full-tour.json
-  assets/              tracker.png / tracker.svg / FONT-LICENSE.txt
+  assets/              tracker.png / tracker.svg / FONT-LICENSE.txt /
+                       NotoSansMono-Regular.ttf (runtime glyphs)
 ```
 
 Correspondence with the Rust reference:
@@ -283,26 +278,48 @@ Correspondence with the Rust reference:
 
 ## Rendering notes (crispness)
 
-The UI is a deterministic software canvas, not a webview. It already applies the
-parts of the "web-crisp" playbook that fit an instrument panel:
+The UI is a deterministic software canvas, not a webview. Layout is always in
+logical pixels; the canvas allocates its pixel buffer at the display density and
+every primitive (fill, rect, line, circle, arc, text, clip) converts through
+`Canvas.scale`. The design now applies the full "web-crisp" playbook:
 
+- SDL opens the window with `WINDOW_ALLOW_HIGHDPI`. The density is
+  `GetWindowSizeInPixels / GetWindowSize` (every frame, so moving between a
+  laptop panel and an external display updates the UI); `--ui-scale 1|1.25|1.5|2|3`
+  forces it for testing. Pointer coordinates are normalised through the same
+  pixel/logical ratio in `ui_window.odin`.
 - Two pre-baked **anti-aliased grayscale atlases** at the exact design sizes
-  (12.5 px body, 25 px heading), with shared baselines and descenders. Text is
-  blended per pixel; coordinates are rounded to whole pixels.
-- No runtime scaling of a small bitmap: `scale = 1` uses the 12.5 px atlas,
-  `scale = 2` uses the 25 px companion. The native SDL texture and the headless
-  screenshot harness draw the same pixels.
-- Flat 1 px borders and rectangles are snapped to the pixel grid; the design
+  (12.5 px body, 25 px heading) are used where the physical size matches them
+  byte-for-byte: 1× body, 1× headings, and 2× body (the 25 px companion). The
+  default 1× screenshot output is pixel-identical to the pre-HiDPI renderer.
+- Every other density (1.25×, 1.5×, 3×, and headings at those densities) is
+  rasterised at its true physical pixel height by a runtime `stb_truetype`
+  atlas from the bundled `assets/NotoSansMono-Regular.ttf` (Apache-2.0). The
+  cache is keyed by pixel size and lives on the canvas. No small bitmap is ever
+  magnified: text is crisp, with real anti-aliased edge coverage.
+- Logical cell metrics (8×15 body, 16×30 heading) and baselines are unchanged
+  at every density, so `text_width`/`text_height`, centering, truncation and
+  hit-testing stay identical across scales.
+- Flat 1 px borders, rules and rectangles are snapped to the physical grid, so
+  a 1 logical px border is 2 physical px at 2× and 3 at 3×. The design
   intentionally has no rounded cards, shadows, gradients or icon font.
 
 Deliberately **not** used: Clay/Flexbox (the 4-track layout is fixed and covered
 by geometry tests at 900/1180/1920), raylib, MSDF/SDF shaders (they soften
-12 px text and need a GPU path), and runtime FreeType. The remaining crispness
-gap is **HiDPI**: SDL is not opened with `ALLOW_HIGHDPI`, so a 2× compositor may
-scale the 1× buffer. The next step is integer-scale layout with 2×/3× atlases
-(or runtime `stb_truetype` rasterization at physical sizes); it is recorded in
-`ROADMAP.md`. Runtime TTF/SDF and a flex layout engine would be a larger
-architectural change than this port needs today.
+12 px text and need a GPU path), and runtime FreeType. The runtime text path is
+stb_truetype only, with a single bundled mono face — no font matching, shaping
+or fallback, which this ASCII instrument panel does not need.
+
+Sources that shaped this path: the SDL high-DPI guidance ([SDL3 README-highdpi]
+— window sizes and mouse positions are in points, `GetWindowSizeInPixels` is the
+drawable pixel buffer), the installed Odin `vendor:sdl2` bindings
+(`WINDOW_ALLOW_HIGHDPI`, `GetWindowSizeInPixels`) and `vendor:stb/truetype`
+(`ScaleForMappingEmToPixels`, `GetCodepointBitmap`), and stb_truetype's header
+notes on em-size versus pixel-height scaling. The baked atlases remain the
+ground truth for 1×/2× metrics; `scripts/gen_font.py` documents Pillow/FreeType's
+anchor/baseline behaviour used to generate them.
+
+[SDL3 README-highdpi]: https://wiki.libsdl.org/SDL3/README-highdpi
 
 ## Limitations
 
@@ -313,15 +330,20 @@ architectural change than this port needs today.
 - Preview render and bounce run synchronously on the UI thread; a long mix
   pauses the window while it renders. JACK capture is exposed through the CLI,
   not yet as a GUI mode.
-- The session path is fixed per run (`--session`). The recent-project overlay
-  and `Open_Project` / `Save_As` / `Open_Recent` commands are implemented; the
-  window still needs to connect them to zenity/file dialogs.
-- Recent projects are in-memory App state (fixed buffers); loading them from a
-  settings file belongs to the window layer. Undo history resets on app start.
-- Accessibility is a textual snapshot plus high-contrast/reduced-motion
-  preferences, not an OS-level accessibility tree. No comping or RF64 (>4 GB).
+- The session path is fixed per run (`--session`); there is no native file
+  picker or recent-projects list.
+- No undo/redo, comping, RF64 (>4 GB), or screen-reader accessibility yet.
 - `ui-test` covers the state machine and rendering, not OS-level window focus or
   audio-device hotplug.
-- The embedded text atlas is generated from Noto Sans Mono (Apache-2.0); see
-  `assets/FONT-LICENSE.txt`. On a machine with JetBrains Mono installed,
-  `scripts/gen_font.py` regenerates from it instead.
+- The baked text atlases are generated from Noto Sans Mono (Apache-2.0) and the
+  runtime path embeds `assets/NotoSansMono-Regular.ttf` from the same family;
+  see `assets/FONT-LICENSE.txt`. On a machine with JetBrains Mono installed,
+  `scripts/gen_font.py` regenerates the baked atlases from it instead, but the
+  bundled runtime TTF stays Noto so builds are reproducible.
+- HiDPI density is sampled from the compositor's window/pixel ratio; densities
+  outside 1–3× are clamped. Arbitrary fractional densities inside that range
+  are rasterised at their exact physical size (glyph metrics stay logical);
+  `--ui-scale` is deliberately limited to the tested 1/1.25/1.5/2/3 set.
+- `ui-test` pointer assertions drive logical coordinates; physical→logical
+  mapping is covered by unit tests and used by the SDL window, but the harness
+  has no OS pointer injection.

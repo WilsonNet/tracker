@@ -28,13 +28,22 @@ rect_intersect :: proc(a, b: Rect) -> Rect {
 	return Rect{x0, y0, max(0, x1 - x0), max(0, y1 - y0)}
 }
 
+// `width`/`height` are physical pixels (the size of the pixel buffer). `scale`
+// is physical pixels per logical pixel: all public drawing calls take logical
+// coordinates, so the layout code never has to know the display density.
 Canvas :: struct {
 	width, height: int,
 	pixels:        []u32,
-	clip:          Rect,
+	clip:          Rect, // physical pixels
+	scale:         f32,
+	font:          Runtime_Font,
 }
 
-canvas_init :: proc(c: ^Canvas, width, height: int) {
+CANVAS_MIN_SCALE :: 1.0
+CANVAS_MAX_SCALE :: 3.0
+
+canvas_init :: proc(c: ^Canvas, width, height: int, scale: f32 = 1.0) {
+	c.scale = clamp(scale, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE)
 	c.width = max(width, 1)
 	c.height = max(height, 1)
 	c.pixels = make([]u32, c.width * c.height)
@@ -45,6 +54,13 @@ canvas_init :: proc(c: ^Canvas, width, height: int) {
 canvas_destroy :: proc(c: ^Canvas) {
 	delete(c.pixels)
 	c.pixels = nil
+	runtime_font_destroy(&c.font)
+}
+
+// Physical size for a logical size at the canvas density (rounded up so the
+// last logical pixel is never lost).
+canvas_pixel_size :: proc(logical: int, scale: f32) -> int {
+	return max(int(math.ceil(f32(logical) * clamp(scale, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE))), 1)
 }
 
 canvas_resize :: proc(c: ^Canvas, width, height: int) {
@@ -57,6 +73,36 @@ canvas_resize :: proc(c: ^Canvas, width, height: int) {
 	c.pixels = make([]u32, c.width * c.height)
 	c.clip = Rect{0, 0, f32(c.width), f32(c.height)}
 	canvas_clear(c, 0)
+}
+
+canvas_set_scale :: proc(c: ^Canvas, scale: f32) {
+	s := clamp(scale, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE)
+	if s == c.scale {
+		return
+	}
+	c.scale = s
+	c.clip = Rect{0, 0, f32(c.width), f32(c.height)}
+}
+
+// Logical size of the canvas at the current density.
+canvas_logical_width :: proc(c: ^Canvas) -> int {
+	return max(int(math.round(f32(c.width) / c.scale)), 1)
+}
+
+canvas_logical_height :: proc(c: ^Canvas) -> int {
+	return max(int(math.round(f32(c.height) / c.scale)), 1)
+}
+
+// Map a point from physical pixels (window/backing-buffer space) to the
+// logical coordinates the UI state machine uses. The window layer uses this
+// for pointer events; the headless harness uses it to drive targets at 2x.
+canvas_physical_to_logical :: proc(c: ^Canvas, x, y: f32) -> (f32, f32) {
+	return x / c.scale, y / c.scale
+}
+
+@(private)
+scale_rect :: proc(c: ^Canvas, r: Rect) -> Rect {
+	return Rect{r.x * c.scale, r.y * c.scale, r.w * c.scale, r.h * c.scale}
 }
 
 @(private)
@@ -118,7 +164,7 @@ canvas_nonblank :: proc(c: ^Canvas) -> bool {
 
 canvas_push_clip :: proc(c: ^Canvas, r: Rect) -> Rect {
 	old := c.clip
-	c.clip = rect_intersect(c.clip, r)
+	c.clip = rect_intersect(c.clip, scale_rect(c, r))
 	return old
 }
 
@@ -131,7 +177,7 @@ canvas_fill :: proc(c: ^Canvas, r: Rect, col: Color) {
 	if a == 0 {
 		return
 	}
-	clip := rect_intersect(c.clip, r)
+	clip := rect_intersect(c.clip, scale_rect(c, r))
 	x0 := max(i32(math.floor(clip.x)), 0)
 	y0 := max(i32(math.floor(clip.y)), 0)
 	x1 := min(i32(math.ceil(clip.x + clip.w)), i32(c.width))
@@ -164,11 +210,13 @@ canvas_fill :: proc(c: ^Canvas, r: Rect, col: Color) {
 }
 
 canvas_rect :: proc(c: ^Canvas, r: Rect, col: Color, thickness: i32 = 1) {
-	x0 := i32(math.round(r.x))
-	y0 := i32(math.round(r.y))
-	x1 := i32(math.round(r.x + r.w)) - 1
-	y1 := i32(math.round(r.y + r.h)) - 1
-	for t in 0 ..< thickness {
+	pr := scale_rect(c, r)
+	px := max(i32(math.round(f32(thickness) * c.scale)), 1)
+	x0 := i32(math.round(pr.x))
+	y0 := i32(math.round(pr.y))
+	x1 := i32(math.round(pr.x + pr.w)) - 1
+	y1 := i32(math.round(pr.y + pr.h)) - 1
+	for t in 0 ..< px {
 		for x in x0 + t ..= x1 - t {
 			plot(c, x, y0 + t, col)
 			plot(c, x, y1 - t, col)
@@ -181,60 +229,84 @@ canvas_rect :: proc(c: ^Canvas, r: Rect, col: Color, thickness: i32 = 1) {
 }
 
 canvas_hline :: proc(c: ^Canvas, x0, x1, y: f32, col: Color) {
-	yy := i32(math.round(y))
-	a := i32(math.round(min(x0, x1)))
-	b := i32(math.round(max(x0, x1)))
-	for x in a ..= b {
-		plot(c, x, yy, col)
+	s := c.scale
+	yy := i32(math.round(y * s))
+	a := i32(math.round(min(x0, x1) * s))
+	b := i32(math.round(max(x0, x1) * s))
+	thick := max(i32(math.round(s)), 1)
+	for t in 0 ..< thick {
+		for x in a ..= b {
+			plot(c, x, yy + t, col)
+		}
 	}
 }
 
 canvas_vline :: proc(c: ^Canvas, x, y0, y1: f32, col: Color) {
-	xx := i32(math.round(x))
-	a := i32(math.round(min(y0, y1)))
-	b := i32(math.round(max(y0, y1)))
-	for y in a ..= b {
-		plot(c, xx, y, col)
+	s := c.scale
+	xx := i32(math.round(x * s))
+	a := i32(math.round(min(y0, y1) * s))
+	b := i32(math.round(max(y0, y1) * s))
+	thick := max(i32(math.round(s)), 1)
+	for t in 0 ..< thick {
+		for y in a ..= b {
+			plot(c, xx + t, y, col)
+		}
 	}
 }
 
-canvas_line :: proc(c: ^Canvas, x0, y0, x1, y1: f32, col: Color) {
-	x0i := i32(math.round(x0))
-	y0i := i32(math.round(y0))
-	x1i := i32(math.round(x1))
-	y1i := i32(math.round(y1))
-	dx := abs(x1i - x0i)
-	dy := -abs(y1i - y0i)
-	sx: i32 = 1 if x0i < x1i else -1
-	sy: i32 = 1 if y0i < y1i else -1
+@(private)
+line_pixels :: proc(c: ^Canvas, x0_in, y0_in, x1, y1: i32, col: Color) {
+	x0 := x0_in
+	y0 := y0_in
+	dx := abs(x1 - x0)
+	dy := -abs(y1 - y0)
+	sx: i32 = 1 if x0 < x1 else -1
+	sy: i32 = 1 if y0 < y1 else -1
 	err := dx + dy
 	for {
-		plot(c, x0i, y0i, col)
-		if x0i == x1i && y0i == y1i {
+		plot(c, x0, y0, col)
+		if x0 == x1 && y0 == y1 {
 			break
 		}
 		e2 := 2 * err
 		if e2 >= dy {
 			err += dy
-			x0i += sx
+			x0 += sx
 		}
 		if e2 <= dx {
 			err += dx
-			y0i += sy
+			y0 += sy
 		}
 	}
 }
 
+canvas_line :: proc(c: ^Canvas, x0, y0, x1, y1: f32, col: Color) {
+	s := c.scale
+	x0i := i32(math.round(x0 * s))
+	y0i := i32(math.round(y0 * s))
+	x1i := i32(math.round(x1 * s))
+	y1i := i32(math.round(y1 * s))
+	thick := max(i32(math.round(s)), 1)
+	lo := -(thick - 1) / 2
+	for t in lo ..< lo + thick {
+		line_pixels(c, x0i + t, y0i, x1i + t, y1i, col)
+	}
+}
+
 canvas_circle_fill :: proc(c: ^Canvas, cx, cy, radius: f32, col: Color) {
-	r2 := radius * radius
-	x0 := i32(math.floor(cx - radius))
-	x1 := i32(math.ceil(cx + radius))
-	y0 := i32(math.floor(cy - radius))
-	y1 := i32(math.ceil(cy + radius))
+	s := c.scale
+	pcx := cx * s
+	pcy := cy * s
+	pr := radius * s
+	r2 := pr * pr
+	x0 := i32(math.floor(pcx - pr))
+	x1 := i32(math.ceil(pcx + pr))
+	y0 := i32(math.floor(pcy - pr))
+	y1 := i32(math.ceil(pcy + pr))
 	for y in y0 ..= y1 {
 		for x in x0 ..= x1 {
-			dx := f32(x) + 0.5 - cx
-			dy := f32(y) + 0.5 - cy
+			dx := f32(x) + 0.5 - pcx
+			dy := f32(y) + 0.5 - pcy
 			if dx * dx + dy * dy <= r2 {
 				plot(c, x, y, col)
 			}
@@ -243,7 +315,7 @@ canvas_circle_fill :: proc(c: ^Canvas, cx, cy, radius: f32, col: Color) {
 }
 
 canvas_circle :: proc(c: ^Canvas, cx, cy, radius: f32, col: Color) {
-	steps := max(24, int(radius * 4))
+	steps := max(24, int(radius * c.scale * 4))
 	prev_x := cx + radius
 	prev_y := cy
 	for i in 1 ..= steps {
@@ -258,26 +330,22 @@ canvas_circle :: proc(c: ^Canvas, cx, cy, radius: f32, col: Color) {
 
 // Angles are radians, 0 = right, clockwise on screen.
 canvas_arc :: proc(c: ^Canvas, cx, cy, radius, a0, a1: f32, col: Color, thickness: f32 = 1) {
-	steps := max(12, int(abs(a1 - a0) * radius * 0.5))
-	prev_x := cx + math.cos(a0) * radius
-	prev_y := cy + math.sin(a0) * radius
+	steps := max(12, int(abs(a1 - a0) * radius * c.scale * 0.5))
+	tpx := thickness * c.scale
 	for i in 1 ..= steps {
 		t := f32(i) / f32(steps)
 		a := a0 + (a1 - a0) * t
-		x := cx + math.cos(a) * radius
-		y := cy + math.sin(a) * radius
-		if thickness <= 1.01 {
-			canvas_line(c, prev_x, prev_y, x, y, col)
+		ap := a0 + (a1 - a0) * (f32(i - 1) / f32(steps))
+		if tpx <= 1.01 {
+			canvas_line(c, cx + math.cos(ap) * radius, cy + math.sin(ap) * radius,
+				cx + math.cos(a) * radius, cy + math.sin(a) * radius, col)
 		} else {
-			for t2 in 0 ..< int(thickness) {
-				rr := radius - f32(t2)
-				canvas_line(c, cx + math.cos(a0 + (a1 - a0) * (f32(i - 1) / f32(steps))) * rr,
-					cy + math.sin(a0 + (a1 - a0) * (f32(i - 1) / f32(steps))) * rr,
+			for t2 in 0 ..< int(tpx) {
+				rr := radius - f32(t2) / c.scale
+				canvas_line(c, cx + math.cos(ap) * rr, cy + math.sin(ap) * rr,
 					cx + math.cos(a) * rr, cy + math.sin(a) * rr, col)
 			}
 		}
-		prev_x = x
-		prev_y = y
 	}
 }
 
@@ -319,69 +387,83 @@ text_plot :: proc(c: ^Canvas, x, y: i32, col: Color, coverage: u8) {
 	plot(c, x, y, (col & 0x00FFFFFF) | (Color(aa) << 24))
 }
 
-canvas_text :: proc(c: ^Canvas, x, y: f32, text: string, col: Color, scale: int = 1) {
-	sc := max(scale, 1)
-	cx := i32(math.round(x))
-	cy := i32(math.round(y))
-	start_x := cx
-	if sc == 1 {
-		for ch in text {
-			if ch == '\n' {
-				cx = start_x
-				cy += i32(FONT_H)
-				continue
-			}
-			if int(ch) < FONT_FIRST || int(ch) > FONT_LAST || ch == ' ' {
-				cx += i32(FONT_W)
-				continue
-			}
-			idx := int(ch) - FONT_FIRST
-			for row in 0 ..< FONT_H {
-				if FONT_SMALL_ALPHA[idx][row] == 0 {
-					continue
-				}
-				for col_i in 0 ..< FONT_W {
-					a := font_small_alpha(idx, row, col_i)
-					if a != 0 {
-						text_plot(c, cx + i32(col_i), cy + i32(row), col, a)
-					}
-				}
-			}
-			cx += i32(FONT_W)
-		}
-		return
-	}
-
-	// Scale 2 uses the large atlas one-to-one. Larger scales nearest-sample it
-	// over the larger destination cell, so text stays sharp without a runtime
-	// rasteriser.
-	dw := FONT_W * sc
-	dh := FONT_H * sc
+@(private)
+text_baked_small :: proc(c: ^Canvas, start_x, start_y: i32, text: string, col: Color) {
+	cx := start_x
+	cy := start_y
 	for ch in text {
 		if ch == '\n' {
 			cx = start_x
-			cy += i32(dh)
+			cy += i32(FONT_H)
 			continue
 		}
 		if int(ch) < FONT_FIRST || int(ch) > FONT_LAST || ch == ' ' {
-			cx += i32(dw)
+			cx += i32(FONT_W)
 			continue
 		}
 		idx := int(ch) - FONT_FIRST
-		for dy in 0 ..< dh {
-			sy := dy * FONT_LARGE_H / dh
-			if FONT_LARGE_ALPHA[idx][sy][0] == 0 && FONT_LARGE_ALPHA[idx][sy][1] == 0 {
+		for row in 0 ..< FONT_H {
+			if FONT_SMALL_ALPHA[idx][row] == 0 {
 				continue
 			}
-			for dx in 0 ..< dw {
-				sx := dx * FONT_LARGE_W / dw
-				a := font_large_alpha(idx, sy, sx)
+			for col_i in 0 ..< FONT_W {
+				a := font_small_alpha(idx, row, col_i)
 				if a != 0 {
-					text_plot(c, cx + i32(dx), cy + i32(dy), col, a)
+					text_plot(c, cx + i32(col_i), cy + i32(row), col, a)
 				}
 			}
 		}
-		cx += i32(dw)
+		cx += i32(FONT_W)
+	}
+}
+
+// One-to-one blit of the 25 px baked atlas. Used for heading text at 1x and
+// body text at 2x, where the cell is exactly 16x30 physical pixels.
+@(private)
+text_baked_large :: proc(c: ^Canvas, start_x, start_y: i32, text: string, col: Color) {
+	cx := start_x
+	cy := start_y
+	for ch in text {
+		if ch == '\n' {
+			cx = start_x
+			cy += i32(FONT_LARGE_H)
+			continue
+		}
+		if int(ch) < FONT_FIRST || int(ch) > FONT_LAST || ch == ' ' {
+			cx += i32(FONT_LARGE_W)
+			continue
+		}
+		idx := int(ch) - FONT_FIRST
+		for row in 0 ..< FONT_LARGE_H {
+			if FONT_LARGE_ALPHA[idx][row][0] == 0 && FONT_LARGE_ALPHA[idx][row][1] == 0 {
+				continue
+			}
+			for col_i in 0 ..< FONT_LARGE_W {
+				a := font_large_alpha(idx, row, col_i)
+				if a != 0 {
+					text_plot(c, cx + i32(col_i), cy + i32(row), col, a)
+				}
+			}
+		}
+		cx += i32(FONT_LARGE_W)
+	}
+}
+
+canvas_text :: proc(c: ^Canvas, x, y: f32, text: string, col: Color, scale: int = 1) {
+	sc := max(scale, 1)
+	s := c.scale
+	// Exact baked cells keep 1x byte-identical and 2x body text on the
+	// purpose-baked 25 px companion atlas. Every other density is rasterised
+	// at its true physical size by the runtime stb_truetype atlas -- never a
+	// magnified 1x bitmap.
+	cell_w := f32(FONT_W * sc) * s
+	cell_h := f32(FONT_H * sc) * s
+	if abs(s - 1) < 0.0001 && sc == 1 {
+		text_baked_small(c, i32(math.round(x)), i32(math.round(y)), text, col)
+	} else if abs(cell_w - f32(FONT_LARGE_W)) < 0.01 && abs(cell_h - f32(FONT_LARGE_H)) < 0.01 {
+		text_baked_large(c, i32(math.round(x * s)), i32(math.round(y * s)), text, col)
+	} else {
+		canvas_text_runtime(c, x, y, text, col, sc)
 	}
 }
 

@@ -1,6 +1,11 @@
 The embedded bitmap atlas in src/ui/font_data.odin was generated from
 Noto Sans Mono (Apache License 2.0), https://github.com/notofonts/noto-fonts.
 
+The runtime glyph renderer embeds a copy of the unmodified
+assets/NotoSansMono-Regular.ttf file from the same family (Apache License 2.0,
+Copyright 2022 The Noto Project Authors); the licence below covers both the
+baked atlas data and that bundled font file.
+
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/

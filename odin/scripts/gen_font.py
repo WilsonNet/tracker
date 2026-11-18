@@ -13,8 +13,11 @@ Two atlases are baked from the same monospace family:
   large 16 x 30 cells, font size 25 px,   baseline row 24   (scale 2 headings)
 
 The cells are exact 2x companions, so `canvas_text(..., scale = 2)` uses the
-large atlas instead of magnifying blocky pixels. Larger scales nearest-sample
-the large atlas.
+large atlas instead of magnifying blocky pixels. At 2x display density the body
+cell is exactly 16x30 too, so the same large atlas is used there. Other
+densities use the runtime stb_truetype renderer in src/ui/font_runtime.odin,
+which embeds assets/NotoSansMono-Regular.ttf and rasterises at the true physical
+pixel size.
 
 Run from odin/:  python3 scripts/gen_font.py
 Requires Pillow. Pillow's TrueType rasteriser (FreeType) is used only while

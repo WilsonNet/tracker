@@ -14,6 +14,14 @@ import ui "ui"
 run_ui_window :: proc(args: []string) -> bool {
 	width := flag_int(args, "--width", 1180)
 	height := flag_int(args, "--height", 760)
+	forced_scale, scale_ok := ui_scale_from_flags(args, "--ui-scale")
+	if !scale_ok {
+		return false
+	}
+	has_forced_scale := false
+	if _, ok := flag_value(args, "--ui-scale"); ok {
+		has_forced_scale = true
+	}
 
 	if sdl.Init(sdl.INIT_VIDEO) != 0 {
 		fmt.eprintfln("SDL init failed: %s", sdl.GetError())
@@ -28,13 +36,16 @@ run_ui_window :: proc(args: []string) -> bool {
 	sdl.SetHint("SDL_APP_ID", "tracker")
 	sdl.SetHint("SDL_APP_NAME", "tracker")
 
+	// ALLOW_HIGHDPI tells the compositor to hand us a real pixel buffer on
+	// 2x/3x displays. Layout stays in window points; the canvas is allocated at
+	// pixel density and every primitive is scaled by Canvas.scale.
 	window := sdl.CreateWindow(
 		"Tracker — Odin",
 		80,
 		80,
 		c.int(width),
 		c.int(height),
-		sdl.WINDOW_RESIZABLE,
+		sdl.WINDOW_RESIZABLE | sdl.WINDOW_ALLOW_HIGHDPI,
 	)
 	if window == nil {
 		fmt.eprintfln("window creation failed: %s", sdl.GetError())
@@ -59,8 +70,15 @@ run_ui_window :: proc(args: []string) -> bool {
 	}
 	defer engine_destroy(&e)
 
+	lw, lh, pw, ph: c.int
+	sdl.GetWindowSize(window, &lw, &lh)
+	sdl.GetWindowSizeInPixels(window, &pw, &ph)
+	scale := forced_scale if has_forced_scale else window_scale(lw, lh, pw, ph)
+	logical_w := int(lw)
+	logical_h := int(lh)
+
 	a: ui.App
-	ui.app_init(&a, width, height)
+	ui.app_init(&a, logical_w, logical_h)
 	defer ui.app_destroy(&a)
 
 	names := engine_device_names()
@@ -85,10 +103,10 @@ run_ui_window :: proc(args: []string) -> bool {
 	}
 
 	canvas: ui.Canvas
-	ui.canvas_init(&canvas, width, height)
+	ui.canvas_init(&canvas, ui.canvas_pixel_size(logical_w, scale), ui.canvas_pixel_size(logical_h, scale), scale)
 	defer ui.canvas_destroy(&canvas)
 
-	texture := sdl.CreateTexture(renderer, .ARGB8888, .STREAMING, c.int(width), c.int(height))
+	texture := sdl.CreateTexture(renderer, .ARGB8888, .STREAMING, c.int(canvas.width), c.int(canvas.height))
 	if texture == nil {
 		fmt.eprintfln("texture creation failed: %s", sdl.GetError())
 		return false
@@ -114,10 +132,14 @@ run_ui_window :: proc(args: []string) -> bool {
 					ui.app_set_shift(&a, false)
 				}
 			case .MOUSEMOTION:
-				ui.app_mouse_move(&a, f32(event.motion.x), f32(event.motion.y))
+				mx := pointer_to_logical(f32(event.motion.x), lw, f32(canvas.width), canvas.scale)
+				my := pointer_to_logical(f32(event.motion.y), lh, f32(canvas.height), canvas.scale)
+				ui.app_mouse_move(&a, mx, my)
 			case .MOUSEBUTTONDOWN:
 				if event.button.button == 1 {
-					ui.app_mouse_down(&a, f32(event.button.x), f32(event.button.y))
+					mx := pointer_to_logical(f32(event.button.x), lw, f32(canvas.width), canvas.scale)
+					my := pointer_to_logical(f32(event.button.y), lh, f32(canvas.height), canvas.scale)
+					ui.app_mouse_down(&a, mx, my)
 				}
 			case .MOUSEBUTTONUP:
 				if event.button.button == 1 {
@@ -126,13 +148,24 @@ run_ui_window :: proc(args: []string) -> bool {
 			}
 		}
 
-		w, h: c.int
-		sdl.GetWindowSizeInPixels(window, &w, &h)
-		if int(w) != canvas.width || int(h) != canvas.height {
-			ui.canvas_resize(&canvas, int(w), int(h))
-			ui.app_resize(&a, int(w), int(h))
+		sdl.GetWindowSize(window, &lw, &lh)
+		sdl.GetWindowSizeInPixels(window, &pw, &ph)
+		new_scale := forced_scale if has_forced_scale else window_scale(lw, lh, pw, ph)
+		pwanted := ui.canvas_pixel_size(int(lw), new_scale)
+		phwanted := ui.canvas_pixel_size(int(lh), new_scale)
+		if pwanted != canvas.width || phwanted != canvas.height {
+			ui.canvas_resize(&canvas, pwanted, phwanted)
+			ui.canvas_set_scale(&canvas, new_scale)
+			ui.app_resize(&a, int(lw), int(lh))
 			sdl.DestroyTexture(texture)
-			texture = sdl.CreateTexture(renderer, .ARGB8888, .STREAMING, w, h)
+			texture = sdl.CreateTexture(renderer, .ARGB8888, .STREAMING, c.int(canvas.width), c.int(canvas.height))
+			if texture == nil {
+				fmt.eprintfln("texture resize failed: %s", sdl.GetError())
+				return false
+			}
+		} else if new_scale != canvas.scale {
+			ui.canvas_set_scale(&canvas, new_scale)
+			ui.app_resize(&a, int(lw), int(lh))
 		}
 
 		now := time.now()
@@ -200,6 +233,27 @@ run_ui_window :: proc(args: []string) -> bool {
 		time.sleep(6 * time.Millisecond)
 	}
 	return true
+}
+
+@(private)
+window_scale :: proc(logical_w, logical_h, pixel_w, pixel_h: c.int) -> f32 {
+	if logical_w > 0 && pixel_w > 0 {
+		return clamp(f32(pixel_w) / f32(logical_w), 1.0, 3.0)
+	}
+	return 1.0
+}
+
+// SDL2 reports pointer positions in window points. Fold them through the
+// canvas pixel space (which is larger than the window when --ui-scale forces a
+// supersampled buffer) so the result is the same logical coordinate layout and
+// hit-testing use. A backend that reports physical pixels lands on the same
+// point through canvas_physical_to_logical.
+@(private)
+pointer_to_logical :: proc(v: f32, window_points: c.int, canvas_pixels, canvas_scale: f32) -> f32 {
+	if window_points <= 0 || canvas_pixels <= 0 || canvas_scale <= 0 {
+		return v
+	}
+	return v * canvas_pixels / f32(window_points) / canvas_scale
 }
 
 @(private)

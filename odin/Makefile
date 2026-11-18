@@ -1,4 +1,7 @@
 ODIN       ?= odin
+ODIN_BIN   := $(shell command -v $(ODIN))
+ODIN_ROOT  ?= $(dir $(shell readlink -f $(ODIN_BIN)))
+STB_LIB    := $(ODIN_ROOT)vendor/stb/lib/stb_truetype.a
 LINK_FLAGS := -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lSDL2"
 BIN        := bin/tracker-odin
 
@@ -9,11 +12,19 @@ SCRIPT     ?= tests/ui/full-tour.json
 SHOT       ?= /tmp/tracker-odin-ui.png
 UI_OUT     ?= /tmp/tracker-ui-test
 
-.PHONY: all build test test-dsp test-core test-ui check clean run devices selftest ui ui-shot ui-test bounce install uninstall
+.PHONY: all build stb test test-dsp test-core test-ui check clean run devices selftest ui ui-shot ui-test bounce install uninstall
 
 all: build
 
-build:
+# Runtime text at 1.25x/1.5x/3x uses Odin's stb_truetype bindings. Recent
+# releases do not ship the native archive; build it once with the vendored
+# script (the same pattern as the miniaudio archive).
+$(STB_LIB):
+	sh "$(ODIN_ROOT)vendor/stb/src/build_stb.sh" unix
+
+stb: $(STB_LIB)
+
+build: stb
 	@mkdir -p bin
 	"$(ODIN)" build src -out:$(BIN) $(LINK_FLAGS)
 
@@ -21,10 +32,10 @@ test-dsp:
 	"$(ODIN)" test src/dsp
 
 # Project/WAV tests live in the root `src` package.
-test-core:
+test-core: stb
 	"$(ODIN)" test src $(LINK_FLAGS)
 
-test-ui:
+test-ui: stb
 	"$(ODIN)" test src/ui $(LINK_FLAGS)
 
 test: test-dsp test-core test-ui

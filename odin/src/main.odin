@@ -60,7 +60,7 @@ main :: proc() {
 			ok = run_selftest()
 		}
 	case "ui":
-		if !validate_flags(args[2:], []string{"--session", "--width", "--height"}, []string{"--demo"}) {
+		if !validate_flags(args[2:], []string{"--session", "--width", "--height", "--ui-scale"}, []string{"--demo"}) {
 			ok = false
 		} else {
 			w := flag_int(args[2:], "--width", 1180)
@@ -106,9 +106,9 @@ usage:
   tracker-odin bounce --session DIR [--out FILE]
   tracker-odin info   FILE.wav
   tracker-odin selftest
-  tracker-odin ui
-  tracker-odin ui-shot --out FILE [--fx|--palette|--io|--bounce|--playing|--recording]
-  tracker-odin ui-test --script FILE.json --out DIR
+  tracker-odin ui [--ui-scale 1|1.25|1.5|2|3] [--demo]
+  tracker-odin ui-shot --out FILE [--scale 1|1.25|1.5|2|3] [--fx|--palette|--io|--bounce|--playing|--recording]
+  tracker-odin ui-test --script FILE.json --out DIR [--scale 1|1.25|1.5|2|3]
   tracker-odin version
 
 chain options for render:

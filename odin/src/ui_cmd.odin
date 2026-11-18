@@ -7,8 +7,24 @@ import "core:fmt"
 
 import ui "ui"
 
+// Scales the app supports. They keep the 8x15 logical cell an integral number
+// of physical pixels, which is what makes the baked 1x/2x cells and runtime
+// glyphs land on the pixel grid.
+SUPPORTED_UI_SCALES := [?]f32{1.0, 1.25, 1.5, 2.0, 3.0}
+
+ui_scale_from_flags :: proc(args: []string, name: string, fallback: f32 = 1.0) -> (f32, bool) {
+	s := flag_f32(args, name, fallback)
+	for v in SUPPORTED_UI_SCALES {
+		if abs(s - v) < 0.001 {
+			return v, true
+		}
+	}
+	fmt.eprintfln("%s must be one of 1, 1.25, 1.5, 2, 3", name)
+	return fallback, false
+}
+
 run_ui_shot :: proc(args: []string) -> bool {
-	if !validate_flags(args, []string{"--out", "--width", "--height"}, []string{
+	if !validate_flags(args, []string{"--out", "--width", "--height", "--scale"}, []string{
 		"--playing", "--recording", "--three", "--fx", "--master", "--palette", "--io", "--bounce",
 	}) {
 		return false
@@ -16,6 +32,10 @@ run_ui_shot :: proc(args: []string) -> bool {
 	out := flag_string(args, "--out", "/tmp/tracker-odin-ui.png")
 	width := flag_int(args, "--width", 1180)
 	height := flag_int(args, "--height", 760)
+	scale, scale_ok := ui_scale_from_flags(args, "--scale")
+	if !scale_ok {
+		return false
+	}
 	if width < MIN_CLI_DIM || width > MAX_CLI_DIM || height < MIN_CLI_DIM || height > MAX_CLI_DIM {
 		fmt.eprintfln("--width/--height must be between %d and %d", MIN_CLI_DIM, MAX_CLI_DIM)
 		return false
@@ -68,7 +88,7 @@ run_ui_shot :: proc(args: []string) -> bool {
 	}
 
 	c: ui.Canvas
-	ui.canvas_init(&c, width, height)
+	ui.canvas_init(&c, ui.canvas_pixel_size(width, scale), ui.canvas_pixel_size(height, scale), scale)
 	defer ui.canvas_destroy(&c)
 	ui.app_draw(&a, &c)
 
@@ -76,6 +96,6 @@ run_ui_shot :: proc(args: []string) -> bool {
 		fmt.eprintfln("cannot write %s", out)
 		return false
 	}
-	fmt.printfln("wrote %s  %dx%d", out, width, height)
+	fmt.printfln("wrote %s  %dx%d logical @ %.2fx (%dx%d px)", out, width, height, scale, c.width, c.height)
 	return true
 }

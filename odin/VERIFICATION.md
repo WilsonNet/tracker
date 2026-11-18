@@ -10,22 +10,23 @@ Recorded on the development machine (Arch Linux, PipeWire 1.6.11, Odin
 | clean build | `make clean && make build` | 0.68 s, 1 binary |
 | DSP tests | `odin test src/dsp` | 70 passed |
 | engine/project/WAV | `odin test src` | 45 passed |
-| UI state/layout/PNG | `odin test src/ui` | 51 passed |
+| UI state/layout/PNG | `odin test src/ui` | 43 passed |
 | vet | `odin check src -no-entry-point -vet` | clean |
 | packaging | `PREFIX=/tmp/tracker-install ./scripts/install-desktop.sh` | binary + icon + desktop entry |
 
-Total: **166 unit tests**.
+Total: **158 unit tests**.
 
 ## Native UI harness (Playwright replacement)
 
 `./bin/tracker-odin ui-test --script tests/ui/full-tour.json --out /tmp/ui`
 
-- **207 actions, 0 failures**
-- 16 PNG screenshots at 900×620, 1180×760 and 1920×1080
+- **118 actions, 0 failures**
+- 10 PNG screenshots at 900×620, 1180×760 and 1920×1080
+- the same tour is green at `--scale 1.5`, `--scale 2` and `--scale 3`
+  (physical PNGs 1770×1140, 2360×1520, 3540×2280)
 - assertions cover arm/mute/solo, record/play/stop, fader/pan drag, FX tabs,
   knobs, bypass, ping-pong, palette filtering/execution, bounce, I/O selection,
-  tempo/click, undo/redo, recent-project filtering/selection, command emission,
-  high contrast, reduced motion, resize, and final state
+  tempo/click, resize, and final state
 
 ## Real audio
 
@@ -73,7 +74,7 @@ session is Wayland):
 
 ## Known gaps
 
-See `ROADMAP.md` Phase 4: live input monitoring, latency compensation, zenity
-wiring for the file-picker commands, RF64, OS-level a11y tree, JACK GUI mode,
-hotplug. These are explicitly out of scope for the current port; everything
-else on the roadmap is implemented and exercised above.
+See `ROADMAP.md` Phase 4: live input monitoring, latency compensation, native
+file picker, undo/redo, RF64, a11y tree, JACK GUI mode, hotplug. These are
+explicitly out of scope for the current port; everything else on the roadmap is
+implemented and exercised above.

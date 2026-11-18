@@ -50,6 +50,7 @@ in the reference but not here; **new** = only relevant to the native app.
 | I/O panel | done | live source list, selection, device persistence |
 | Bounce UI | done | overlay + progress + status |
 | Theme | done | DESIGN.md palette, baked anti-aliased mono atlas, flat panels |
+| HiDPI text and surfaces | done | physical-pixel canvas at 1–3×, runtime stb_truetype glyphs, crisp 1 px borders |
 | Keyboard model | done | Space/R/1–4/j/k/J/K/m/s/a/i/x/c/[/]/:/Esc |
 | Screenshot + interaction tests | done | 118-action tour, 10 PNGs, JSON report |
 
@@ -72,7 +73,7 @@ in the reference but not here; **new** = only relevant to the native app.
 | RF64 / >4 GB files | missing | 32-bit RIFF size field |
 | Screen-reader/accessibility audit | done (text) | `app_describe`, `state_revision`, high-contrast + reduced-motion toggles; OS a11y tree remains out of scope |
 | JACK capture in the GUI | missing | CLI only; GUI uses miniaudio |
-| HiDPI (2×/3×) crisp scaling | missing | 1× atlas is exact; integer-scale layout + higher-DPI atlases or runtime stb_truetype |
+| HiDPI (1×–3×) crisp scaling | done | `WINDOW_ALLOW_HIGHDPI`; logical layout + physical canvas; baked 1×/2× cells and runtime stb_truetype at 1.25/1.5/3×; `--ui-scale`, `--scale`; tour green at 1/1.5/2/3 |
 | Multi-take comping | missing | not in the original scope |
 
 ## Exit criteria

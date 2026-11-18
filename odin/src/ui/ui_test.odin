@@ -1018,8 +1018,7 @@ ui_font_keeps_descenders_and_baseline :: proc(t: ^testing.T) {
 }
 
 @(test)
-ui_font_text_screenshot_has_grayscale_edges :: proc(t: ^testing.T) {
-	c: Canvas
+ui_font_text_screenshot_has_grayscale_edges :: proc(t: ^testing.T) {	c: Canvas
 	canvas_init(&c, 420, 80)
 	defer canvas_destroy(&c)
 	canvas_clear(&c, BG)
@@ -1372,4 +1371,207 @@ ui_describe_is_a_screen_reader_snapshot :: proc(t: ^testing.T) {
 	text2 := app_describe(&a)
 	testing.expect(t, strings.contains(text2, "track 1 Track 1: armed, mute on"), "describe reflects mute")
 	testing.expect(t, text2 != text, "describe changes with state")
+// ---------------------------------------------------------------- HiDPI
+
+@(private)
+pixel_at :: proc(c: ^Canvas, x, y: int) -> Color {
+	return c.pixels[y * c.width + x]
+}
+
+@(test)
+ui_canvas_scale_maps_logical_primitives_to_physical_pixels :: proc(t: ^testing.T) {
+	c: Canvas
+	canvas_init(&c, 200, 100, 2.0)
+	defer canvas_destroy(&c)
+	testing.expect(t, c.scale == 2.0, "scale not stored")
+	testing.expectf(t, canvas_logical_width(&c) == 100 && canvas_logical_height(&c) == 50, "logical size %dx%d", canvas_logical_width(&c), canvas_logical_height(&c))
+	testing.expect(t, canvas_pixel_size(1180, 1.5) == 1770, "1.5x pixel width")
+
+	canvas_clear(&c, BG)
+	canvas_fill(&c, Rect{10, 10, 20, 10}, TEXT)
+	// A 20x10 logical rect covers 40x20 physical pixels at 2x.
+	testing.expect(t, pixel_at(&c, 20, 20) == TEXT, "top-left physical pixel missing")
+	testing.expect(t, pixel_at(&c, 59, 39) == TEXT, "bottom-right physical pixel missing")
+	testing.expect(t, pixel_at(&c, 19, 20) == BG, "fill leaked left")
+	testing.expect(t, pixel_at(&c, 60, 39) == BG, "fill leaked right")
+
+	// 1 logical px borders become 2 physical px at 2x.
+	canvas_clear(&c, BG)
+	canvas_rect(&c, Rect{4, 4, 20, 20}, TEXT)
+	testing.expect(t, pixel_at(&c, 8, 8) == TEXT && pixel_at(&c, 9, 8) == TEXT, "rect border is not 2 px")
+	testing.expect(t, pixel_at(&c, 10, 10) == BG, "rect border too thick")
+
+	// Clips are stored in physical pixels and intersect logical rectangles.
+	canvas_clear(&c, BG)
+	old := canvas_push_clip(&c, Rect{0, 0, 15, 15})
+	canvas_fill(&c, Rect{0, 0, 100, 100}, AMBER)
+	canvas_pop_clip(&c, old)
+	testing.expect(t, pixel_at(&c, 29, 29) == AMBER, "inside clip missing")
+	testing.expect(t, pixel_at(&c, 30, 30) == BG, "clip did not scale")
+
+	// Lines scale their endpoints and their 1 logical px thickness.
+	canvas_clear(&c, BG)
+	canvas_hline(&c, 0, 10, 5, TEAL)
+	testing.expect(t, pixel_at(&c, 20, 10) == TEAL && pixel_at(&c, 20, 11) == TEAL, "hline is not 2 px tall")
+}
+
+@(test)
+ui_canvas_text_rasterises_at_physical_size :: proc(t: ^testing.T) {
+	scan_height :: proc(c: ^Canvas, x0, x1: int) -> int {
+		top, bottom := -1, -1
+		for y in 0 ..< c.height {
+			for x in x0 ..< x1 {
+				if pixel_at(c, x, y) != BG {
+					if top < 0 {
+						top = y
+					}
+					bottom = y
+				}
+			}
+		}
+		return bottom - top + 1 if top >= 0 else 0
+	}
+
+	base: Canvas
+	canvas_init(&base, 160, 60, 1.0)
+	defer canvas_destroy(&base)
+	canvas_clear(&base, BG)
+	canvas_text(&base, 4, 4, "H", TEXT)
+	h1 := scan_height(&base, 0, base.width)
+
+	scaled: Canvas
+	canvas_init(&scaled, 240, 90, 1.5)
+	defer canvas_destroy(&scaled)
+	canvas_clear(&scaled, BG)
+	canvas_text(&scaled, 4, 4, "H", TEXT)
+	h15 := scan_height(&scaled, 0, scaled.width)
+	testing.expectf(t, h15 > h1, "1.5x glyph is not taller: %d vs %d", h15, h1)
+	testing.expectf(t, h15 >= int(f32(h1) * 1.4), "1.5x glyph is not physically scaled: %d vs %d", h15, h1)
+
+	// The runtime atlas must stay anti-aliased, not a 1-bit nearest blit.
+	levels: [256]bool
+	ink := 0
+	for p in scaled.pixels {
+		r := u8((p >> 16) & 0xFF)
+		if p != BG {
+			ink += 1
+			levels[r] = true
+		}
+	}
+	cov_levels := 0
+	for seen in levels {
+		if seen {
+			cov_levels += 1
+		}
+	}
+	testing.expectf(t, ink > 40, "runtime text has too few pixels: %d", ink)
+	testing.expectf(t, cov_levels > 4, "runtime text has only %d coverage levels", cov_levels)
+
+	// Advancing is still the logical 8 px cell: four M's span four cells.
+	run: Canvas
+	canvas_init(&run, 240, 90, 1.5)
+	defer canvas_destroy(&run)
+	canvas_clear(&run, BG)
+	canvas_text(&run, 0, 0, "MMMM", TEXT)
+	left, right := run.width, -1
+	for y in 0 ..< run.height {
+		for x in 0 ..< run.width {
+			if pixel_at(&run, x, y) != BG {
+				left = min(left, x)
+				right = max(right, x)
+			}
+		}
+	}
+	testing.expectf(t, right - left + 1 >= 42 && right - left + 1 <= 48, "runtime advance drifted: %d px for 4 cells", right - left + 1)
+}
+
+@(test)
+ui_hidpi_pointer_maps_to_logical_targets :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	c: Canvas
+	canvas_init(&c, 2360, 1520, 2.0)
+	defer canvas_destroy(&c)
+
+	lx, ly := canvas_physical_to_logical(&c, 1180, 760)
+	testing.expectf(t, abs(lx - 590) < 0.01 && abs(ly - 380) < 0.01, "physical centre mapped to %v,%v", lx, ly)
+
+	r, ok := app_target_rect(&a, "arm.2")
+	testing.expect(t, ok, "arm.2 target")
+	px := (r.x + r.w * 0.5) * 2.0
+	py := (r.y + r.h * 0.5) * 2.0
+	mx, my := canvas_physical_to_logical(&c, px, py)
+	app_mouse_down(&a, mx, my)
+	app_mouse_up(&a)
+	testing.expectf(t, a.tracks[2].armed, "click at physical %.0f,%.0f missed arm.2", px, py)
+
+	// A point just outside the target in physical space must stay outside.
+	r, _ = app_target_rect(&a, "mute.2")
+	mx, my = canvas_physical_to_logical(&c, (r.x - 4) * 2.0, (r.y + r.h * 0.5) * 2.0)
+	app_mouse_down(&a, mx, my)
+	app_mouse_up(&a)
+	testing.expect(t, !a.tracks[2].muted, "click outside mute.2 toggled it")
+}
+
+@(test)
+ui_screenshots_render_at_every_supported_scale :: proc(t: ^testing.T) {
+	scales := [4]f32{1.0, 1.5, 2.0, 3.0}
+	for scale in scales {
+		a: App
+		app_init(&a, 1180, 760)
+		a.demo = true
+		a.transport = .Playing
+		a.time = 1.3
+		a.tracks[0].has_audio = true
+		a.tracks[0].peak_db = -12
+		a.tracks[1].has_audio = true
+		a.tracks[1].peak_db = -20
+
+		c: Canvas
+		canvas_init(&c, canvas_pixel_size(1180, scale), canvas_pixel_size(760, scale), scale)
+		app_draw(&a, &c)
+		testing.expectf(t, canvas_nonblank(&c), "%.2fx frame blank", scale)
+
+		path := fmt.aprintf("/tmp/tracker-hidpi-%.2f.png", scale)
+		shot_ok := canvas_screenshot(&c, path)
+		testing.expectf(t, shot_ok, "%.2fx screenshot failed", scale)
+		data, err := os.read_entire_file(path, context.allocator)
+		testing.expectf(t, err == nil && len(data) > 20_000, "%.2fx screenshot too small", scale)
+		if len(data) >= 24 {
+			w := (int(data[16]) << 24) | (int(data[17]) << 16) | (int(data[18]) << 8) | int(data[19])
+			h := (int(data[20]) << 24) | (int(data[21]) << 16) | (int(data[22]) << 8) | int(data[23])
+			testing.expectf(t, w == c.width && h == c.height, "%.2fx PNG is %dx%d, want %dx%d", scale, w, h, c.width, c.height)
+		} else {
+			testing.expectf(t, false, "%.2fx screenshot missing IHDR", scale)
+		}
+		delete(data)
+		os.remove(path)
+		delete(path)
+		canvas_destroy(&c)
+		app_destroy(&a)
+	}
+}
+
+@(test)
+ui_runtime_text_is_deterministic :: proc(t: ^testing.T) {
+	c: Canvas
+	canvas_init(&c, canvas_pixel_size(640, 1.5), canvas_pixel_size(120, 1.5), 1.5)
+	defer canvas_destroy(&c)
+
+	canvas_clear(&c, BG)
+	canvas_text(&c, 8, 8, "DETERMINISTIC 0123", TEXT, 2)
+	first := make([]u32, len(c.pixels))
+	defer delete(first)
+	copy(first, c.pixels)
+
+	canvas_clear(&c, BG)
+	canvas_text(&c, 8, 8, "DETERMINISTIC 0123", TEXT, 2)
+	for p, i in c.pixels {
+		if p != first[i] {
+			testing.expectf(t, false, "runtime glyph cache changed pixel %d", i)
+			return
+		}
+	}
 }
