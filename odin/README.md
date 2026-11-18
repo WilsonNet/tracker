@@ -66,7 +66,7 @@ test -f "$ODIN_ROOT/vendor/miniaudio/lib/miniaudio.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 160 unit tests
+make test         # 164 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -87,7 +87,7 @@ directory is in `XDG_DATA_DIRS`.
 | target | what it does |
 |---|---|
 | `build` | compile `bin/tracker-odin` |
-| `test` | 160 unit tests: 70 DSP, 52 core/engine/project, 38 UI |
+| `test` | 164 unit tests: 70 DSP, 56 core/engine/project/WAV, 38 UI |
 | `check` | `scripts/check.sh`: unit tests, 118-action UI tour, offline bounce |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
@@ -204,7 +204,7 @@ stereo 32-bit float.
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 52 core/engine/project + 38 UI = 160 tests
+make test        # 70 DSP + 56 core/engine/project/WAV + 38 UI = 164 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui
@@ -221,8 +221,8 @@ tools are installed; the offline core of the script does not need audio
 hardware.
 
 Coverage includes the ported Rust DSP vectors (biquad, EQ, compressor, limiter,
-reverb, delay, widener), resampling quality, WAV layout/import, project
-round-trip and defaults, multi-take comping, solo semantics, every UI control and overlay, screenshot
+reverb, delay, widener), resampling quality, WAV layout/import, RF64
+read/write/streaming, project round-trip and defaults, solo semantics, every UI control and overlay, screenshot
 PNG validity, and an offline engine bounce. Independent checks: `ffprobe`
 reports `pcm_f32le`, `sox` reads the files without warnings, and its peak/RMS
 agree with the engine.
@@ -240,11 +240,11 @@ odin/
     ui_harness.odin    scripted native UI test runner
     ui_cmd.odin        ui-shot
     engine.odin        ring-buffer capture, playback, bounce, overdub
-    project.odin       project.json (incl. per-track takes/comp) + DSP/view mapping
-    takes.odin         multi-take model, comp regions and equal-power render
+    project.odin       project.json + DSP/view mapping
     capture.odin       miniaudio enumeration/capture
     jack_capture.odin  cooperative JACK client
     wav.odin           float32 WAV + PCM import
+    wav_rf64.odin      RF64/ds64 read/write + streaming writer
     dsp/               biquad, EQ, comp, limiter, reverb, delay, widener,
                        resample, render
     ui/                canvas, font, theme, widgets, app, input, draw,
@@ -301,8 +301,8 @@ architectural change than this port needs today.
   not yet as a GUI mode.
 - The session path is fixed per run (`--session`); there is no native file
   picker or recent-projects list.
-- No undo/redo, comping UI, RF64 (>4 GB), or screen-reader accessibility yet.
-  The take/comp model and project schema are implemented headlessly.
+- No undo/redo, comping, or screen-reader accessibility yet. Large takes use
+  RF64 automatically, but the GUI still buffers a whole take in memory.
 - `ui-test` covers the state machine and rendering, not OS-level window focus or
   audio-device hotplug.
 - The embedded text atlas is generated from Noto Sans Mono (Apache-2.0); see

@@ -58,7 +58,9 @@ wav_riff_fits :: proc(data_len: int) -> bool {
 	return u64(data_len) + u64(WAV_HEADER_SIZE - 8) <= 0xFFFF_FFFF
 }
 
-// Writes 32-bit float WAV with a `fact` chunk.
+// Writes 32-bit float WAV with a `fact` chunk. Small files keep the historical
+// RIFF layout byte-for-byte; once a 32-bit size field would overflow the writer
+// switches to RF64 (64-bit sizes in `ds64`) automatically.
 wav_write :: proc(path: string, sample_rate: u32, channels: u32, samples: []f32) -> bool {
 	if channels == 0 || channels > WAV_MAX_CHANNELS || len(samples) == 0 {
 		return false
@@ -69,16 +71,15 @@ wav_write :: proc(path: string, sample_rate: u32, channels: u32, samples: []f32)
 	if sample_rate == 0 {
 		return false
 	}
-	// Guard the u32 size fields and integer overflow before allocating.
-	if !wav_riff_fits(len(samples) * 4) {
-		return false
-	}
-	if u64(sample_rate) * u64(channels) * 4 > 0xFFFF_FFFF {
-		return false
-	}
 	frames := len(samples) / int(channels)
-	if u64(frames) > 0xFFFF_FFFF {
+	// One plan drives both the size guard and the container choice, so the
+	// arithmetic can be tested without allocating a >4 GB sample buffer.
+	plan, plan_ok := wav_plan(sample_rate, channels, u64(frames))
+	if !plan_ok {
 		return false
+	}
+	if plan.container == .Rf64 {
+		return wav_write_rf64(path, sample_rate, channels, samples)
 	}
 
 	data_len := len(samples) * 4
@@ -119,10 +120,28 @@ wav_read :: proc(path: string) -> (wav: Wav, ok: bool) {
 	}
 	defer delete(data)
 
-	if len(data) < 12 || !tag_eq(data[0:], "RIFF") || !tag_eq(data[8:], "WAVE") {
+	return wav_parse(data)
+}
+
+// Parses a complete WAV image. RIFF and RF64 share the fmt validation and the
+// sample decoder below; only the chunk-size bookkeeping differs.
+@(private)
+wav_parse :: proc(data: []byte) -> (wav: Wav, ok: bool) {
+	if len(data) < 12 || !tag_eq(data[8:], "WAVE") {
 		return {}, false
 	}
+	switch {
+	case tag_eq(data[0:], "RIFF"):
+		return wav_parse_riff(data)
+	case tag_eq(data[0:], "RF64"):
+		return wav_parse_rf64(data)
+	case:
+		return {}, false
+	}
+}
 
+@(private)
+wav_parse_riff :: proc(data: []byte) -> (wav: Wav, ok: bool) {
 	format: u16
 	bits: u16
 	block_align: u16
@@ -174,11 +193,32 @@ wav_read :: proc(path: string) -> (wav: Wav, ok: bool) {
 	if !have_fmt || !have_data {
 		return {}, false
 	}
-	if wav.channels == 0 || wav.channels > WAV_MAX_CHANNELS || wav.sample_rate == 0 {
+	if !wav_decode(&wav, data, data_off, data_len, format, bits, block_align) {
 		return {}, false
 	}
+	return wav, true
+}
+
+// Validates fmt and turns the payload into interleaved f32 samples. Shared by
+// the RIFF and RF64 readers so both report `frames` and `samples` identically.
+@(private)
+wav_decode :: proc(
+	wav: ^Wav,
+	data: []byte,
+	data_off: int,
+	data_len: int,
+	format: u16,
+	bits: u16,
+	block_align: u16,
+) -> bool {
+	if wav.channels == 0 || wav.channels > WAV_MAX_CHANNELS || wav.sample_rate == 0 {
+		return false
+	}
 	if block_align == 0 {
-		return {}, false
+		return false
+	}
+	if data_off < 0 || data_off > len(data) || data_len < 0 || data_len > len(data) - data_off {
+		return false
 	}
 
 	bytes_per_sample := 0
@@ -192,7 +232,7 @@ wav_read :: proc(path: string) -> (wav: Wav, ok: bool) {
 	case format == 1 && bits == 32:
 		bytes_per_sample = 4
 	case:
-		return {}, false
+		return false
 	}
 
 	// Samples live inside frames of `block_align` bytes. Reject headers whose
@@ -200,12 +240,12 @@ wav_read :: proc(path: string) -> (wav: Wav, ok: bool) {
 	// past the data chunk (and previously past the end of the file).
 	frame_bytes := int(wav.channels) * bytes_per_sample
 	if int(block_align) < frame_bytes {
-		return {}, false
+		return false
 	}
 	frames := data_len / int(block_align)
 	sample_count := frames * int(wav.channels)
 	if frames > 0 && sample_count / frames != int(wav.channels) {
-		return {}, false
+		return false
 	}
 
 	wav.samples = make([]f32, sample_count)
@@ -254,7 +294,7 @@ wav_read :: proc(path: string) -> (wav: Wav, ok: bool) {
 		}
 	}
 
-	return wav, true
+	return true
 }
 
 // Prints format details plus peak/RMS. Used by `tracker-odin info`.

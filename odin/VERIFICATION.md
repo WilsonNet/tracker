@@ -9,12 +9,13 @@ Recorded on the development machine (Arch Linux, PipeWire 1.6.11, Odin
 |---|---|---|
 | clean build | `make clean && make build` | 0.68 s, 1 binary |
 | DSP tests | `odin test src/dsp` | 70 passed |
-| engine/project/WAV/takes | `odin test src` | 52 passed |
+| engine/project/WAV | `odin test src` | 56 passed |
+| RF64 | `odin test src` | ds64 parse/reject, fmt/data chunk-order variants, RIFF boundary + >4 GB arithmetic, streaming roundtrip |
 | UI state/layout/PNG | `odin test src/ui` | 38 passed |
 | vet | `odin check src -no-entry-point -vet` | clean |
 | packaging | `PREFIX=/tmp/tracker-install ./scripts/install-desktop.sh` | binary + icon + desktop entry |
 
-Total: **160 unit tests**.
+Total: **164 unit tests**.
 
 ## Native UI harness (Playwright replacement)
 
@@ -42,7 +43,6 @@ Total: **160 unit tests**.
 | overdub | existing mix plays while track 2 records; both takes written |
 | bounce from native UI | `bounce.wav`, stereo float, limiter ceiling respected |
 | project save/reload | `project.json` + `track1.wav`; TAKE restored after relaunch |
-| multi-take comp model | 6 tests: take CRUD, equal-power crossfades, gaps/offset/gain/mute, invalid regions, legacy `file` ↔ take-list round-trip, repeated owned load/save |
 | UI loopback recording | track 1 peak **−6.02 dBFS**, master −7.9 dBFS on screen |
 | text rendering | baked 12.5px/25px anti-aliased mono atlas, descenders/baseline tests |
 | Hyprland window rule | class `tracker`, workspace `special:tracker`, silent, no focus steal |
@@ -74,6 +74,7 @@ session is Wayland):
 ## Known gaps
 
 See `ROADMAP.md` Phase 4: live input monitoring, latency compensation, native
-file picker, undo/redo, RF64, a11y tree, JACK GUI mode, hotplug. These are
-explicitly out of scope for the current port; everything else on the roadmap is
-implemented and exercised above.
+file picker, undo/redo, a11y tree, JACK GUI mode, hotplug. These are explicitly
+out of scope for the current port; everything else on the roadmap is
+implemented and exercised above. RF64 is implemented and covered by the WAV
+suite; the engine still buffers a take before writing it.

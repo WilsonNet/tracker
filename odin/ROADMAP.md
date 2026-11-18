@@ -69,7 +69,7 @@ in the reference but not here; **new** = only relevant to the native app.
 | Live input monitoring | done | opt-in duplex path, −6 dB safe gain, default off; `engine_monitor_start/stop` (UI wiring pending) |
 | Undo/redo | missing | new to the native app |
 | Native file picker / recent projects | missing | fixed `--session` path |
-| RF64 / >4 GB files | missing | 32-bit RIFF size field |
+| RF64 / >4 GB files | done | RF64 reader (ds64, sentinel data size, chunk-order variants), auto RIFF→RF64 writer, streaming `Wav_Stream` writer; synthetic fixtures + >4 GB size arithmetic + roundtrip tests |
 | Screen-reader/accessibility audit | missing | software canvas has no a11y tree |
 | JACK capture in the GUI | missing | CLI only; GUI uses miniaudio |
 | HiDPI (2×/3×) crisp scaling | missing | 1× atlas is exact; integer-scale layout + higher-DPI atlases or runtime stb_truetype |
