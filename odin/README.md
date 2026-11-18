@@ -70,13 +70,12 @@ make test         # 84 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
-mkdir -p ~/.local/share/tracker   # the engine creates .../session, not parents
 ./bin/tracker-odin ui
 ```
 
 The default session is `~/.local/share/tracker/session`; `--session DIR`
-selects another one (its parent directory must already exist). `ui --demo`
-runs the window with synthetic meters when no audio hardware is available.
+selects another one (parent directories are created). `ui --demo` runs the
+window with synthetic meters when no audio hardware is available.
 
 `make install` installs the binary, PNG/SVG icons and a desktop entry under
 `~/.local` (override with `PREFIX=...`); `make uninstall` removes them. A
@@ -88,7 +87,7 @@ directory is in `XDG_DATA_DIRS`.
 | target | what it does |
 |---|---|
 | `build` | compile `bin/tracker-odin` |
-| `test` | 82 unit tests: 62 DSP, 9 project/WAV, 11 UI |
+| `test` | 84 unit tests: 62 DSP, 11 core/engine, 11 UI |
 | `check` | `scripts/check.sh`: unit tests, 56-action UI tour, offline bounce |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
@@ -270,9 +269,6 @@ Correspondence with the Rust reference:
 - JACK capture is exposed through the CLI, not yet as a GUI mode.
 - The session path is fixed per run (`--session`); there is no native file
   picker or recent-projects list.
-- The engine creates the session directory but not its parents, so a fresh
-  account needs `mkdir -p ~/.local/share/tracker` once (or a `--session`
-  directory whose parent already exists).
 - No undo/redo, comping, RF64 (>4 GB), or screen-reader accessibility yet.
 - `ui-test` covers the state machine and rendering, not OS-level window focus or
   audio-device hotplug.

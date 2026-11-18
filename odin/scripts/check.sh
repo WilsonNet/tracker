@@ -18,6 +18,11 @@ for arg in "$@"; do
 		--hardware) HARDWARE=1 ;;
 		--jack) JACK=1 ;;
 		--loopback) LOOPBACK=1 ;;
+		*)
+			echo "unknown option: $arg" >&2
+			echo "usage: $0 [--hardware] [--jack] [--loopback]" >&2
+			exit 2
+			;;
 	esac
 done
 

@@ -164,7 +164,7 @@ flag_int :: proc(args: []string, name: string, fallback: int) -> int {
 @(private)
 ensure_dir :: proc(path: string) {
 	if !os.exists(path) {
-		_ = os.make_directory(path)
+		_ = os.mkdir_all(path)
 	}
 }
 

@@ -101,7 +101,7 @@ engine_init :: proc(e: ^Engine, args: []string) -> bool {
 	e.take_path = fmt.aprintf("%s/take.raw", dir)
 	e.bounce_path = fmt.aprintf("%s/bounce.wav", dir)
 	if !os.exists(dir) {
-		if err := os.make_directory(dir); err != nil {
+		if err := os.mkdir_all(dir); err != nil {
 			fmt.eprintfln("cannot create session dir %s", dir)
 			return false
 		}
