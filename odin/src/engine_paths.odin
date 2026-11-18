@@ -71,7 +71,7 @@ engine_save_as :: proc(a: ^ui.App, e: ^Engine, new_dir: string) -> bool {
 			return false
 		}
 	}
-	if !project_save(a, fmt.tprintf("%s/project.json", new_dir)) {
+	if !project_save_with_takes(a, e.takes[:], fmt.tprintf("%s/project.json", new_dir)) {
 		ui.status_buf_set(a, "save as failed")
 		return false
 	}
@@ -90,7 +90,7 @@ engine_open_project :: proc(a: ^ui.App, e: ^Engine, path: string) -> bool {
 		return false
 	}
 	dir := parent_dir(path)
-	if !project_load(a, dir, path) {
+	if !project_load_with_takes(a, dir, path, e.takes[:]) {
 		ui.status_buf_set(a, "cannot load project")
 		return false
 	}
