@@ -4,16 +4,20 @@
 #   ./scripts/check.sh              unit tests + UI harness + synthesized render
 #   ./scripts/check.sh --hardware   also records 2 s from the default capture device
 #   ./scripts/check.sh --jack       also records 0.5 s through the JACK client
+#   ./scripts/check.sh --loopback   also records a known 440 Hz tone through a
+#                                   PulseAudio null sink (full-scale path check)
 set -eu
 
 cd "$(dirname "$0")/.."
 ODIN="${ODIN:-odin}"
 HARDWARE=0
 JACK=0
+LOOPBACK=0
 for arg in "$@"; do
 	case "$arg" in
 		--hardware) HARDWARE=1 ;;
 		--jack) JACK=1 ;;
+		--loopback) LOOPBACK=1 ;;
 	esac
 done
 
@@ -34,7 +38,14 @@ mkdir -p bin
 "$ODIN" build src -out:bin/tracker-odin "$LINK"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/tracker-odin-check.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT
+SINK_MOD=""
+cleanup() {
+	if [ -n "$SINK_MOD" ]; then
+		pactl unload-module "$SINK_MOD" >/dev/null 2>&1 || true
+	fi
+	rm -rf "$tmp"
+}
+trap cleanup EXIT
 
 echo "== selftest =="
 ./bin/tracker-odin selftest
@@ -105,6 +116,32 @@ if [ "$HARDWARE" -eq 1 ]; then
 	[ -f "$tmp/capture/track2.wav" ] || { echo "FAIL: no track2.wav" >&2; exit 1; }
 	./bin/tracker-odin bounce --session "$tmp/capture" --out "$tmp/capture/bounce.wav"
 	./bin/tracker-odin info "$tmp/capture/bounce.wav"
+fi
+
+if [ "$LOOPBACK" -eq 1 ]; then
+	echo "== loopback capture (known 440 Hz tone, -6 dBFS) =="
+	for tool in pactl paplay sox; do
+		command -v "$tool" >/dev/null 2>&1 || { echo "FAIL: $tool required for --loopback" >&2; exit 1; }
+	done
+	SINK="tracker_check_$$"
+	SINK_MOD=$(pactl load-module module-null-sink sink_name="$SINK" sink_properties=device.description=TrackerCheck)
+	sox -n -r 48000 -c 2 "$tmp/loop-tone.wav" synth 4 sine 440 vol 0.5
+	paplay --device="$SINK" "$tmp/loop-tone.wav" >/dev/null 2>&1 &
+	PLAYER=$!
+	sleep 0.4
+	idx=$(./bin/tracker-odin devices | awk '/TrackerCheck/ { if ($1=="*") print $2; else print $1; exit }')
+	[ -n "$idx" ] || { echo "FAIL: loopback source not enumerated" >&2; exit 1; }
+	rm -rf "$tmp/loopback"
+	./bin/tracker-odin record --seconds 2 --channels 2 --device "$idx" --out "$tmp/loopback"
+	peak=$(./bin/tracker-odin info "$tmp/loopback/track1.wav" | awk '/peak/ { print $2; exit }')
+	awk -v p="$peak" 'BEGIN { exit (p <= -4.0 && p >= -8.0) ? 0 : 1 }' || {
+		echo "FAIL: loopback peak $peak dBFS, expected -6 ±2" >&2
+		exit 1
+	}
+	echo "  loopback peak $peak dBFS (expected -6.02)"
+	wait "$PLAYER" 2>/dev/null || true
+	pactl unload-module "$SINK_MOD" >/dev/null 2>&1 || true
+	SINK_MOD=""
 fi
 
 if [ "$JACK" -eq 1 ]; then

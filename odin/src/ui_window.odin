@@ -154,12 +154,18 @@ run_ui_window :: proc(args: []string) -> bool {
 			case .Save:
 				if project_save(&a, e.project_path) {
 					ui.status_buf_set(&a, "project saved")
+				} else {
+					ui.status_buf_set(&a, "save failed")
+					ui.toast(&a, "save failed")
 				}
 			case .Load:
 				if project_load(&a, e.session_dir, e.project_path) {
 					_ = engine_load_tracks(&e, &a)
 					engine_match_device(&e, &a, ui.app_device(&a))
 					ui.status_buf_set(&a, "project loaded")
+				} else {
+					ui.status_buf_set(&a, "load failed")
+					ui.toast(&a, "load failed")
 				}
 			case .Select_Device:
 				engine_set_device(&e, &a, cmd.index)

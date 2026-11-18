@@ -41,7 +41,7 @@ sh "$ODIN_ROOT/vendor/miniaudio/src/build_miniaudio.sh"
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 82 unit tests
+make test         # 83 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -148,11 +148,12 @@ stereo 32-bit float.
 
 ```sh
 odin test src/dsp   # 62 DSP tests
-odin test src       #  9 project/WAV tests
+odin test src       # 10 project/WAV/engine tests
 odin test src/ui    # 11 UI state/layout/screenshot tests
 ./scripts/check.sh  # all of the above + 56-action UI tour + engine bounce + sox/ffprobe
 ./scripts/check.sh --hardware   # + 2 s miniaudio capture
 ./scripts/check.sh --jack       # + 0.5 s JACK capture
+./scripts/check.sh --loopback   # + known 440 Hz tone through a null sink
 ```
 
 Coverage includes the ported Rust DSP vectors (biquad, EQ, compressor, limiter,

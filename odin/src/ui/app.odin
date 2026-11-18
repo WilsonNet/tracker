@@ -617,10 +617,10 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		emit(a, .Bounce)
 	case .Save:
 		emit(a, .Save)
-		status_buf_set(a, "project saved")
+		status_buf_set(a, "saving project")
 	case .Load:
 		emit(a, .Load)
-		status_buf_set(a, "project loaded")
+		status_buf_set(a, "loading project")
 	case .Select_Device:
 		a.device_index = clamp(index, 0, max(len(a.devices) - 1, 0))
 		if len(a.devices) > 0 {

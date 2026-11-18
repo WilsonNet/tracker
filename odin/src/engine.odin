@@ -605,6 +605,11 @@ engine_bounce :: proc(e: ^Engine, a: ^ui.App) -> bool {
 
 engine_update :: proc(e: ^Engine, a: ^ui.App) {
 	if e.rec.active {
+		if e.play.active {
+			e.play.click_enabled = a.metronome
+			e.play.bpm = a.bpm
+			e.play.beat_frames = max(int(60.0 / f32(max(a.bpm, 1)) * f32(e.sample_rate)), 1)
+		}
 		a.frames = i64(sync.atomic_load(&e.rec.write_frame))
 		for i in 0 ..< MAX_ENGINE_TRACKS {
 			if !e.rec.armed[i] {
@@ -625,6 +630,9 @@ engine_update :: proc(e: ^Engine, a: ^ui.App) {
 		return
 	}
 	if e.play.active {
+		e.play.click_enabled = a.metronome
+		e.play.bpm = a.bpm
+		e.play.beat_frames = max(int(60.0 / f32(max(a.bpm, 1)) * f32(e.sample_rate)), 1)
 		cursor := sync.atomic_load(&e.play.cursor)
 		if cursor >= u64(e.play.frames) {
 			engine_stop_playback(e)
