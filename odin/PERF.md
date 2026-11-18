@@ -1,5 +1,13 @@
 # Performance + memory audit (native Odin port)
 
+> **Post-audit note:** these numbers were measured at `dff9236`. Before merge,
+> the canvas gained an opaque/alpha bulk-fill fast path, the window resets its
+> temp arena every frame, and the harness owns its result strings. Treat the
+> table as a conservative baseline; the leak numbered 1/2 below are fixed.
+> Post-audit re-run: canvas fill 1180 opaque 3.12 ms (was 6.28), alpha 5.35 ms
+> (was 10.52); 1920 opaque 7.23 ms (was 14.47), alpha 12.36 ms (was 24.62),
+> i.e. ~2.1× faster after the bulk-fill fast path.
+
 Scope: measure the native app at commit `dff9236` (Odin `dev-2026-11-nightly`),
 report concrete costs and leaks, and rank the fixes. No application source was
 changed by this audit — every finding below is a report, not a patch.

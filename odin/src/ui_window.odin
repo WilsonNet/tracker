@@ -109,6 +109,10 @@ run_ui_window :: proc(args: []string) -> bool {
 				}
 				key, ch, shift := map_key(event.key.keysym)
 				ui.app_key(&a, key, ch, shift)
+			case .KEYUP:
+				if .LSHIFT in event.key.keysym.mod || .RSHIFT in event.key.keysym.mod {
+					ui.app_set_shift(&a, false)
+				}
 			case .MOUSEMOTION:
 				ui.app_mouse_move(&a, f32(event.motion.x), f32(event.motion.y))
 			case .MOUSEBUTTONDOWN:
@@ -190,6 +194,9 @@ run_ui_window :: proc(args: []string) -> bool {
 		sdl.RenderClear(renderer)
 		sdl.RenderCopy(renderer, texture, nil, nil)
 		sdl.RenderPresent(renderer)
+		// fmt.tprintf and the layout helpers allocate from the temp arena; a
+		// long-running window must reset it every frame or RSS creeps forever.
+		free_all(context.temp_allocator)
 		time.sleep(6 * time.Millisecond)
 	}
 	return true

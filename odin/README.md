@@ -66,7 +66,7 @@ test -f "$ODIN_ROOT/vendor/miniaudio/lib/miniaudio.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 84 unit tests
+make test         # 153 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -87,8 +87,8 @@ directory is in `XDG_DATA_DIRS`.
 | target | what it does |
 |---|---|
 | `build` | compile `bin/tracker-odin` |
-| `test` | 84 unit tests: 62 DSP, 11 core/engine, 11 UI |
-| `check` | `scripts/check.sh`: unit tests, 56-action UI tour, offline bounce |
+| `test` | 153 unit tests: 70 DSP, 45 core/engine/project, 38 UI |
+| `check` | `scripts/check.sh`: unit tests, 118-action UI tour, offline bounce |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
 | `ui-test` | run a harness script; `SCRIPT=... UI_OUT=...` |
@@ -150,23 +150,29 @@ and no IPC socket, and the whole tour runs in well under a second.
 }
 ```
 
-Targets: `track.N`, `arm.N`, `solo.N`, `mute.N`, `input.N`, `fader.N`,
-`pan.N`, `transport.rec|play|stop`, `bounce`, `fx`, `io`, `bpm.plus|minus`,
-`metronome`, `fx.tab.N`, `fx.close`, `knob.<module>.<param>`,
-`fx.bypass.<module>`, `fx.pingpong.delay`, `palette.row.N`, `io.row.N`.
+Targets: `track.N`, `master`, `arm.N`, `solo.N`, `mute.N`, `input.N`,
+`fader.N`, `pan.N`, `transport.rec|play|stop`, `bounce`, `fx`, `io`,
+`bpm.plus|minus`, `metronome`, `fx.tab.N`, `fx.close`,
+`knob.<module>.<param>`, `fx.bypass.<module>`, `fx.pingpong.delay`,
+`palette.row.N`, `io.row.N`. Targets are availability-gated by the current
+overlay/mode; clicking a track control while the FX rack is open fails instead
+of silently closing the rack.
 Track tabs expose `eq`, `comp` and `send`; the `MST` tab (`fx.tab.4`) exposes
 the master `comp`, `reverb`, `delay`, `width` and `limiter` modules.
 `palette.row.N` requires the palette open and `io.row.N` a populated device
 list (set `devices` in the script).
 
 Assertion paths: `transport`, `mode`, `selected`, `armed.N`, `muted.N`,
-`solo.N`, `input.N`, `level.N`, `pan.N`, `has_audio.N`, `bpm`, `metronome`,
-`palette.open`, `palette.text`, `fx.open`, `fx.channel`, `bounce.progress`,
-`device`, `project`, `status`, plus every knob and bypass target.
+`solo.N`, `audible.N`, `input.N`, `level.N`, `pan.N`, `has_audio.N`, `bpm`,
+`metronome`, `palette.open`, `palette.text`, `palette.count`, `palette.sel`,
+`fx.open`, `fx.channel`, `fx.focus`, `bounce.progress`, `bounce.running`,
+`device`, `device.count`, `input.count`, `armed.count`, `solo.any`, `dirty`,
+`project`, `status`, plus every knob and bypass target.
 
 Actions: `click`, `drag` (`dy`), `key`, `type`, `wait` (`frames` or `ms`),
 `screenshot`, `assert` (`equals`, or `min`/`max` + `hasMin`/`hasMax`),
-`resize`. A `report.json` with every result is written next to the screenshots.
+`resize`. The full tour is **118 actions / 10 screenshots**. A `report.json`
+with every result is written next to the screenshots.
 
 `ui-shot` renders one frame to PNG for fast visual iteration:
 
@@ -198,12 +204,12 @@ stereo 32-bit float.
 ## Tests and verification
 
 ```sh
-make test        # 62 DSP + 11 core/engine + 11 UI = 84 tests
+make test        # 70 DSP + 45 core/engine/project + 38 UI = 153 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui
 
-make check       # tests + 56-action UI tour + offline bounce + format checks
+make check       # tests + 118-action UI tour + offline bounce + format checks
 ./scripts/check.sh --hardware   # + 2 s miniaudio capture
 ./scripts/check.sh --jack       # + 0.5 s JACK capture
 ./scripts/check.sh --loopback   # + known 440 Hz tone through a null sink
@@ -244,7 +250,7 @@ odin/
                        PNG, tests
   scripts/             check.sh, install-desktop.sh, gen_font.py
   tests/ui/            full-tour.json
-  assets/              tracker.png / tracker.svg
+  assets/              tracker.png / tracker.svg / FONT-LICENSE.txt
 ```
 
 Correspondence with the Rust reference:
@@ -260,15 +266,43 @@ Correspondence with the Rust reference:
 | React UI | `src/ui/` (software canvas) |
 | Playwright | `ui_harness.odin` |
 
+## Rendering notes (crispness)
+
+The UI is a deterministic software canvas, not a webview. It already applies the
+parts of the "web-crisp" playbook that fit an instrument panel:
+
+- Two pre-baked **anti-aliased grayscale atlases** at the exact design sizes
+  (12.5 px body, 25 px heading), with shared baselines and descenders. Text is
+  blended per pixel; coordinates are rounded to whole pixels.
+- No runtime scaling of a small bitmap: `scale = 1` uses the 12.5 px atlas,
+  `scale = 2` uses the 25 px companion. The native SDL texture and the headless
+  screenshot harness draw the same pixels.
+- Flat 1 px borders and rectangles are snapped to the pixel grid; the design
+  intentionally has no rounded cards, shadows, gradients or icon font.
+
+Deliberately **not** used: Clay/Flexbox (the 4-track layout is fixed and covered
+by geometry tests at 900/1180/1920), raylib, MSDF/SDF shaders (they soften
+12 px text and need a GPU path), and runtime FreeType. The remaining crispness
+gap is **HiDPI**: SDL is not opened with `ALLOW_HIGHDPI`, so a 2× compositor may
+scale the 1× buffer. The next step is integer-scale layout with 2×/3× atlases
+(or runtime `stb_truetype` rasterization at physical sizes); it is recorded in
+`ROADMAP.md`. Runtime TTF/SDF and a flex layout engine would be a larger
+architectural change than this port needs today.
+
 ## Limitations
 
 - No zero-latency input monitoring. Playback/overdub is rendered and played;
   the live input is not passed through the output (feedback-safe by default).
 - Overdub is not latency-compensated: the click/existing mix and the capture
   start on separate devices, so sample-accurate alignment is not guaranteed.
-- JACK capture is exposed through the CLI, not yet as a GUI mode.
+- Preview render and bounce run synchronously on the UI thread; a long mix
+  pauses the window while it renders. JACK capture is exposed through the CLI,
+  not yet as a GUI mode.
 - The session path is fixed per run (`--session`); there is no native file
   picker or recent-projects list.
 - No undo/redo, comping, RF64 (>4 GB), or screen-reader accessibility yet.
 - `ui-test` covers the state machine and rendering, not OS-level window focus or
   audio-device hotplug.
+- The embedded text atlas is generated from Noto Sans Mono (Apache-2.0); see
+  `assets/FONT-LICENSE.txt`. On a machine with JetBrains Mono installed,
+  `scripts/gen_font.py` regenerates from it instead.

@@ -127,13 +127,38 @@ canvas_pop_clip :: proc(c: ^Canvas, old: Rect) {
 }
 
 canvas_fill :: proc(c: ^Canvas, r: Rect, col: Color) {
-	x0 := max(i32(math.floor(r.x)), 0)
-	y0 := max(i32(math.floor(r.y)), 0)
-	x1 := min(i32(math.ceil(r.x + r.w)), i32(c.width))
-	y1 := min(i32(math.ceil(r.y + r.h)), i32(c.height))
+	a := (col >> 24) & 0xFF
+	if a == 0 {
+		return
+	}
+	clip := rect_intersect(c.clip, r)
+	x0 := max(i32(math.floor(clip.x)), 0)
+	y0 := max(i32(math.floor(clip.y)), 0)
+	x1 := min(i32(math.ceil(clip.x + clip.w)), i32(c.width))
+	y1 := min(i32(math.ceil(clip.y + clip.h)), i32(c.height))
+	if x1 <= x0 || y1 <= y0 {
+		return
+	}
+	if a == 0xFF {
+		for y in y0 ..< y1 {
+			row := c.pixels[int(y) * c.width:]
+			for x in x0 ..< x1 {
+				row[int(x)] = col
+			}
+		}
+		return
+	}
+	sr := (col >> 16) & 0xFF
+	sg := (col >> 8) & 0xFF
+	sb := col & 0xFF
 	for y in y0 ..< y1 {
+		row := c.pixels[int(y) * c.width:]
 		for x in x0 ..< x1 {
-			plot(c, x, y, col)
+			dst := row[int(x)]
+			dr := blend_channel(sr, (dst >> 16) & 0xFF, a)
+			dg := blend_channel(sg, (dst >> 8) & 0xFF, a)
+			db := blend_channel(sb, dst & 0xFF, a)
+			row[int(x)] = (0xFF << 24) | (dr << 16) | (dg << 8) | db
 		}
 	}
 }

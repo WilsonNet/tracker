@@ -9,3 +9,5 @@ bin/
 /*.png
 /ui/
 /report.json
+
+*.bin

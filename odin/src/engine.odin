@@ -74,7 +74,6 @@ Engine :: struct {
 	loaded_rate:  [MAX_ENGINE_TRACKS]u32,
 	rec:          Recorder,
 	play:         Playback,
-	last_mix:     []f32,
 }
 
 // ---------------------------------------------------------------- helpers
@@ -152,8 +151,6 @@ engine_destroy :: proc(e: ^Engine) {
 		delete(e.loaded[i])
 		e.loaded[i] = nil
 	}
-	delete(e.last_mix)
-	e.last_mix = nil
 	delete(e.session_dir)
 	delete(e.project_path)
 	delete(e.take_path)

@@ -10,6 +10,7 @@ import "core:encoding/json"
 import "core:fmt"
 import "core:os"
 import "core:strconv"
+import "core:strings"
 
 import ui "ui"
 
@@ -169,7 +170,14 @@ run_ui_test :: proc(args: []string) -> bool {
 	defer ui.canvas_destroy(&c)
 
 	results: [dynamic]Harness_Result
-	defer delete(results)
+	defer {
+		for r in results {
+			if len(r.detail) > 0 {
+				delete(r.detail)
+			}
+		}
+		delete(results)
+	}
 	passed := 0
 	failed := 0
 
@@ -310,7 +318,7 @@ run_ui_test :: proc(args: []string) -> bool {
 		ui.app_layout(&a)
 		status := "PASS" if ok else "FAIL"
 		fmt.printfln("[%s] %02d  %s", status, i, detail)
-		append(&results, Harness_Result{i, ok, detail})
+		append(&results, Harness_Result{i, ok, strings.clone(detail)})
 		if ok {
 			passed += 1
 		} else {

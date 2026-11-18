@@ -14,7 +14,7 @@ in the reference but not here; **new** = only relevant to the native app.
 | Device enumeration | done | PipeWire/JACK sources listed on the test machine |
 | Hardware capture | done | 96,000 frames from a 2 s take through the native UI |
 | Per-channel float WAVs | done | `record`, `trackN.wav`, ffprobe + sox clean |
-| Biquad / EQ / compressor / limiter | done | parity vectors + 62 DSP tests |
+| Biquad / EQ / compressor / limiter | done | parity vectors + 70 DSP tests |
 | Fader / pan / mute / master bus | done | render tests |
 | CLI + selftest + check script | done | `make check` |
 
@@ -49,20 +49,21 @@ in the reference but not here; **new** = only relevant to the native app.
 | Command palette | done | `:`, filter, arrow select, execute |
 | I/O panel | done | live source list, selection, device persistence |
 | Bounce UI | done | overlay + progress + status |
-| Theme | done | DESIGN.md palette, mono bitmap type, flat panels |
+| Theme | done | DESIGN.md palette, baked anti-aliased mono atlas, flat panels |
 | Keyboard model | done | Space/R/1–4/j/k/J/K/m/s/a/i/x/c/[/]/:/Esc |
-| Screenshot + interaction tests | done | 56-action tour, 9 PNGs, JSON report |
+| Screenshot + interaction tests | done | 118-action tour, 10 PNGs, JSON report |
 
 ## Phase 4 — hardening and audit (in progress)
 
 | item | status | notes |
 |---|---|---|
-| A/B DSP parity with Rust | done | ported algorithms tested against reference vectors |
+| A/B DSP parity with Rust | done | parity vectors; audit fixed limiter latency, stats, NaN state, reverb buffers |
 | WAV compatibility | done | IEEE-float 18-byte fmt body, PCM 16/24/32 import |
 | Headless UI test harness | done | `ui-test`, semantic targets, assertions |
 | Packaging | done | desktop entry, PNG/SVG icon, `make install`/`uninstall` |
-| CI entry point | done | `scripts/check.sh` |
-| Memory/leak audit | in progress | test runner reports leaks; project loader cleaned |
+| CI entry point | done | `scripts/check.sh` (+ `--hardware`, `--jack`, `--loopback`) |
+| Performance audit | done | `PERF.md`: render, UI, PNG, WAV, resampler benchmarks |
+| Memory/leak audit | done | suites report 0 live bytes; temp arena reset per frame; harness strings owned |
 | Device hotplug / unplug mid-take | missing | no retry path yet |
 | Latency compensation | missing | overdub alignment is approximate |
 | Live input monitoring | missing | deliberately not passed through (feedback-safe) |
@@ -71,6 +72,7 @@ in the reference but not here; **new** = only relevant to the native app.
 | RF64 / >4 GB files | missing | 32-bit RIFF size field |
 | Screen-reader/accessibility audit | missing | software canvas has no a11y tree |
 | JACK capture in the GUI | missing | CLI only; GUI uses miniaudio |
+| HiDPI (2×/3×) crisp scaling | missing | 1× atlas is exact; integer-scale layout + higher-DPI atlases or runtime stb_truetype |
 | Multi-take comping | missing | not in the original scope |
 
 ## Exit criteria
@@ -86,7 +88,10 @@ in the reference but not here; **new** = only relevant to the native app.
 
 - miniaudio/PulseAudio capture and playback run on separate devices during
   overdub; timing drift is possible on long takes.
-- The UI is CPU-rendered at 1180×760; larger windows cost more per frame.
+- The UI is CPU-rendered; 1180×760 runs comfortably, but 1920×1080 with the
+  full FX rack is the slowest surface. Canvas fill was optimized post-audit.
+- Preview render and bounce run synchronously on the UI thread (0.5–3.2 s per
+  60 s of audio), so the window pauses during render for long mixes.
 - Project strings from JSON are cloned into the app and freed on reload; a
   future schema change must preserve that ownership rule.
 - The Rust app remains the oracle until the final parity audit is signed off.

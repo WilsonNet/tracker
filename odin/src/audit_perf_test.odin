@@ -317,7 +317,7 @@ audit_bench_ui :: proc(name: string, width, height: int, frames: int, mode: ui.M
 	temp: Audit_Temp
 	context.temp_allocator = audit_temp_begin(&temp)
 	t0 := time.now()
-	for i in 0 ..< frames {
+	for _ in 0 ..< frames {
 		a.time += 0.016
 		ui.app_draw(&a, &c)
 	}
@@ -492,7 +492,7 @@ audit_bench_ui_test :: proc(runs: int) -> Audit_Row {
 	rss_before := audit_rss_kb()
 	t0 := time.now()
 	passed := 0
-	for i in 0 ..< runs {
+	for _ in 0 ..< runs {
 		if run_ui_test([]string{"--script", script, "--out", out_dir}) {
 			passed += 1
 		}
