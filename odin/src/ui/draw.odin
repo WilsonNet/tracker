@@ -363,7 +363,8 @@ draw_track :: proc(a: ^App, c: ^Canvas, i: int) {
 	// GR meter.
 	if t.comp.enabled {
 		draw_gr(c, l.gr[i], t.gr_db)
-		canvas_text_right(c, l.gr[i].x + l.gr[i].w - 2, l.gr[i].y + 3, fmt.tprintf("%.1f", t.gr_db), MUTED)
+		gr_ink: Color = BLACK if t.gr_db < -1.0 else MUTED
+		canvas_text_right(c, l.gr[i].x + l.gr[i].w - 2, l.gr[i].y + 3, fmt.tprintf("%.1f", t.gr_db), gr_ink)
 	} else {
 		canvas_fill(c, l.gr[i], PANEL_2)
 		canvas_rect(c, l.gr[i], LINE)
@@ -391,7 +392,8 @@ draw_master :: proc(a: ^App, c: ^Canvas) {
 
 	gr := Rect{r.x + 14, r.y + r.h - 100, r.w - 28, 18}
 	draw_gr(c, gr, a.master.gr_db)
-	canvas_text_right(c, gr.x + gr.w - 2, gr.y + 3, fmt.tprintf("%.1f", a.master.gr_db), MUTED)
+	master_gr_ink: Color = BLACK if a.master.gr_db < -1.0 else MUTED
+	canvas_text_right(c, gr.x + gr.w - 2, gr.y + 3, fmt.tprintf("%.1f", a.master.gr_db), master_gr_ink)
 
 	y := r.y + r.h - 70
 	canvas_text(c, r.x + 14, y, "REV", TEAL if a.master.reverb.enabled else MUTED)
@@ -468,7 +470,7 @@ draw_fx :: proc(a: ^App, c: ^Canvas) {
 	if a.fx_channel < MAX_TRACKS {
 		chan = fmt.tprintf("TRACK %d", a.fx_channel + 1)
 	}
-	canvas_text(c, l.fx_panel.x + 286, l.fx_panel.y + 18, chan, TEXT)
+	canvas_text(c, l.fx_panel.x + 300, l.fx_panel.y + 18, chan, TEXT)
 	canvas_text_right(c, l.fx_panel.x + l.fx_panel.w - 48, l.fx_panel.y + 18, "DRAG KNOBS  ·  SHIFT FINE  ·  ESC CLOSE", MUTED)
 
 	// Module panels.
@@ -637,7 +639,7 @@ draw_io :: proc(a: ^App, c: ^Canvas) {
 	canvas_fill(c, Rect{0, 0, f32(a.width), f32(a.height)}, 0x990A0A0A)
 	draw_panel(c, l.io_panel, PANEL_2, AMBER_DIM)
 	canvas_text(c, l.io_panel.x + 14, l.io_panel.y + 14, "INPUT DEVICES", AMBER, 2)
-	canvas_text(c, l.io_panel.x + 14, l.io_panel.y + 36, "cooperative PipeWire / JACK sources", MUTED)
+	canvas_text(c, l.io_panel.x + 14, l.io_panel.y + 48, "cooperative PipeWire / JACK sources", MUTED)
 
 	l.io_count = len(a.devices)
 	for i in 0 ..< l.io_count {

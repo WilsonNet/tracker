@@ -513,7 +513,7 @@ app_layout :: proc(a: ^App) {
 	l.fx_panel = Rect{margin, fx_y, w - margin * 2, fx_h}
 	tab_w: f32 = 44
 	for i in 0 ..< 5 {
-		l.fx_tab[i] = Rect{l.fx_panel.x + 14 + f32(i) * (tab_w + 4), fx_y + 12, tab_w, 24}
+		l.fx_tab[i] = Rect{l.fx_panel.x + 56 + f32(i) * (tab_w + 4), fx_y + 12, tab_w, 24}
 	}
 	l.fx_close = Rect{l.fx_panel.x + l.fx_panel.w - 34, fx_y + 12, 22, 24}
 
@@ -551,7 +551,7 @@ app_layout :: proc(a: ^App) {
 		}
 	}
 
-	l.palette = Rect{(w - 560) * 0.5, 150, 560, 420}
+	l.palette = Rect{(w - 560) * 0.5, (h - 480) * 0.5, 560, 480}
 	l.palette_input = Rect{l.palette.x + 14, l.palette.y + 14, l.palette.w - 28, 28}
 	for i in 0 ..< MAX_PALETTE {
 		l.palette_row[i] = Rect{l.palette.x + 10, l.palette.y + 52 + f32(i) * 26, l.palette.w - 20, 24}
@@ -560,7 +560,7 @@ app_layout :: proc(a: ^App) {
 	l.io_panel = Rect{w - 440, 124, 426, h - 160}
 	l.io_count = min(len(a.devices), MAX_DEVICES)
 	for i in 0 ..< MAX_DEVICES {
-		l.io_row[i] = Rect{l.io_panel.x + 12, l.io_panel.y + 52 + f32(i) * 30, l.io_panel.w - 24, 26}
+		l.io_row[i] = Rect{l.io_panel.x + 12, l.io_panel.y + 78 + f32(i) * 30, l.io_panel.w - 24, 26}
 	}
 	l.palette_count = a.palette_count
 	a.layout = l^
