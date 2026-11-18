@@ -46,6 +46,14 @@ run_ui_shot :: proc(args: []string) -> bool {
 		a.mode = .Bounce
 		a.bounce_progress = 0.42
 	}
+	if has_flag(args, "--click") {
+		a.metronome = true
+	}
+	if a.transport != .Stopped {
+		for _ in 0 ..< 36 {
+			ui.app_tick(&a, 1.0 / 60.0)
+		}
+	}
 
 	c: ui.Canvas
 	ui.canvas_init(&c, width, height)

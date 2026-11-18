@@ -471,9 +471,9 @@ app_layout :: proc(a: ^App) {
 	l.bounce = Rect{16 + (bw + 8) * 3 + 12, btn_y, 104, 44}
 	l.fx = Rect{l.bounce.x + 112, btn_y, 64, 44}
 	l.io = Rect{l.fx.x + 72, btn_y, 64, 44}
-	l.bpm_minus = Rect{w - 132, 22, 20, 18}
-	l.bpm_plus = Rect{w - 44, 22, 20, 18}
-	l.click = Rect{w - 408, 22, 56, 18}
+	l.bpm_minus = Rect{w - 180, 6, 20, 18}
+	l.bpm_plus = Rect{w - 56, 6, 20, 18}
+	l.click = Rect{w - 300, 6, 56, 18}
 
 	area_y := f32(124)
 	area_h := h - area_y - 32

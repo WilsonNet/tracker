@@ -219,12 +219,13 @@ draw_header :: proc(a: ^App, c: ^Canvas) {
 	canvas_text(c, 156, 9, app_project(a), TEXT)
 	canvas_text(c, 156, 25, "MULTITRACK RECORDER · ODIN NATIVE", MUTED)
 	right := f32(a.width) - 16
-	canvas_text_right(c, right, 9, fmt.tprintf("%d kHz", a.sample_rate / 1000), DIM)
-	canvas_text_right(c, right, 25, app_device(a), MUTED)
+	canvas_text(c, 500, 9, fmt.tprintf("%d kHz", a.sample_rate / 1000), DIM)
+	canvas_text_clip(c, 574, 9, f32(a.width) - 594, app_device(a), MUTED)
+	draw_toggle(c, l.click, "CLICK", a.metronome, is_hover(a, l.click), true, TEAL)
 	draw_button(c, l.bpm_minus, "-", false, is_hover(a, l.bpm_minus), a.bpm > 40, DIM)
 	draw_button(c, l.bpm_plus, "+", false, is_hover(a, l.bpm_plus), a.bpm < 240, DIM)
-	canvas_text_center(c, (l.bpm_minus.x + l.bpm_minus.w + l.bpm_plus.x) * 0.5, 24, fmt.tprintf("%d BPM", a.bpm), DIM)
-	draw_toggle(c, l.click, "CLICK", a.metronome, is_hover(a, l.click), true, TEAL)
+	canvas_text_center(c, (l.bpm_minus.x + l.bpm_minus.w + l.bpm_plus.x) * 0.5, 8, fmt.tprintf("%d BPM", a.bpm), DIM)
+	canvas_text_right(c, right, 25, "TRACKER · 4 TRACK · 32-BIT FLOAT", MUTED)
 }
 
 @(private)
