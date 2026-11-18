@@ -285,11 +285,15 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 
 	G_RECORDER = &e.rec
 	e.rec.writer = thread.create(recorder_writer)
+	if e.rec.writer != nil {
+		thread.start(e.rec.writer)
+	}
 
 	if ma.device_start(&e.rec.device) != .SUCCESS {
 		sync.atomic_store(&e.rec.stop, 1)
 		if e.rec.writer != nil {
 			thread.join(e.rec.writer)
+			thread.destroy(e.rec.writer)
 			e.rec.writer = nil
 		}
 		ma.device_uninit(&e.rec.device)
@@ -324,6 +328,7 @@ engine_record_stop :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	sync.atomic_store(&e.rec.stop, 1)
 	if e.rec.writer != nil {
 		thread.join(e.rec.writer)
+		thread.destroy(e.rec.writer)
 		e.rec.writer = nil
 	}
 	ma.device_uninit(&e.rec.device)
