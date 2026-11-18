@@ -18,6 +18,13 @@ import ui "ui"
 
 VERSION :: "0.3.0-native"
 
+MAX_CLI_SECONDS :: 3_600.0
+MAX_CLI_CHANNELS :: 32
+MAX_CLI_RATE :: 192_000
+MIN_CLI_DIM :: 600
+MAX_CLI_DIM :: 4_096
+MAX_CLI_TONE_SAMPLES :: 64_000_000
+
 main :: proc() {
 	args := os.args
 	if len(args) < 2 {
@@ -28,7 +35,10 @@ main :: proc() {
 	ok := true
 	switch args[1] {
 	case "devices":
-		ok = list_capture_devices()
+		ok = len(args) == 2 && list_capture_devices()
+		if len(args) != 2 {
+			fmt.eprintln("devices takes no arguments")
+		}
 	case "record":
 		ok = run_record(args[2:])
 	case "tone":
@@ -36,16 +46,34 @@ main :: proc() {
 	case "render":
 		ok = run_render(args[2:])
 	case "info":
-		if len(args) < 3 {
+		if len(args) != 3 {
 			fmt.eprintln("usage: tracker-odin info FILE.wav")
 			ok = false
 		} else {
 			ok = wav_print_info(args[2])
 		}
 	case "selftest":
-		ok = run_selftest()
+		if len(args) != 2 {
+			fmt.eprintln("selftest takes no arguments")
+			ok = false
+		} else {
+			ok = run_selftest()
+		}
 	case "ui":
-		ok = run_ui_window(args[2:])
+		if !validate_flags(args[2:], []string{"--session", "--width", "--height"}, []string{"--demo"}) {
+			ok = false
+		} else {
+			w := flag_int(args[2:], "--width", 1180)
+			h := flag_int(args[2:], "--height", 760)
+			if w < MIN_CLI_DIM || w > MAX_CLI_DIM || h < MIN_CLI_DIM || h > MAX_CLI_DIM {
+				fmt.eprintfln("--width/--height must be between %d and %d", MIN_CLI_DIM, MAX_CLI_DIM)
+				ok = false
+			} else if session, has_session := flag_value(args[2:], "--session"); has_session && !ensure_dir(session) {
+				ok = false
+			} else {
+				ok = run_ui_window(args[2:])
+			}
+		}
 	case "ui-shot":
 		ok = run_ui_shot(args[2:])
 	case "ui-test":
@@ -103,6 +131,67 @@ chain options for render:
 
 // ---------------------------------------------------------------- arguments
 
+// Validate the shape of a command line before touching the filesystem. Value
+// options accept `--key value` and `--key=value`; switch options take neither.
+// Negative numbers and paths containing spaces are ordinary single arguments.
+@(private)
+flag_name_in :: proc(names: []string, name: string) -> bool {
+	for n in names {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+@(private)
+validate_flags :: proc(args: []string, values, switches: []string) -> bool {
+	i := 0
+	for i < len(args) {
+		arg := args[i]
+		if !strings.has_prefix(arg, "--") {
+			fmt.eprintfln("unexpected argument %q", arg)
+			return false
+		}
+
+		name := arg
+		value: string
+		has_value := false
+		if eq := strings.index_byte(arg, '='); eq >= 0 {
+			name = arg[:eq]
+			value = arg[eq + 1:]
+			has_value = true
+		}
+
+		if flag_name_in(switches, name) {
+			if has_value {
+				fmt.eprintfln("%s takes no value", name)
+				return false
+			}
+			i += 1
+			continue
+		}
+		if !flag_name_in(values, name) {
+			fmt.eprintfln("unknown option %s", name)
+			return false
+		}
+		if has_value {
+			if value == "" {
+				fmt.eprintfln("missing value for %s", name)
+				return false
+			}
+			i += 1
+		} else {
+			if i + 1 >= len(args) || args[i + 1] == "" || strings.has_prefix(args[i + 1], "--") {
+				fmt.eprintfln("missing value for %s", name)
+				return false
+			}
+			i += 2
+		}
+	}
+	return true
+}
+
 @(private)
 flag_value :: proc(args: []string, name: string) -> (string, bool) {
 	for arg, i in args {
@@ -138,9 +227,18 @@ flag_string :: proc(args: []string, name: string, fallback: string) -> string {
 }
 
 @(private)
+f32_is_finite :: proc(v: f32) -> bool {
+	return !math.is_nan(v) && !math.is_inf(v)
+}
+
+@(private)
 flag_f32 :: proc(args: []string, name: string, fallback: f32) -> f32 {
 	if value, ok := flag_value(args, name); ok {
 		if parsed, pok := strconv.parse_f32(value); pok {
+			if !f32_is_finite(parsed) {
+				fmt.eprintfln("ignoring non-finite %s=%s", name, value)
+				return fallback
+			}
 			return parsed
 		}
 		fmt.eprintfln("ignoring non-numeric %s=%s", name, value)
@@ -161,28 +259,66 @@ flag_int :: proc(args: []string, name: string, fallback: int) -> int {
 
 // ---------------------------------------------------------------- commands
 
+// Create a directory and any missing parents. Existing directories are fine;
+// an existing non-directory is an error so callers do not fail later with a
+// confusing write error.
 @(private)
-ensure_dir :: proc(path: string) {
-	if !os.exists(path) {
-		_ = os.mkdir_all(path)
+ensure_dir :: proc(path: string) -> bool {
+	if path == "" {
+		fmt.eprintln("cannot create an empty directory path")
+		return false
 	}
+	if os.exists(path) {
+		if os.is_directory(path) {
+			return true
+		}
+		fmt.eprintfln("%s exists and is not a directory", path)
+		return false
+	}
+	if err := os.make_directory_all(path); err != nil {
+		fmt.eprintfln("cannot create %s: %v", path, err)
+		return false
+	}
+	return true
 }
 
 @(private)
 run_tone :: proc(args: []string) -> bool {
+	if !validate_flags(args, []string{"--out", "--seconds", "--freq", "--amp", "--channels", "--rate"}, nil) {
+		return false
+	}
 	out := flag_string(args, "--out", "tone.wav")
 	seconds := flag_f32(args, "--seconds", 3.0)
 	freq := flag_f32(args, "--freq", 440.0)
 	amp := clamp(flag_f32(args, "--amp", 0.5), 0.0, 1.0)
-	channels := max(flag_int(args, "--channels", 1), 1)
-	rate := u32(max(flag_int(args, "--rate", 48_000), 8_000))
+	channels := flag_int(args, "--channels", 1)
+	rate := u32(flag_int(args, "--rate", 48_000))
 
-	if seconds <= 0.0 {
-		fmt.eprintln("--seconds must be positive")
+	if seconds <= 0.0 || seconds > MAX_CLI_SECONDS {
+		fmt.eprintfln("--seconds must be positive and at most %.0f", MAX_CLI_SECONDS)
+		return false
+	}
+	if channels < 1 || channels > MAX_CLI_CHANNELS {
+		fmt.eprintfln("--channels must be between 1 and %d", MAX_CLI_CHANNELS)
+		return false
+	}
+	if rate < PROJECT_SAMPLE_RATE_MIN || rate > MAX_CLI_RATE {
+		fmt.eprintfln("--rate must be between %d and %d", PROJECT_SAMPLE_RATE_MIN, MAX_CLI_RATE)
+		return false
+	}
+	if freq < 0 || freq > f32(rate) * 0.5 {
+		fmt.eprintfln("--freq must be between 0 and half the sample rate")
+		return false
+	}
+	if !ensure_parent_dir(out) {
 		return false
 	}
 
 	frames := int(seconds * f32(rate))
+	if frames <= 0 || frames * channels > MAX_CLI_TONE_SAMPLES {
+		fmt.eprintln("requested tone is too large to synthesize")
+		return false
+	}
 	buf := make([]f32, frames * channels)
 	defer delete(buf)
 
@@ -210,14 +346,31 @@ run_tone :: proc(args: []string) -> bool {
 
 @(private)
 run_record :: proc(args: []string) -> bool {
+	if !validate_flags(args, []string{"--out", "--seconds", "--channels", "--rate", "--device"}, []string{"--jack"}) {
+		return false
+	}
 	out := flag_string(args, "--out", "session")
 	seconds := flag_f32(args, "--seconds", 5.0)
-	channels := max(flag_int(args, "--channels", 2), 1)
-	rate := u32(max(flag_int(args, "--rate", 48_000), 8_000))
+	channels := flag_int(args, "--channels", 2)
+	rate := u32(flag_int(args, "--rate", 48_000))
 	device := flag_int(args, "--device", -1)
 	use_jack := has_flag(args, "--jack")
 
-	ensure_dir(out)
+	if seconds <= 0.0 || seconds > MAX_CLI_SECONDS {
+		fmt.eprintfln("--seconds must be positive and at most %.0f", MAX_CLI_SECONDS)
+		return false
+	}
+	if channels < 1 || channels > MAX_CLI_CHANNELS {
+		fmt.eprintfln("--channels must be between 1 and %d", MAX_CLI_CHANNELS)
+		return false
+	}
+	if rate < PROJECT_SAMPLE_RATE_MIN || rate > MAX_CLI_RATE {
+		fmt.eprintfln("--rate must be between %d and %d", PROJECT_SAMPLE_RATE_MIN, MAX_CLI_RATE)
+		return false
+	}
+	if !ensure_dir(out) {
+		return false
+	}
 	if use_jack {
 		fmt.printfln("recording %.1f s, %d channel(s) at %d Hz from JACK into %s", seconds, channels, rate, out)
 	} else {
@@ -281,10 +434,20 @@ collect_track_paths :: proc(spec: string) -> []string {
 
 @(private)
 run_render :: proc(args: []string) -> bool {
+	if !validate_flags(args, []string{
+		"--in", "--out", "--ceiling", "--level", "--pan",
+		"--eq-low", "--eq-mid", "--eq-high", "--eq-mid-hz", "--eq-mid-q",
+		"--comp-threshold", "--comp-ratio", "--comp-attack", "--comp-release",
+	}, []string{"--flat", "--no-limiter", "--no-comp"}) {
+		return false
+	}
 	in_spec, has_in := flag_value(args, "--in")
 	out, has_out := flag_value(args, "--out")
 	if !has_in || !has_out {
 		fmt.eprintln("render needs --in DIR_OR_FILE and --out FILE")
+		return false
+	}
+	if !ensure_parent_dir(out) {
 		return false
 	}
 
@@ -456,11 +619,24 @@ run_selftest :: proc() -> bool {
 
 @(private)
 run_bounce :: proc(args: []string) -> bool {
+	if !validate_flags(args, []string{"--session", "--out"}, nil) {
+		return false
+	}
+	// engine_init only makes one directory level; create nested explicit
+	// session paths here so `--session a/b/c` works like other CLI paths.
+	if session, has_session := flag_value(args, "--session"); has_session {
+		if !ensure_dir(session) {
+			return false
+		}
+	}
+
 	e: Engine
 	if !engine_init(&e, args) {
 		return false
 	}
 	defer engine_destroy(&e)
+
+	out_path := flag_string(args, "--out", e.bounce_path)
 
 	a: ui.App
 	ui.app_init(&a, 1180, 760)
@@ -470,12 +646,16 @@ run_bounce :: proc(args: []string) -> bool {
 			fmt.eprintln("cannot load project")
 			return false
 		}
+		// Bounce at the project rate rather than the CLI default.
+		e.sample_rate = a.sample_rate
 	}
 	if !engine_load_tracks(&e, &a) {
 		fmt.eprintln("no tracks in session")
 		return false
 	}
-	out_path := flag_string(args, "--out", e.bounce_path)
+	if !ensure_parent_dir(out_path) {
+		return false
+	}
 	out, ok := engine_render_mix(&e, &a)
 	if !ok {
 		fmt.eprintln("nothing to render")

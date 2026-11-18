@@ -18,11 +18,7 @@ for arg in "$@"; do
 		--hardware) HARDWARE=1 ;;
 		--jack) JACK=1 ;;
 		--loopback) LOOPBACK=1 ;;
-		*)
-			echo "unknown option: $arg" >&2
-			echo "usage: $0 [--hardware] [--jack] [--loopback]" >&2
-			exit 2
-			;;
+		--*) echo "unknown check.sh option: $arg" >&2; exit 1 ;;
 	esac
 done
 
@@ -31,6 +27,16 @@ LINK='-extra-linker-flags:-lm -ldl -lpthread -ljack -lz -lSDL2'
 command -v "$ODIN" >/dev/null 2>&1 || {
 	echo "odin not found; install it and/or set ODIN=/path/to/odin" >&2
 	exit 1
+}
+
+# Run a command that must fail (unknown flag, malformed project, failed assert).
+expect_fail() {
+	description=$1
+	shift
+	if "$@" >/dev/null 2>&1; then
+		echo "FAIL: $description" >&2
+		exit 1
+	fi
 }
 
 echo "== unit tests =="
@@ -42,7 +48,10 @@ echo "== build =="
 mkdir -p bin
 "$ODIN" build src -out:bin/tracker-odin "$LINK"
 
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/tracker-odin-check.XXXXXX")
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/tracker-odin-check.XXXXXX") || {
+	echo "FAIL: cannot create a temporary directory" >&2
+	exit 1
+}
 SINK_MOD=""
 cleanup() {
 	if [ -n "$SINK_MOD" ]; then
@@ -51,6 +60,9 @@ cleanup() {
 	rm -rf "$tmp"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 echo "== selftest =="
 ./bin/tracker-odin selftest
@@ -60,7 +72,8 @@ echo "== native UI harness (Playwright replacement) =="
 [ -f "$tmp/ui/report.json" ] || { echo "FAIL: no UI report" >&2; exit 1; }
 shots=$(find "$tmp/ui" -name '*.png' | wc -l | tr -d ' ')
 [ "$shots" -ge 8 ] || { echo "FAIL: only $shots UI screenshots" >&2; exit 1; }
-python3 - "$tmp/ui" <<'PY'
+if command -v python3 >/dev/null 2>&1; then
+	python3 - "$tmp/ui" <<'PY'
 import glob, sys
 files = glob.glob(sys.argv[1] + "/*.png")
 assert files, "no screenshots"
@@ -69,13 +82,59 @@ for f in files:
         assert fh.read(8) == b"\x89PNG\r\n\x1a\n", f
 print(f"  {len(files)} PNG screenshots, signatures valid")
 PY
+else
+	echo "  python3 not installed, skipping PNG signature checks"
+fi
+
+echo "== CLI argument and ui-test error handling =="
+mkdir -p "$tmp/dir with spaces"
+cat >"$tmp/ui-pass.json" <<'JSON'
+{"name": "tiny", "actions": [
+  {"type": "assert", "path": "bpm", "min": 120, "max": 120, "hasMin": true, "hasMax": true},
+  {"type": "screenshot", "name": "tiny shot"}
+]}
+JSON
+cat >"$tmp/ui-fail.json" <<'JSON'
+{"name": "failure", "actions": [{"type": "assert", "path": "bpm", "equals": "999"}]}
+JSON
+printf '{' >"$tmp/bad-script.json"
+
+# Nested --out directories and paths containing spaces both work.
+./bin/tracker-odin ui-test --script "$tmp/ui-pass.json" --out "$tmp/dir with spaces/nested/ui"
+[ -f "$tmp/dir with spaces/nested/ui/report.json" ] || {
+	echo "FAIL: ui-test did not write a nested report" >&2
+	exit 1
+}
+[ -f "$tmp/dir with spaces/nested/ui/01-tiny shot.png" ] || {
+	echo "FAIL: ui-test did not write a screenshot with a spaced name" >&2
+	exit 1
+}
+
+# Missing/malformed scripts and failing assertions must return non-zero and
+# still produce the report for a failure.
+expect_fail "ui-test accepted a missing script" ./bin/tracker-odin ui-test --out "$tmp/ui-missing"
+expect_fail "ui-test accepted a malformed script" ./bin/tracker-odin ui-test --script "$tmp/bad-script.json" --out "$tmp/ui-bad"
+expect_fail "ui-test returned success for a failed assertion" ./bin/tracker-odin ui-test --script "$tmp/ui-fail.json" --out "$tmp/ui-fail"
+[ -f "$tmp/ui-fail/report.json" ] || {
+	echo "FAIL: failed ui-test run did not write report.json" >&2
+	exit 1
+}
+expect_fail "ui-test accepted an unknown option" ./bin/tracker-odin ui-test --script "$tmp/ui-pass.json" --bogus
+expect_fail "ui-test accepted a missing option value" ./bin/tracker-odin ui-test --script
 
 echo "== synthesized session =="
 ./bin/tracker-odin tone --out "$tmp/track1.wav" --seconds 3 --freq 220 --amp 0.7
 ./bin/tracker-odin tone --out "$tmp/track2.wav" --seconds 3 --freq 330 --amp 0.5
-./bin/tracker-odin render --in "$tmp" --out "$tmp/bounce.wav" \
+./bin/tracker-odin render --in "$tmp" --out "$tmp/nested render/a b/bounce.wav" \
 	--level 1.2 --pan 0 --eq-low 3 --eq-mid -2 --eq-high -1 --comp-threshold -20
-./bin/tracker-odin info "$tmp/bounce.wav"
+./bin/tracker-odin info "$tmp/nested render/a b/bounce.wav"
+
+echo "== CLI validation =="
+expect_fail "tone accepted an unknown option" ./bin/tracker-odin tone --out "$tmp/x.wav" --bogus 1
+expect_fail "tone accepted a missing option value" ./bin/tracker-odin tone --out
+expect_fail "tone accepted a negative duration" ./bin/tracker-odin tone --out "$tmp/x.wav" --seconds -1
+expect_fail "bounce accepted an unknown option" ./bin/tracker-odin bounce --session "$tmp/session" --bogus
+expect_fail "bounce returned success with no tracks" ./bin/tracker-odin bounce --session "$tmp/empty-session" --out "$tmp/empty.wav"
 
 echo "== engine bounce from a session directory =="
 mkdir -p "$tmp/session"
@@ -84,7 +143,34 @@ cp "$tmp/track2.wav" "$tmp/session/track2.wav"
 ./bin/tracker-odin bounce --session "$tmp/session" --out "$tmp/session/mix.wav"
 ./bin/tracker-odin info "$tmp/session/mix.wav"
 
-echo "== mixed-rate session (44.1 kHz track into a 48 kHz project) =="
+# Nested session and output paths, including spaces.
+mkdir -p "$tmp/nested session/deep"
+cp "$tmp/track1.wav" "$tmp/nested session/deep/track1.wav"
+./bin/tracker-odin bounce --session "$tmp/nested session/deep" --out "$tmp/nested session/deep/out/a b/mix.wav"
+./bin/tracker-odin info "$tmp/nested session/deep/out/a b/mix.wav"
+
+# project.json drives the bounce sample rate.
+mkdir -p "$tmp/project-rate"
+./bin/tracker-odin tone --out "$tmp/project-rate/track1.wav" --seconds 0.5 --freq 440 --rate 44100
+cat >"$tmp/project-rate/project.json" <<'JSON'
+{"version": 1, "name": "rate", "sampleRate": 44100, "bpm": 100, "tracks": [{"file": "track1.wav"}]}
+JSON
+./bin/tracker-odin bounce --session "$tmp/project-rate" --out "$tmp/project-rate/mix.wav"
+./bin/tracker-odin info "$tmp/project-rate/mix.wav"
+
+# Malformed and future projects must fail without writing an output file.
+mkdir -p "$tmp/bad project"
+cp "$tmp/track1.wav" "$tmp/bad project/track1.wav"
+printf '{"version": 1, "tracks": [' >"$tmp/bad project/project.json"
+expect_fail "bounce accepted a truncated project" ./bin/tracker-odin bounce --session "$tmp/bad project" --out "$tmp/bad project/mix.wav"
+[ ! -f "$tmp/bad project/mix.wav" ] || {
+	echo "FAIL: truncated project still produced a bounce" >&2
+	exit 1
+}
+printf '{"version": 2, "name": "future"}' >"$tmp/bad project/project.json"
+expect_fail "bounce accepted a future project version" ./bin/tracker-odin bounce --session "$tmp/bad project" --out "$tmp/bad project/mix.wav"
+
+echo "== mixed-rate session (44.1 kHz track into a 48 kHz session) =="
 mkdir -p "$tmp/mixed"
 ./bin/tracker-odin tone --out "$tmp/mixed/track1.wav" --seconds 2 --freq 440 --rate 44100
 ./bin/tracker-odin bounce --session "$tmp/mixed" --out "$tmp/mixed/mix.wav"
@@ -109,7 +195,7 @@ cat > "$tmp/fx/project.json" <<'JSON'
   }
 }
 JSON
-./bin/tracker-odin bounce --session "$tmp/fx" --out "$tmp/fx/mix.wav" | tee "$tmp/fx/bounce.log"
+./bin/tracker-odin bounce --session "$tmp/fx" --out "$tmp/fx/mix.wav"
 if command -v ffprobe >/dev/null 2>&1; then
 	dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$tmp/fx/mix.wav")
 	awk -v d="$dur" 'BEGIN { exit (d > 4.0) ? 0 : 1 }' || {
@@ -121,41 +207,47 @@ fi
 
 echo "== format assertions =="
 if command -v ffprobe >/dev/null 2>&1; then
-	for f in "$tmp/bounce.wav" "$tmp/session/mix.wav" "$tmp/mixed/mix.wav"; do
-		codec=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "$f")
-		channels=$(ffprobe -v error -select_streams a:0 -show_entries stream=channels -of csv=p=0 "$f")
+	for f in "$tmp/nested render/a b/bounce.wav" "$tmp/session/mix.wav" "$tmp/nested session/deep/out/a b/mix.wav"; do
+		if ! codec=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "$f"); then
+			echo "FAIL: ffprobe could not read $f" >&2
+			exit 1
+		fi
+		if ! channels=$(ffprobe -v error -select_streams a:0 -show_entries stream=channels -of csv=p=0 "$f"); then
+			echo "FAIL: ffprobe could not read $f" >&2
+			exit 1
+		fi
 		[ "$codec" = "pcm_f32le" ] || { echo "FAIL: $f codec $codec" >&2; exit 1; }
 		[ "$channels" = "2" ] || { echo "FAIL: $f channels $channels" >&2; exit 1; }
 	done
-	echo "  ffprobe: pcm_f32le, stereo"
+	if ! rate=$(ffprobe -v error -select_streams a:0 -show_entries stream=sample_rate -of csv=p=0 "$tmp/project-rate/mix.wav"); then
+		echo "FAIL: ffprobe could not read the project-rate bounce" >&2
+		exit 1
+	fi
+	[ "$rate" = "44100" ] || { echo "FAIL: project bounce rate $rate, expected 44100" >&2; exit 1; }
+	echo "  ffprobe: pcm_f32le, stereo, project rate honoured"
 else
 	echo "  ffprobe not installed, skipping codec checks"
 fi
 
 if command -v sox >/dev/null 2>&1; then
-	for f in "$tmp/bounce.wav" "$tmp/session/mix.wav" "$tmp/mixed/mix.wav"; do
-		stats=$(sox "$f" -n stat 2>&1)
+	for f in "$tmp/nested render/a b/bounce.wav" "$tmp/session/mix.wav" "$tmp/nested session/deep/out/a b/mix.wav"; do
+		if ! stats=$(sox "$f" -n stat 2>&1); then
+			echo "FAIL: sox could not read $f" >&2
+			echo "$stats" >&2
+			exit 1
+		fi
 		if echo "$stats" | grep -q "wave header missing"; then
 			echo "FAIL: sox rejected the WAV header in $f" >&2
 			exit 1
 		fi
 		peak=$(echo "$stats" | awk '/Maximum amplitude/ { print $3 }')
+		[ -n "$peak" ] || { echo "FAIL: sox reported no peak for $f" >&2; exit 1; }
 		awk -v p="$peak" 'BEGIN { exit (p <= 0.98) ? 0 : 1 }' || {
 			echo "FAIL: $f peak $peak exceeds limiter ceiling" >&2
 			exit 1
 		}
 	done
 	echo "  sox: headers clean, limiter ceiling respected"
-fi
-
-if [ "$HARDWARE" -eq 1 ]; then
-	echo "== hardware capture (2 s, default device) =="
-	rm -rf "$tmp/capture"
-	./bin/tracker-odin record --seconds 2 --channels 2 --out "$tmp/capture"
-	[ -f "$tmp/capture/track1.wav" ] || { echo "FAIL: no track1.wav" >&2; exit 1; }
-	[ -f "$tmp/capture/track2.wav" ] || { echo "FAIL: no track2.wav" >&2; exit 1; }
-	./bin/tracker-odin bounce --session "$tmp/capture" --out "$tmp/capture/bounce.wav"
-	./bin/tracker-odin info "$tmp/capture/bounce.wav"
 fi
 
 if [ "$LOOPBACK" -eq 1 ]; then
@@ -182,6 +274,16 @@ if [ "$LOOPBACK" -eq 1 ]; then
 	wait "$PLAYER" 2>/dev/null || true
 	pactl unload-module "$SINK_MOD" >/dev/null 2>&1 || true
 	SINK_MOD=""
+fi
+
+if [ "$HARDWARE" -eq 1 ]; then
+	echo "== hardware capture (2 s, default device) =="
+	rm -rf "$tmp/capture"
+	./bin/tracker-odin record --seconds 2 --channels 2 --out "$tmp/capture"
+	[ -f "$tmp/capture/track1.wav" ] || { echo "FAIL: no track1.wav" >&2; exit 1; }
+	[ -f "$tmp/capture/track2.wav" ] || { echo "FAIL: no track2.wav" >&2; exit 1; }
+	./bin/tracker-odin bounce --session "$tmp/capture" --out "$tmp/capture/bounce.wav"
+	./bin/tracker-odin info "$tmp/capture/bounce.wav"
 fi
 
 if [ "$JACK" -eq 1 ]; then

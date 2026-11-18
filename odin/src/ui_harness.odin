@@ -13,6 +13,14 @@ import "core:strconv"
 
 import ui "ui"
 
+HARNESS_MAX_ACTIONS :: 10_000
+HARNESS_MAX_DEVICES :: 64
+HARNESS_MAX_WAIT_FRAMES :: 600_000
+HARNESS_MAX_WAIT_MS :: 3_600_000
+HARNESS_MAX_DRAG :: 10_000
+HARNESS_MAX_TYPE_CHARS :: 4_096
+HARNESS_MAX_SHOT_NAME :: 96
+
 Harness_Action :: struct {
 	type:   string  `json:"type"`,
 	id:     string  `json:"id"`,
@@ -54,14 +62,67 @@ Harness_Report :: struct {
 	results: []Harness_Result `json:"results"`,
 }
 
+@(private)
+harness_script_destroy :: proc(s: ^Harness_Script) {
+	if len(s.name) > 0 {
+		delete(s.name)
+		s.name = ""
+	}
+	for device in s.devices {
+		if len(device) > 0 {
+			delete(device)
+		}
+	}
+	delete(s.devices)
+	s.devices = nil
+	for &action in s.actions {
+		for field in ([]^string{&action.type, &action.id, &action.key, &action.text, &action.name, &action.path, &action.equals}) {
+			if len(field^) > 0 {
+				delete(field^)
+				field^ = ""
+			}
+		}
+	}
+	delete(s.actions)
+	s.actions = nil
+}
+
+@(private)
+is_ascii :: proc(s: string) -> bool {
+	for b in s {
+		if b >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+@(private)
+harness_shot_name_is_safe :: proc(name: string) -> bool {
+	if len(name) > HARNESS_MAX_SHOT_NAME {
+		return false
+	}
+	for i in 0 ..< len(name) {
+		if name[i] == '/' || name[i] == '\\' || name[i] == 0 {
+			return false
+		}
+	}
+	return true
+}
+
 run_ui_test :: proc(args: []string) -> bool {
+	if !validate_flags(args, []string{"--script", "--out"}, nil) {
+		return false
+	}
 	script_path, has_script := flag_value(args, "--script")
 	if !has_script {
 		fmt.eprintln("ui-test needs --script FILE.json")
 		return false
 	}
 	out_dir := flag_string(args, "--out", "/tmp/tracker-ui-test")
-	ensure_dir(out_dir)
+	if !ensure_dir(out_dir) {
+		return false
+	}
 
 	data, err := os.read_entire_file(script_path, context.allocator)
 	if err != nil {
@@ -71,6 +132,7 @@ run_ui_test :: proc(args: []string) -> bool {
 	defer delete(data)
 
 	script: Harness_Script
+	defer harness_script_destroy(&script)
 	if uerr := json.unmarshal(data, &script); uerr != nil {
 		fmt.eprintfln("invalid script %s: %v", script_path, uerr)
 		return false
@@ -79,8 +141,20 @@ run_ui_test :: proc(args: []string) -> bool {
 		fmt.eprintln("script has no actions")
 		return false
 	}
+	if len(script.actions) > HARNESS_MAX_ACTIONS {
+		fmt.eprintfln("script has too many actions (%d, max %d)", len(script.actions), HARNESS_MAX_ACTIONS)
+		return false
+	}
+	if len(script.devices) > HARNESS_MAX_DEVICES {
+		fmt.eprintfln("script has too many devices (%d, max %d)", len(script.devices), HARNESS_MAX_DEVICES)
+		return false
+	}
 	width := script.width if script.width > 0 else 1180
 	height := script.height if script.height > 0 else 760
+	if width < MIN_CLI_DIM || width > MAX_CLI_DIM || height < MIN_CLI_DIM || height > MAX_CLI_DIM {
+		fmt.eprintfln("script size must be between %d and %d", MIN_CLI_DIM, MAX_CLI_DIM)
+		return false
+	}
 
 	a: ui.App
 	ui.app_init(&a, width, height)
@@ -99,6 +173,9 @@ run_ui_test :: proc(args: []string) -> bool {
 	passed := 0
 	failed := 0
 
+	// A failed action is recorded and the run continues so report.json lists
+	// every mismatch instead of stopping at the first one. The final exit code
+	// is non-zero whenever anything failed.
 	for action, i in script.actions {
 		ok := true
 		detail := ""
@@ -111,7 +188,10 @@ run_ui_test :: proc(args: []string) -> bool {
 				detail = fmt.tprintf("click %s", action.id)
 			}
 		case "drag":
-			if !ui.app_drag_id(&a, action.id, action.dy) {
+			if !f32_is_finite(action.dy) || abs(action.dy) > HARNESS_MAX_DRAG {
+				ok = false
+				detail = fmt.tprintf("invalid drag distance %v", action.dy)
+			} else if !ui.app_drag_id(&a, action.id, action.dy) {
 				ok = false
 				detail = fmt.tprintf("no target %q", action.id)
 			} else {
@@ -125,42 +205,74 @@ run_ui_test :: proc(args: []string) -> bool {
 				detail = fmt.tprintf("key %s", action.key)
 			}
 		case "type":
-			for ch in action.text {
-				ui.app_key(&a, .Char, u8(ch), ch >= 'A' && ch <= 'Z')
+			if len(action.text) > HARNESS_MAX_TYPE_CHARS {
+				ok = false
+				detail = fmt.tprintf("type text too long (%d bytes, max %d)", len(action.text), HARNESS_MAX_TYPE_CHARS)
+			} else if !is_ascii(action.text) {
+				ok = false
+				detail = fmt.tprintf("type text must be ASCII")
+			} else {
+				for ch in action.text {
+					ui.app_key(&a, .Char, u8(ch), ch >= 'A' && ch <= 'Z')
+				}
+				detail = fmt.tprintf("type %q", action.text)
 			}
-			detail = fmt.tprintf("type %q", action.text)
 		case "wait":
 			frames := action.frames
 			if frames <= 0 {
-				frames = max(1, int(action.ms / 16.6667))
+				if !f32_is_finite(action.ms) || action.ms < 0 || action.ms > HARNESS_MAX_WAIT_MS {
+					ok = false
+					detail = fmt.tprintf("invalid wait duration %v ms", action.ms)
+				} else {
+					frames = max(1, int(action.ms / 16.6667))
+				}
 			}
-			for _ in 0 ..< frames {
-				ui.app_tick(&a, 1.0 / 60.0)
+			if ok {
+				if frames > HARNESS_MAX_WAIT_FRAMES {
+					ok = false
+					detail = fmt.tprintf("wait too long (%d frames, max %d)", frames, HARNESS_MAX_WAIT_FRAMES)
+				} else {
+					for _ in 0 ..< frames {
+						ui.app_tick(&a, 1.0 / 60.0)
+					}
+					detail = fmt.tprintf("wait %d frames", frames)
+				}
 			}
-			detail = fmt.tprintf("wait %d frames", frames)
 		case "screenshot":
 			name := action.name
 			if name == "" {
 				name = fmt.tprintf("shot-%02d", i)
 			}
-			path := fmt.tprintf("%s/%02d-%s.png", out_dir, i, name)
-			ui.app_draw(&a, &c)
-			if !ui.canvas_screenshot(&c, path) {
+			if !harness_shot_name_is_safe(name) {
 				ok = false
-				detail = fmt.tprintf("screenshot failed: %s", path)
+				detail = fmt.tprintf("invalid screenshot name %q", name)
 			} else {
-				detail = fmt.tprintf("screenshot %s", path)
+				path := fmt.tprintf("%s/%02d-%s.png", out_dir, i, name)
+				ui.app_draw(&a, &c)
+				if !ui.canvas_screenshot(&c, path) {
+					ok = false
+					detail = fmt.tprintf("screenshot failed: %s", path)
+				} else {
+					detail = fmt.tprintf("screenshot %s", path)
+				}
 			}
 		case "assert":
 			value, has := ui.app_value(&a, action.path)
 			if !has {
 				ok = false
 				detail = fmt.tprintf("unknown path %q", action.path)
+			} else if action.equals == "" && !action.has_min && !action.has_max {
+				ok = false
+				detail = fmt.tprintf("assert %q needs equals, min or max", action.path)
 			} else if action.equals != "" {
 				ok = value == action.equals
 				detail = fmt.tprintf("%s = %q (want %q)", action.path, value, action.equals)
-			} else if action.has_min || action.has_max {
-				if parsed, pok := strconv.parse_f32(value); pok {
+			} else {
+				bad_bound := (action.has_min && !f32_is_finite(action.min)) || (action.has_max && !f32_is_finite(action.max))
+				if bad_bound || (action.has_min && action.has_max && action.min > action.max) {
+					ok = false
+					detail = fmt.tprintf("invalid assertion range %.2f..%.2f", action.min, action.max)
+				} else if parsed, pok := strconv.parse_f32(value); pok {
 					if action.has_min && parsed < action.min {
 						ok = false
 					}
@@ -178,15 +290,18 @@ run_ui_test :: proc(args: []string) -> bool {
 					ok = false
 					detail = fmt.tprintf("%s = %q is not numeric", action.path, value)
 				}
-			} else {
-				detail = fmt.tprintf("%s = %q", action.path, value)
 			}
 		case "resize":
 			w := action.width if action.width > 0 else a.width
 			h := action.height if action.height > 0 else a.height
-			ui.app_resize(&a, w, h)
-			ui.canvas_resize(&c, w, h)
-			detail = fmt.tprintf("resize %dx%d", w, h)
+			if w < MIN_CLI_DIM || w > MAX_CLI_DIM || h < MIN_CLI_DIM || h > MAX_CLI_DIM {
+				ok = false
+				detail = fmt.tprintf("resize %dx%d is outside %d..%d", w, h, MIN_CLI_DIM, MAX_CLI_DIM)
+			} else {
+				ui.app_resize(&a, w, h)
+				ui.canvas_resize(&c, w, h)
+				detail = fmt.tprintf("resize %dx%d", w, h)
+			}
 		case:
 			ok = false
 			detail = fmt.tprintf("unknown action %q", action.type)
@@ -209,9 +324,15 @@ run_ui_test :: proc(args: []string) -> bool {
 		failed = failed,
 		results = results[:],
 	}
-	if encoded, merr := json.marshal(report, json.Marshal_Options{pretty = true}); merr == nil {
-		_ = os.write_entire_file(fmt.tprintf("%s/report.json", out_dir), encoded)
-		delete(encoded)
+	encoded, merr := json.marshal(report, json.Marshal_Options{pretty = true})
+	if merr != nil {
+		fmt.eprintfln("cannot encode report: %v", merr)
+		return false
+	}
+	defer delete(encoded)
+	if !write_file_atomic(fmt.tprintf("%s/report.json", out_dir), encoded) {
+		fmt.eprintfln("cannot write %s/report.json", out_dir)
+		return false
 	}
 
 	fmt.printfln("%s: %d passed, %d failed  (%s)", script.name, passed, failed, out_dir)

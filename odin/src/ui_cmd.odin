@@ -8,9 +8,21 @@ import "core:fmt"
 import ui "ui"
 
 run_ui_shot :: proc(args: []string) -> bool {
+	if !validate_flags(args, []string{"--out", "--width", "--height"}, []string{
+		"--playing", "--recording", "--three", "--fx", "--master", "--palette", "--io", "--bounce",
+	}) {
+		return false
+	}
 	out := flag_string(args, "--out", "/tmp/tracker-odin-ui.png")
 	width := flag_int(args, "--width", 1180)
 	height := flag_int(args, "--height", 760)
+	if width < MIN_CLI_DIM || width > MAX_CLI_DIM || height < MIN_CLI_DIM || height > MAX_CLI_DIM {
+		fmt.eprintfln("--width/--height must be between %d and %d", MIN_CLI_DIM, MAX_CLI_DIM)
+		return false
+	}
+	if !ensure_parent_dir(out) {
+		return false
+	}
 
 	a: ui.App
 	ui.app_init(&a, width, height)

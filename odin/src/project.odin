@@ -13,6 +13,18 @@ import ui "ui"
 
 PROJECT_VERSION :: 1
 
+// A project is a fixed four-track document. Files claiming more tracks are
+// rejected by the loader instead of being silently truncated.
+PROJECT_MAX_LOAD_TRACKS :: 64
+PROJECT_TRACK_NAME_MAX :: 64
+PROJECT_NAME_MAX :: 64
+PROJECT_DEVICE_NAME_MAX :: 64
+PROJECT_FILE_NAME_MAX :: 255
+PROJECT_SAMPLE_RATE_MIN :: 8_000
+PROJECT_SAMPLE_RATE_MAX :: 192_000
+PROJECT_BPM_MIN :: 40
+PROJECT_BPM_MAX :: 240
+
 Project_Track :: struct {
 	name:        string         `json:"name"`,
 	file:        string         `json:"file"`,
@@ -285,6 +297,153 @@ project_from_app :: proc(a: ^ui.App) -> Project_Doc {
 	return doc
 }
 
+// The loader uses a fixed-size track array pre-filled with defaults. Unlike a
+// freshly allocated slice, omitted JSON fields keep those defaults, so a
+// partial track (or a partial eq/comp object) is merged instead of reset to
+// zero. Explicit values survive, including level 0 and enabled=false.
+@(private)
+Project_Load_Doc :: struct {
+	version:     int                     `json:"version"`,
+	name:        string                  `json:"name"`,
+	sample_rate: u32                     `json:"sampleRate"`,
+	bpm:         int                     `json:"bpm"`,
+	device:      string                  `json:"device"`,
+	tracks:      [PROJECT_MAX_LOAD_TRACKS]Project_Track `json:"tracks"`,
+	master:      Project_Master          `json:"master"`,
+}
+
+// JSON null would zero an otherwise pre-filled struct or array (and silently
+// mute tracks). The project schema has no nulls, so reject them before the
+// typed unmarshal. Unknown deeply nested values are bounded.
+@(private)
+project_value_has_nulls :: proc(value: json.Value, depth := 0) -> bool {
+	if depth > 32 {
+		return false
+	}
+	#partial switch v in value {
+	case json.Null:
+		return true
+	case json.Array:
+		for elem in v {
+			if project_value_has_nulls(elem, depth + 1) {
+				return true
+			}
+		}
+	case json.Object:
+		for _, elem in v {
+			if project_value_has_nulls(elem, depth + 1) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+@(private)
+project_load_doc_free :: proc(d: ^Project_Load_Doc) {
+	if len(d.name) > 0 {
+		delete(d.name)
+		d.name = ""
+	}
+	if len(d.device) > 0 {
+		delete(d.device)
+		d.device = ""
+	}
+	for i in 0 ..< PROJECT_MAX_LOAD_TRACKS {
+		if len(d.tracks[i].name) > 0 {
+			delete(d.tracks[i].name)
+			d.tracks[i].name = ""
+		}
+		if len(d.tracks[i].file) > 0 {
+			delete(d.tracks[i].file)
+			d.tracks[i].file = ""
+		}
+	}
+}
+
+@(private)
+parent_dir :: proc(path: string) -> string {
+	i := strings.last_index_byte(path, '/')
+	if i < 0 {
+		return "."
+	}
+	if i == 0 {
+		return "/"
+	}
+	return path[:i]
+}
+
+@(private)
+ensure_parent_dir :: proc(path: string) -> bool {
+	return ensure_dir(parent_dir(path))
+}
+
+// Write through a sibling temporary file and rename it into place. A failed
+// encode, write or rename never leaves a truncated project.json behind.
+@(private)
+write_file_atomic :: proc(path: string, data: []u8) -> bool {
+	if path == "" {
+		fmt.eprintln("cannot write an empty path")
+		return false
+	}
+	if os.is_directory(path) {
+		fmt.eprintfln("cannot write %s: is a directory", path)
+		return false
+	}
+	if !ensure_parent_dir(path) {
+		return false
+	}
+
+	tmp := fmt.tprintf("%s.tmp.%d", path, os.get_pid())
+	if werr := os.write_entire_file(tmp, data); werr != nil {
+		fmt.eprintfln("cannot write %s: %v", tmp, werr)
+		_ = os.remove(tmp)
+		return false
+	}
+	if rerr := os.rename(tmp, path); rerr != nil {
+		fmt.eprintfln("cannot replace %s: %v", path, rerr)
+		_ = os.remove(tmp)
+		return false
+	}
+	return true
+}
+
+// Untrusted project files may only name a file inside the session directory.
+// Absolute paths, `..` components, NUL bytes and over-long names are rejected.
+@(private)
+project_file_is_local :: proc(file: string) -> bool {
+	if file == "" || len(file) > PROJECT_FILE_NAME_MAX || os.is_absolute_path(file) {
+		return false
+	}
+	start := 0
+	for i in 0 ..= len(file) {
+		if i < len(file) && file[i] != '/' {
+			if file[i] == 0 {
+				return false
+			}
+			continue
+		}
+		part := file[start:i]
+		if part == ".." {
+			return false
+		}
+		start = i + 1
+	}
+	return true
+}
+
+@(private)
+truncate_utf8 :: proc(s: string, max_bytes: int) -> string {
+	if len(s) <= max_bytes {
+		return s
+	}
+	n := max_bytes
+	for n > 0 && (s[n] & 0xc0) == 0x80 {
+		n -= 1
+	}
+	return s[:n]
+}
+
 project_save :: proc(a: ^ui.App, path: string) -> bool {
 	doc := project_from_app(a)
 	defer delete(doc.tracks)
@@ -294,14 +453,15 @@ project_save :: proc(a: ^ui.App, path: string) -> bool {
 		return false
 	}
 	defer delete(data)
-	if werr := os.write_entire_file(path, data); werr != nil {
-		fmt.eprintfln("cannot write %s: %v", path, werr)
-		return false
-	}
-	return true
+	return write_file_atomic(path, data)
 }
 
 project_load :: proc(a: ^ui.App, dir, path: string) -> bool {
+	if dir == "" {
+		fmt.eprintln("cannot load a project without a session directory")
+		return false
+	}
+
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
 		fmt.eprintfln("cannot read %s", path)
@@ -309,63 +469,73 @@ project_load :: proc(a: ^ui.App, dir, path: string) -> bool {
 	}
 	defer delete(data)
 
-	// Start from zero so every allocated string belongs to the unmarshaler and
-	// can be freed here; fill defaults explicitly afterwards.
-	doc := Project_Doc {
+	value, verr := json.parse(data, .JSON)
+	if verr != nil {
+		fmt.eprintfln("project parse failed: %v", verr)
+		return false
+	}
+	defer json.destroy_value(value)
+	if project_value_has_nulls(value) {
+		fmt.eprintln("project contains null values")
+		return false
+	}
+
+	// Set defaults before unmarshalling and free every allocated string even
+	// when the parse fails halfway through.
+	doc := Project_Load_Doc {
 		version = PROJECT_VERSION,
 		sample_rate = 48_000,
 		bpm = 120,
 		master = project_master_default(),
 	}
-	if uerr := json.unmarshal(data, &doc); uerr != nil {
+	for i in 0 ..< PROJECT_MAX_LOAD_TRACKS {
+		doc.tracks[i] = project_track_default(i % 4)
+		// Keep the default name static; an empty name is mapped to it below.
+		doc.tracks[i].name = ""
+	}
+	defer project_load_doc_free(&doc)
+
+	if uerr := json.unmarshal(data, &doc, .JSON); uerr != nil {
 		fmt.eprintfln("project parse failed: %v", uerr)
 		return false
 	}
-	defer {
-		if len(doc.name) > 0 {
-			delete(doc.name)
-		}
-		if len(doc.device) > 0 {
-			delete(doc.device)
-		}
-		for t in doc.tracks {
-			if len(t.name) > 0 {
-				delete(t.name)
-			}
-			if len(t.file) > 0 {
-				delete(t.file)
-			}
-		}
-		delete(doc.tracks)
+	if doc.version > PROJECT_VERSION {
+		fmt.eprintfln("project version %d is newer than supported version %d", doc.version, PROJECT_VERSION)
+		return false
+	}
+	if doc.version < 0 {
+		fmt.eprintfln("project version %d is invalid", doc.version)
+		return false
 	}
 
-	if doc.sample_rate == 0 {
-		doc.sample_rate = 48_000
+	sample_rate := doc.sample_rate
+	if sample_rate < PROJECT_SAMPLE_RATE_MIN || sample_rate > PROJECT_SAMPLE_RATE_MAX {
+		sample_rate = 48_000
 	}
-	if doc.bpm == 0 {
-		doc.bpm = 120
+	bpm := doc.bpm
+	if bpm <= 0 {
+		bpm = 120
+	} else {
+		bpm = clamp(bpm, PROJECT_BPM_MIN, PROJECT_BPM_MAX)
 	}
-	a.sample_rate = doc.sample_rate
-	a.bpm = doc.bpm
-	ui.app_set_project(a, doc.name if doc.name != "" else "untitled")
+
+	a.sample_rate = sample_rate
+	a.bpm = bpm
+	ui.app_set_project(a, truncate_utf8(doc.name, PROJECT_NAME_MAX) if doc.name != "" else "untitled")
 	if len(doc.device) > 0 {
-		ui.app_set_device(a, doc.device)
+		ui.app_set_device(a, truncate_utf8(doc.device, PROJECT_DEVICE_NAME_MAX))
 	}
 
 	for i in 0 ..< 4 {
 		tr := &a.tracks[i]
 		base := project_track_default(i)
-		src: Project_Track
-		have := i < len(doc.tracks)
-		if have {
-			src = doc.tracks[i]
-		}
+		src := doc.tracks[i]
 
-		if have && src.name != "" {
+		if src.name != "" {
 			if a.track_name_owned[i] {
 				delete(tr.name)
 			}
-			tr.name = strings.clone(src.name)
+			tr.name = strings.clone(truncate_utf8(src.name, PROJECT_TRACK_NAME_MAX))
 			a.track_name_owned[i] = true
 		} else {
 			if a.track_name_owned[i] {
@@ -375,42 +545,28 @@ project_load :: proc(a: ^ui.App, dir, path: string) -> bool {
 			tr.name = base.name
 		}
 
-		tr.input = clamp(src.input if have && src.input != 0 else base.input, 1, 32)
-		tr.level = clamp(src.level if have && src.level != 0 else base.level, 0, 1.5)
-		tr.pan = clamp(src.pan if have else 0, -1, 1)
-		tr.muted = src.muted if have else false
-		tr.soloed = src.solo if have else false
-		tr.armed = src.armed if have else false
-		tr.send_reverb = clamp(src.send_reverb if have else 0, 0, 1)
-		tr.send_delay = clamp(src.send_delay if have else 0, 0, 1)
-
-		eq := base.eq
-		if have {
-			eq.enabled = src.eq.enabled
-			eq.low_db = src.eq.low_db
-			eq.mid_db = src.eq.mid_db
-			eq.mid_hz = src.eq.mid_hz if src.eq.mid_hz != 0 else 1_000
-			eq.mid_q = src.eq.mid_q if src.eq.mid_q != 0 else 1
-			eq.high_db = src.eq.high_db
-			eq = dsp.eq_params_sanitized(eq)
+		input := src.input
+		if input == 0 {
+			input = base.input
 		}
-		tr.eq = eq_view_from_params(eq)
+		tr.input = clamp(input, 1, 32)
+		tr.level = clamp(src.level, 0, 1.5)
+		tr.pan = clamp(src.pan, -1, 1)
+		tr.muted = src.muted
+		tr.soloed = src.solo
+		tr.armed = src.armed
+		tr.send_reverb = clamp(src.send_reverb, 0, 1)
+		tr.send_delay = clamp(src.send_delay, 0, 1)
 
-		comp := base.comp
-		if have {
-			comp.enabled = src.comp.enabled
-			comp.threshold_db = src.comp.threshold_db
-			comp.ratio = src.comp.ratio if src.comp.ratio != 0 else 3
-			comp.attack_ms = src.comp.attack_ms if src.comp.attack_ms != 0 else 12
-			comp.release_ms = src.comp.release_ms if src.comp.release_ms != 0 else 180
-			comp.knee_db = src.comp.knee_db
-			comp.auto_makeup = src.comp.auto_makeup
-			comp = dsp.comp_params_sanitized(comp)
+		tr.eq = eq_view_from_params(dsp.eq_params_sanitized(src.eq))
+		tr.comp = comp_view_from_params(dsp.comp_params_sanitized(src.comp))
+
+		file := src.file
+		tr.has_audio = false
+		if file != "" && project_file_is_local(file) {
+			track_path := fmt.tprintf("%s/%s", dir, file)
+			tr.has_audio = os.exists(track_path) && !os.is_directory(track_path)
 		}
-		tr.comp = comp_view_from_params(comp)
-
-		file := src.file if have else ""
-		tr.has_audio = file != "" && os.exists(fmt.tprintf("%s/%s", dir, file))
 	}
 
 	m := doc.master
