@@ -16,7 +16,7 @@ import "core:strings"
 import dsp "dsp"
 import ui "ui"
 
-VERSION :: "0.1.0-phase1"
+VERSION :: "0.3.0-native"
 
 main :: proc() {
 	args := os.args
