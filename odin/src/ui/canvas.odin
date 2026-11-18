@@ -237,48 +237,106 @@ canvas_arc :: proc(c: ^Canvas, cx, cy, radius, a0, a1: f32, col: Color, thicknes
 }
 
 text_width :: proc(text: string, scale: int = 1) -> f32 {
-	return f32(len(text)) * f32(FONT_W) * f32(scale)
+	return f32(len(text)) * f32(FONT_W) * f32(max(scale, 1))
 }
 
 text_height :: proc(scale: int = 1) -> f32 {
-	return f32(FONT_H) * f32(scale)
+	return f32(FONT_H) * f32(max(scale, 1))
+}
+
+// Alpha coverage of the baked atlases. Rows are packed MSB-first; 0 is
+// transparent and 255 is full ink.
+@(private)
+font_small_alpha :: proc(index, row, col: int) -> u8 {
+	shift := u64((FONT_W - 1 - col) * 8)
+	return u8((FONT_SMALL_ALPHA[index][row] >> shift) & 0xFF)
+}
+
+@(private)
+font_large_alpha :: proc(index, row, col: int) -> u8 {
+	half := col / 8
+	shift := u64((7 - (col % 8)) * 8)
+	return u8((FONT_LARGE_ALPHA[index][row][half] >> shift) & 0xFF)
+}
+
+// Blend one coverage sample. The text colour's own alpha is multiplied in so
+// translucent labels still work exactly as they did with the 1-bit font.
+@(private)
+text_plot :: proc(c: ^Canvas, x, y: i32, col: Color, coverage: u8) {
+	if coverage == 0 {
+		return
+	}
+	a := u32(coverage) * u32((col >> 24) & 0xFF)
+	if a == 0 {
+		return
+	}
+	aa := u8((a + 127) / 255)
+	plot(c, x, y, (col & 0x00FFFFFF) | (Color(aa) << 24))
 }
 
 canvas_text :: proc(c: ^Canvas, x, y: f32, text: string, col: Color, scale: int = 1) {
+	sc := max(scale, 1)
 	cx := i32(math.round(x))
 	cy := i32(math.round(y))
 	start_x := cx
-	for ch in text {
-		if ch == '\n' {
-			cx = start_x
-			cy += i32(FONT_H * scale)
-			continue
-		}
-		if int(ch) < FONT_FIRST || int(ch) > FONT_LAST {
-			cx += i32(FONT_W * scale)
-			continue
-		}
-		if ch == ' ' {
-			cx += i32(FONT_W * scale)
-			continue
-		}
-		idx := int(ch) - FONT_FIRST
-		for row in 0 ..< FONT_H {
-			bits := FONT_ROWS[idx][row]
-			if bits == 0 {
+	if sc == 1 {
+		for ch in text {
+			if ch == '\n' {
+				cx = start_x
+				cy += i32(FONT_H)
 				continue
 			}
-			for col_i in 0 ..< FONT_W {
-				if bits & (u16(1) << u32(FONT_W - 1 - col_i)) != 0 {
-					for sy in 0 ..< scale {
-						for sx in 0 ..< scale {
-							plot(c, cx + i32(col_i * scale + sx), cy + i32(row * scale + sy), col)
-						}
+			if int(ch) < FONT_FIRST || int(ch) > FONT_LAST || ch == ' ' {
+				cx += i32(FONT_W)
+				continue
+			}
+			idx := int(ch) - FONT_FIRST
+			for row in 0 ..< FONT_H {
+				if FONT_SMALL_ALPHA[idx][row] == 0 {
+					continue
+				}
+				for col_i in 0 ..< FONT_W {
+					a := font_small_alpha(idx, row, col_i)
+					if a != 0 {
+						text_plot(c, cx + i32(col_i), cy + i32(row), col, a)
 					}
 				}
 			}
+			cx += i32(FONT_W)
 		}
-		cx += i32(FONT_W * scale)
+		return
+	}
+
+	// Scale 2 uses the large atlas one-to-one. Larger scales nearest-sample it
+	// over the larger destination cell, so text stays sharp without a runtime
+	// rasteriser.
+	dw := FONT_W * sc
+	dh := FONT_H * sc
+	for ch in text {
+		if ch == '\n' {
+			cx = start_x
+			cy += i32(dh)
+			continue
+		}
+		if int(ch) < FONT_FIRST || int(ch) > FONT_LAST || ch == ' ' {
+			cx += i32(dw)
+			continue
+		}
+		idx := int(ch) - FONT_FIRST
+		for dy in 0 ..< dh {
+			sy := dy * FONT_LARGE_H / dh
+			if FONT_LARGE_ALPHA[idx][sy][0] == 0 && FONT_LARGE_ALPHA[idx][sy][1] == 0 {
+				continue
+			}
+			for dx in 0 ..< dw {
+				sx := dx * FONT_LARGE_W / dw
+				a := font_large_alpha(idx, sy, sx)
+				if a != 0 {
+					text_plot(c, cx + i32(dx), cy + i32(dy), col, a)
+				}
+			}
+		}
+		cx += i32(dw)
 	}
 }
 
@@ -292,7 +350,7 @@ canvas_text_center :: proc(c: ^Canvas, cx, y: f32, text: string, col: Color, sca
 
 // Truncates text with ".." to fit `max_width`.
 canvas_text_clip :: proc(c: ^Canvas, x, y, max_width: f32, text: string, col: Color, scale: int = 1) {
-	per := f32(FONT_W * scale)
+	per := f32(FONT_W * max(scale, 1))
 	if text_width(text, scale) <= max_width {
 		canvas_text(c, x, y, text, col, scale)
 		return

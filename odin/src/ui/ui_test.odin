@@ -210,3 +210,140 @@ ui_resize_keeps_controls_hittable :: proc(t: ^testing.T) {
 	_, ok = app_target_rect(&a, "bounce")
 	testing.expect(t, ok, "bounce missing at large size")
 }
+
+// ---------------------------------------------------------------- typography
+
+@(test)
+ui_font_metrics_match_cells :: proc(t: ^testing.T) {
+	testing.expectf(t, text_width("M") == f32(FONT_W), "single cell width %v", text_width("M"))
+	testing.expectf(t, text_width("MST", 2) == f32(FONT_W * 2 * 3), "scale-2 width %v", text_width("MST", 2))
+	testing.expectf(t, text_height() == f32(FONT_H), "cell height %v", text_height())
+	testing.expectf(t, text_height(2) == f32(FONT_H * 2), "scale-2 height %v", text_height(2))
+	testing.expectf(t, FONT_LARGE_W == FONT_W * 2, "large atlas is not 2x wide")
+	testing.expectf(t, FONT_LARGE_H == FONT_H * 2, "large atlas is not 2x tall")
+	testing.expectf(t, FONT_SMALL_BASELINE > 0 && FONT_SMALL_BASELINE < FONT_H, "small baseline %d", FONT_SMALL_BASELINE)
+}
+
+@(test)
+ui_font_glyphs_are_anti_aliased :: proc(t: ^testing.T) {
+	small_aa, small_full, large_aa, large_full: int
+	for i in 0 ..< (FONT_LAST - FONT_FIRST + 1) {
+		for row in 0 ..< FONT_H {
+			for col in 0 ..< FONT_W {
+				a := font_small_alpha(i, row, col)
+				if a > 0 && a < 255 {
+					small_aa += 1
+				}
+				if a == 255 {
+					small_full += 1
+				}
+			}
+		}
+		for row in 0 ..< FONT_LARGE_H {
+			for col in 0 ..< FONT_LARGE_W {
+				a := font_large_alpha(i, row, col)
+				if a > 0 && a < 255 {
+					large_aa += 1
+				}
+				if a == 255 {
+					large_full += 1
+				}
+			}
+		}
+	}
+	testing.expectf(t, small_aa > 100, "small atlas has only %d edge pixels", small_aa)
+	testing.expectf(t, small_full > 0, "small atlas has no solid ink")
+	testing.expectf(t, large_aa > 400, "large atlas has only %d edge pixels", large_aa)
+	testing.expectf(t, large_full > 0, "large atlas has no solid ink")
+}
+
+@(test)
+ui_font_keeps_descenders_and_baseline :: proc(t: ^testing.T) {
+	// Every descender must paint below the shared baseline.
+	for ch in "gjpqy" {
+		i := int(ch) - FONT_FIRST
+		below := 0
+		lowest := 0
+		for row in FONT_SMALL_BASELINE + 1 ..< FONT_H {
+			for col in 0 ..< FONT_W {
+				if font_small_alpha(i, row, col) > 0 {
+					below += 1
+				}
+			}
+		}
+		for row in 0 ..< FONT_H {
+			for col in 0 ..< FONT_W {
+				if font_small_alpha(i, row, col) > 0 {
+					lowest = row
+				}
+			}
+		}
+		testing.expectf(t, below > 0, "small %q has no descender below baseline", ch)
+		testing.expectf(t, lowest > FONT_SMALL_BASELINE && lowest < FONT_H, "small %q descender row %d", ch, lowest)
+
+		large_below := 0
+		for row in FONT_LARGE_BASELINE + 1 ..< FONT_LARGE_H {
+			for col in 0 ..< FONT_LARGE_W {
+				if font_large_alpha(i, row, col) > 0 {
+					large_below += 1
+				}
+			}
+		}
+		testing.expectf(t, large_below > 0, "large %q has no descender below baseline", ch)
+	}
+
+	// Cap tops are consistent between the two atlases: the large cell is the
+	// exact 2x companion of the small one.
+	small_top, large_top := FONT_H, FONT_LARGE_H
+	for row in 0 ..< FONT_H {
+		for col in 0 ..< FONT_W {
+			if font_small_alpha(int('H') - FONT_FIRST, row, col) > 0 {
+				small_top = min(small_top, row)
+			}
+		}
+	}
+	for row in 0 ..< FONT_LARGE_H {
+		for col in 0 ..< FONT_LARGE_W {
+			if font_large_alpha(int('H') - FONT_FIRST, row, col) > 0 {
+				large_top = min(large_top, row)
+			}
+		}
+	}
+	testing.expectf(t, large_top == small_top * 2, "cap tops drift: small %d large %d", small_top, large_top)
+	testing.expectf(t, FONT_LARGE_BASELINE == FONT_SMALL_BASELINE * 2, "baselines drift")
+}
+
+@(test)
+ui_font_text_screenshot_has_grayscale_edges :: proc(t: ^testing.T) {
+	c: Canvas
+	canvas_init(&c, 420, 80)
+	defer canvas_destroy(&c)
+	canvas_clear(&c, BG)
+	canvas_text(&c, 8, 6, "TRACKER gjpqy", TEXT, 2)
+	canvas_text(&c, 8, 44, "00:01:23.456  -12.3 dB", DIM)
+
+	levels: [256]bool
+	ink := 0
+	for p in c.pixels {
+		r := u8((p >> 16) & 0xFF)
+		if r != u8((BG >> 16) & 0xFF) {
+			ink += 1
+			levels[r] = true
+		}
+	}
+	level_count := 0
+	for seen in levels {
+		if seen {
+			level_count += 1
+		}
+	}
+	testing.expectf(t, ink > 300, "too few text pixels: %d", ink)
+	testing.expectf(t, level_count > 8, "text has only %d luminance levels (not anti-aliased)", level_count)
+
+	path := "/tmp/tracker-odin-font-test.png"
+	defer os.remove(path)
+	testing.expect(t, canvas_screenshot(&c, path), "font screenshot failed")
+	data, err := os.read_entire_file(path, context.allocator)
+	defer delete(data)
+	testing.expect(t, err == nil && len(data) > 1_000, "font screenshot missing or tiny")
+}
