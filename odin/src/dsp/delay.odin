@@ -110,18 +110,18 @@ Stereo_Delay :: struct {
 }
 
 delay_new :: proc(sample_rate: f32, params: Delay_Params) -> Stereo_Delay {
-	params := delay_params_sanitized(params)
+	p := delay_params_sanitized(params)
 	max_samples := int(MAX_DELAY_SECONDS * sample_rate) + 8
 	delay := Stereo_Delay {
 		left           = delay_line_new(max_samples),
 		right          = delay_line_new(max_samples),
 		sample_rate    = sample_rate,
-		params         = params,
-		delay_samples  = params.time_ms * 0.001 * sample_rate,
-		target_samples = params.time_ms * 0.001 * sample_rate,
+		params         = p,
+		delay_samples  = p.time_ms * 0.001 * sample_rate,
+		target_samples = p.time_ms * 0.001 * sample_rate,
 		tone_coeff     = 1.0,
 	}
-	delay_update(&delay, sample_rate, params)
+	delay_update(&delay, sample_rate, p)
 	delay.delay_samples = delay.target_samples
 	return delay
 }

@@ -7,7 +7,6 @@
 package main
 
 import "core:fmt"
-import "core:math"
 import "core:os"
 import "core:strings"
 import "core:sync"

@@ -3,7 +3,6 @@ package main
 import "core:os"
 import "core:testing"
 
-import dsp "dsp"
 import ui "ui"
 
 @(test)

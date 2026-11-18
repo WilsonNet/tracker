@@ -79,9 +79,19 @@ cp "$tmp/track2.wav" "$tmp/session/track2.wav"
 ./bin/tracker-odin bounce --session "$tmp/session" --out "$tmp/session/mix.wav"
 ./bin/tracker-odin info "$tmp/session/mix.wav"
 
+echo "== mixed-rate session (44.1 kHz track into a 48 kHz project) =="
+mkdir -p "$tmp/mixed"
+./bin/tracker-odin tone --out "$tmp/mixed/track1.wav" --seconds 2 --freq 440 --rate 44100
+./bin/tracker-odin bounce --session "$tmp/mixed" --out "$tmp/mixed/mix.wav"
+if command -v ffprobe >/dev/null 2>&1; then
+	rate=$(ffprobe -v error -select_streams a:0 -show_entries stream=sample_rate -of csv=p=0 "$tmp/mixed/mix.wav")
+	[ "$rate" = "48000" ] || { echo "FAIL: mixed-rate bounce is $rate Hz" >&2; exit 1; }
+	echo "  resampled 44.1 kHz -> 48 kHz"
+fi
+
 echo "== format assertions =="
 if command -v ffprobe >/dev/null 2>&1; then
-	for f in "$tmp/bounce.wav" "$tmp/session/mix.wav"; do
+	for f in "$tmp/bounce.wav" "$tmp/session/mix.wav" "$tmp/mixed/mix.wav"; do
 		codec=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "$f")
 		channels=$(ffprobe -v error -select_streams a:0 -show_entries stream=channels -of csv=p=0 "$f")
 		[ "$codec" = "pcm_f32le" ] || { echo "FAIL: $f codec $codec" >&2; exit 1; }
@@ -93,7 +103,7 @@ else
 fi
 
 if command -v sox >/dev/null 2>&1; then
-	for f in "$tmp/bounce.wav" "$tmp/session/mix.wav"; do
+	for f in "$tmp/bounce.wav" "$tmp/session/mix.wav" "$tmp/mixed/mix.wav"; do
 		stats=$(sox "$f" -n stat 2>&1)
 		if echo "$stats" | grep -q "wave header missing"; then
 			echo "FAIL: sox rejected the WAV header in $f" >&2
