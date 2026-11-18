@@ -220,7 +220,9 @@ draw_header :: proc(a: ^App, c: ^Canvas) {
 	canvas_text(c, 156, 25, "MULTITRACK RECORDER · ODIN NATIVE", MUTED)
 	right := f32(a.width) - 16
 	canvas_text(c, 500, 9, fmt.tprintf("%d kHz", a.sample_rate / 1000), DIM)
-	canvas_text_clip(c, 574, 9, f32(a.width) - 594, app_device(a), MUTED)
+	if a.width >= 1040 {
+		canvas_text_clip(c, 574, 9, f32(a.width) - 894, app_device(a), MUTED)
+	}
 	draw_toggle(c, l.click, "CLICK", a.metronome, is_hover(a, l.click), true, TEAL)
 	draw_button(c, l.bpm_minus, "-", false, is_hover(a, l.bpm_minus), a.bpm > 40, DIM)
 	draw_button(c, l.bpm_plus, "+", false, is_hover(a, l.bpm_plus), a.bpm < 240, DIM)
