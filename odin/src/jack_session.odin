@@ -498,6 +498,9 @@ when ODIN_OS == .Linux {
 		if sync.atomic_load(&s.active) == 0 {
 			return 0
 		}
+		if len(s.ports) < s.channels {
+			return 0
+		}
 		bufs: [MAX_JACK_SESSION_CHANNELS]^f32
 		channels := min(s.channels, len(bufs))
 		for ch in 0 ..< channels {
