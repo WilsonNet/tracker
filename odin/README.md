@@ -71,7 +71,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 211 unit tests
+make test         # 212 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -95,7 +95,7 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | 211 unit tests: 70 DSP, 85 core/engine/project, 56 UI |
+| `test` | 212 unit tests: 70 DSP, 85 core/engine/project, 57 UI |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
@@ -120,8 +120,10 @@ directory is in `XDG_DATA_DIRS`.
 - **Takes:** multi-take recording (`T1/2` on each strip), active-take cycling,
   whole-take comping from the palette, and arbitrary comp regions through the
   `comp` CLI. Projects keep the legacy `file` plus the full take/comp list.
-- **HiDPI:** logical layout at physical pixel density, 1×–3×, with runtime
-  stb_truetype glyphs; `--ui-scale` for testing.
+- **HiDPI + responsive density:** logical layout at physical pixel density,
+  1×–3×, with runtime stb_truetype glyphs; larger windows scale the whole
+  instrument (type, padding, controls) up to 1.8×, smaller ones keep 1:1 and
+  let the layout compress. `--ui-scale` forces a density for testing.
 - **FX rack:** `x` or FX. Track tabs `1–4`, `MST`; draggable knobs (vertical
   drag), bypass toggles, ping-pong, response visuals.
 - **I/O panel:** live PipeWire/JACK source list, JACK-backend toggle, latency
@@ -152,6 +154,9 @@ or a density tweak never touches drawing code:
   `canvas_text`.
 - **`Metric_Tokens`** — header/bottom/status heights, margins, gutters, control
   sizes, fader/meter widths. `app_layout` reads these instead of magic numbers.
+- **Responsive density** — `UI_BASE_WIDTH/HEIGHT`, `UI_MAX_ZOOM` and
+  `ui_zoom_for_window()` derive a uniform zoom from the window size; the same
+  scale multiplies the canvas density, so type and controls grow together.
 - **`Tokens` / `ACTIVE_TOKENS`** — the live bundle handed to the renderer;
   `TOKENS_HIGH_CONTRAST` swaps colour only, leaving geometry untouched.
 
@@ -347,6 +352,16 @@ every primitive (fill, rect, line, circle, arc, text, clip) converts through
 - Flat 1 px borders, rules and rectangles are snapped to the physical grid, so
   a 1 logical px border is 2 physical px at 2× and 3 at 3×. The design
   intentionally has no rounded cards, shadows, gradients or icon font.
+
+- **Window-responsive zoom.** The panel is authored at 1180x760. Above that,
+  `ui_zoom_for_window()` returns a uniform zoom from the geometric mean of the
+  width and height ratios, clamped to 1.8x and never below the tested 900x620
+  virtual frame. The window layer renders the virtual layout with
+  `canvas.scale = display_density * zoom` and maps pointer input through the
+  same transform, so hit targets stay aligned at every size. At 1920x1080 the
+  effective zoom is 1.52x (1263x710 layout); a 2536x986 window uses 1.59x
+  (1595x620 layout). Below 1180x760 the zoom stays 1:1 and the flexible
+  layout compresses instead of shrinking the type.
 
 Deliberately **not** used: Clay/Flexbox (the 4-track layout is fixed and covered
 by geometry tests at 900/1180/1920), raylib, MSDF/SDF shaders (they soften

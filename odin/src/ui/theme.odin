@@ -276,6 +276,38 @@ theme_tokens :: proc(high_contrast: bool) -> Tokens {
 	return TOKENS_HIGH_CONTRAST if high_contrast else TOKENS_DEFAULT
 }
 
+// ---------------------------------------------------------------- responsive
+
+// The panel is authored at 1180x760. Above that, scale the whole instrument
+// (type, padding, control heights) with the window instead of leaving a large
+// canvas full of 9 px labels. The zoom follows the geometric mean of the width
+// and height ratios, so a wide short window still gets the type bump, but it
+// never compresses the virtual frame below the tested 900x620 minimum.
+// Below 1180x760 the zoom stays at 1:1 and the flexible layout does the work.
+UI_BASE_WIDTH  :: 1180
+UI_BASE_HEIGHT :: 760
+UI_MIN_WIDTH   :: 900
+UI_MIN_HEIGHT  :: 620
+UI_MAX_ZOOM    :: 1.8
+
+ui_zoom_for_window :: proc(width, height: int) -> f32 {
+	if width <= 0 || height <= 0 {
+		return 1
+	}
+	area_ratio := (f32(width) / UI_BASE_WIDTH) * (f32(height) / UI_BASE_HEIGHT)
+	z := math.sqrt(area_ratio)
+	z = min(z, f32(width) / UI_MIN_WIDTH, f32(height) / UI_MIN_HEIGHT)
+	return clamp(z, 1.0, UI_MAX_ZOOM)
+}
+
+// Layout size after the window has been scaled. Rounding keeps the virtual
+// frame integral, so every pane still lands on whole layout pixels.
+ui_virtual_size :: proc(width, height: int) -> (int, int) {
+	z := ui_zoom_for_window(width, height)
+	return max(int(math.round(f32(width) / z)), 1),
+	       max(int(math.round(f32(height) / z)), 1)
+}
+
 rgb :: proc(r, g, b: u8, a: u8 = 255) -> Color {
 	return (Color(a) << 24) | (Color(r) << 16) | (Color(g) << 8) | Color(b)
 }

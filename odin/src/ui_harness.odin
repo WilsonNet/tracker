@@ -169,8 +169,10 @@ run_ui_test :: proc(args: []string) -> bool {
 		return false
 	}
 
+	zoom := ui.ui_zoom_for_window(width, height)
+	virtual_w, virtual_h := ui.ui_virtual_size(width, height)
 	a: ui.App
-	ui.app_init(&a, width, height)
+	ui.app_init(&a, virtual_w, virtual_h)
 	defer ui.app_destroy(&a)
 	a.demo = script.demo
 	if len(script.devices) > 0 {
@@ -181,7 +183,10 @@ run_ui_test :: proc(args: []string) -> bool {
 	}
 
 	c: ui.Canvas
-	ui.canvas_init(&c, ui.canvas_pixel_size(width, scale), ui.canvas_pixel_size(height, scale), scale)
+	ui.canvas_init(&c,
+		ui.canvas_pixel_size(width, scale),
+		ui.canvas_pixel_size(height, scale),
+		scale * zoom)
 	defer ui.canvas_destroy(&c)
 
 	results: [dynamic]Harness_Result
@@ -321,9 +326,12 @@ run_ui_test :: proc(args: []string) -> bool {
 				ok = false
 				detail = fmt.tprintf("resize %dx%d is outside %d..%d", w, h, MIN_CLI_DIM, MAX_CLI_DIM)
 			} else {
-				ui.app_resize(&a, w, h)
+				zoom_now := ui.ui_zoom_for_window(w, h)
+				vw, vh := ui.ui_virtual_size(w, h)
+				ui.app_resize(&a, vw, vh)
 				ui.canvas_resize(&c, ui.canvas_pixel_size(w, scale), ui.canvas_pixel_size(h, scale))
-				detail = fmt.tprintf("resize %dx%d @ %.2fx", w, h, scale)
+				ui.canvas_set_scale(&c, scale * zoom_now)
+				detail = fmt.tprintf("resize %dx%d @ %.2fx (zoom %.2f, layout %dx%d)", w, h, scale, zoom_now, vw, vh)
 			}
 		case:
 			ok = false

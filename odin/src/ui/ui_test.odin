@@ -674,11 +674,33 @@ ui_many_devices_do_not_overflow_the_io_panel :: proc(t: ^testing.T) {
 }
 
 @(test)
+ui_window_zoom_scales_type_and_keeps_base_density :: proc(t: ^testing.T) {
+	testing.expect(t, abs(ui_zoom_for_window(1180, 760) - 1) < 0.001, "base window must be 1x")
+	testing.expect(t, abs(ui_zoom_for_window(900, 620) - 1) < 0.001, "small windows must not shrink type")
+	check_1080 := ui_zoom_for_window(1920, 1080)
+	testing.expectf(t, check_1080 > 1.45 && check_1080 <= UI_MAX_ZOOM, "1080p zoom %.3f", check_1080)
+	testing.expect(t, ui_zoom_for_window(3840, 2160) == UI_MAX_ZOOM, "4K must clamp to the max zoom")
+	testing.expect(t, ui_zoom_for_window(900, 1400) == 1.0, "a narrow tall window must keep base type")
+	testing.expect(t, ui_zoom_for_window(2536, 986) > 1.5, "a wide short window should still scale the type")
+
+	vw, vh := ui_virtual_size(1920, 1080)
+	testing.expectf(t, vw >= 900 && vh >= 620 && vh <= 760, "1080p layout %dx%d escaped the tested range", vw, vh)
+	vw2, vh2 := ui_virtual_size(2536, 986)
+	testing.expectf(t, vh2 >= 620 && vw2 >= 900, "wide layout %dx%d escaped the tested range", vw2, vh2)
+
+	// The visible type size is type * zoom, so larger windows get larger type.
+	z := ui_zoom_for_window(1920, 1080)
+	testing.expect(t, TOKENS_DEFAULT.type.body * z > TOKENS_DEFAULT.type.body * 1.4, "body type must grow with the window")
+	testing.expect(t, TOKENS_DEFAULT.metrics.header_h * z > TOKENS_DEFAULT.metrics.header_h, "header must grow with the type")
+}
+
+@(test)
 ui_layout_geometry_across_sizes :: proc(t: ^testing.T) {
 	sizes := [3][2]int{{900, 620}, {1180, 760}, {1920, 1080}}
 	for size in sizes {
+		vw, vh := ui_virtual_size(size[0], size[1])
 		a: App
-		app_init(&a, size[0], size[1])
+		app_init(&a, vw, vh)
 		names := [2]string{"Alpha", "Beta"}
 		app_set_devices(&a, names[:], 0)
 		a.mode = .Palette
@@ -795,15 +817,16 @@ ui_render_is_nonblank_in_every_mode_and_size :: proc(t: ^testing.T) {
 	sizes := [3][2]int{{900, 620}, {1180, 760}, {1920, 1080}}
 	modes := [6]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent}
 	for size in sizes {
+		vw, vh := ui_virtual_size(size[0], size[1])
 		a: App
-		app_init(&a, size[0], size[1])
+		app_init(&a, vw, vh)
 		names := [3]string{"Scarlett 4i4", "MX Brio", "Ryzen Mic"}
 		app_set_devices(&a, names[:], 0)
 		a.demo = true
 		a.tracks[0].has_audio = true
 		a.tracks[0].armed = true
 		c: Canvas
-		canvas_init(&c, size[0], size[1])
+		canvas_init(&c, vw, vh)
 		for mode in modes {
 			a.mode = mode
 			for ch in 0 ..< 5 {

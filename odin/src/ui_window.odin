@@ -74,11 +74,13 @@ run_ui_window :: proc(args: []string) -> bool {
 	sdl.GetWindowSize(window, &lw, &lh)
 	sdl.GetWindowSizeInPixels(window, &pw, &ph)
 	scale := forced_scale if has_forced_scale else window_scale(lw, lh, pw, ph)
-	logical_w := int(lw)
-	logical_h := int(lh)
+	// The window is sized in points; the panel is authored at 1180x760 and
+	// scaled up uniformly so type, padding, and hit targets grow with it.
+	zoom := ui.ui_zoom_for_window(int(lw), int(lh))
+	virtual_w, virtual_h := ui.ui_virtual_size(int(lw), int(lh))
 
 	a: ui.App
-	ui.app_init(&a, logical_w, logical_h)
+	ui.app_init(&a, virtual_w, virtual_h)
 	defer ui.app_destroy(&a)
 
 	names := engine_device_names()
@@ -123,7 +125,10 @@ run_ui_window :: proc(args: []string) -> bool {
 	engine_set_latency_ms(&e, a.latency_ms)
 
 	canvas: ui.Canvas
-	ui.canvas_init(&canvas, ui.canvas_pixel_size(logical_w, scale), ui.canvas_pixel_size(logical_h, scale), scale)
+	ui.canvas_init(&canvas,
+		ui.canvas_pixel_size(int(lw), scale),
+		ui.canvas_pixel_size(int(lh), scale),
+		scale * zoom)
 	defer ui.canvas_destroy(&canvas)
 
 	texture := sdl.CreateTexture(renderer, .ARGB8888, .STREAMING, c.int(canvas.width), c.int(canvas.height))
@@ -173,21 +178,24 @@ run_ui_window :: proc(args: []string) -> bool {
 		sdl.GetWindowSize(window, &lw, &lh)
 		sdl.GetWindowSizeInPixels(window, &pw, &ph)
 		new_scale := forced_scale if has_forced_scale else window_scale(lw, lh, pw, ph)
+		new_zoom := ui.ui_zoom_for_window(int(lw), int(lh))
+		vw, vh := ui.ui_virtual_size(int(lw), int(lh))
 		pwanted := ui.canvas_pixel_size(int(lw), new_scale)
 		phwanted := ui.canvas_pixel_size(int(lh), new_scale)
 		if pwanted != canvas.width || phwanted != canvas.height {
 			ui.canvas_resize(&canvas, pwanted, phwanted)
-			ui.canvas_set_scale(&canvas, new_scale)
-			ui.app_resize(&a, int(lw), int(lh))
+			ui.canvas_set_scale(&canvas, new_scale * new_zoom)
 			sdl.DestroyTexture(texture)
 			texture = sdl.CreateTexture(renderer, .ARGB8888, .STREAMING, c.int(canvas.width), c.int(canvas.height))
 			if texture == nil {
 				fmt.eprintfln("texture resize failed: %s", sdl.GetError())
 				return false
 			}
-		} else if new_scale != canvas.scale {
-			ui.canvas_set_scale(&canvas, new_scale)
-			ui.app_resize(&a, int(lw), int(lh))
+		} else if new_scale * new_zoom != canvas.scale {
+			ui.canvas_set_scale(&canvas, new_scale * new_zoom)
+		}
+		if vw != a.width || vh != a.height {
+			ui.app_resize(&a, vw, vh)
 		}
 
 		now := time.now()

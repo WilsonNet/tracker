@@ -40,7 +40,7 @@ Canvas :: struct {
 }
 
 CANVAS_MIN_SCALE :: 1.0
-CANVAS_MAX_SCALE :: 3.0
+CANVAS_MAX_SCALE :: 6.0
 
 canvas_init :: proc(c: ^Canvas, width, height: int, scale: f32 = 1.0) {
 	c.scale = clamp(scale, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE)

@@ -11,11 +11,11 @@ intentional limits are in `ROADMAP.md`.
 | clean build | `make clean && make build` | ≈0.8 s |
 | DSP | `odin test src/dsp` | **70 passed** |
 | engine / project / WAV / RF64 / takes / CLI | `odin test src` | **85 passed** |
-| UI state, layout, HiDPI, PNG | `odin test src/ui` | **56 passed** |
+| UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **57 passed** |
 | static checks | `odin check src -no-entry-point -vet` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry |
 
-Total: **211 unit tests**.
+Total: **212 unit tests**.
 
 ## Native UI harness
 
@@ -27,6 +27,9 @@ Total: **211 unit tests**.
 - Covers arm/mute/solo, record/play/stop, faders/pans, FX tabs/knobs/bypass,
   palette, recents, bounce, I/O, tempo/click, monitor, JACK toggle, latency,
   rescan, undo/redo, keyboard focus, resizes
+- Window-responsive zoom verified at 1440x900 (1.20x), 1920x1080 (1.52x),
+  2536x986 (1.59x) and 3840x2160 (1.80x cap); the virtual frame never drops
+  below 900x620
 
 ## Real audio
 

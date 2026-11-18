@@ -44,8 +44,12 @@ run_ui_shot :: proc(args: []string) -> bool {
 		return false
 	}
 
+	// `--width/--height` are window points. The layout is authored smaller and
+	// scaled up so text and control density track the window.
+	zoom := ui.ui_zoom_for_window(width, height)
+	virtual_w, virtual_h := ui.ui_virtual_size(width, height)
 	a: ui.App
-	ui.app_init(&a, width, height)
+	ui.app_init(&a, virtual_w, virtual_h)
 	defer ui.app_destroy(&a)
 	a.demo = true
 	a.transport = .Stopped
@@ -88,7 +92,10 @@ run_ui_shot :: proc(args: []string) -> bool {
 	}
 
 	c: ui.Canvas
-	ui.canvas_init(&c, ui.canvas_pixel_size(width, scale), ui.canvas_pixel_size(height, scale), scale)
+	ui.canvas_init(&c,
+		ui.canvas_pixel_size(width, scale),
+		ui.canvas_pixel_size(height, scale),
+		scale * zoom)
 	defer ui.canvas_destroy(&c)
 	ui.app_draw(&a, &c)
 
@@ -96,6 +103,7 @@ run_ui_shot :: proc(args: []string) -> bool {
 		fmt.eprintfln("cannot write %s", out)
 		return false
 	}
-	fmt.printfln("wrote %s  %dx%d logical @ %.2fx (%dx%d px)", out, width, height, scale, c.width, c.height)
+	fmt.printfln("wrote %s  %dx%d window @ %.2fx  zoom %.2f  (%dx%d layout, %dx%d px)",
+		out, width, height, scale, zoom, virtual_w, virtual_h, c.width, c.height)
 	return true
 }

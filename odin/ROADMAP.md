@@ -44,6 +44,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | SDL2 window, software canvas | done | X11/Xvfb + Hyprland |
 | 4 track strips, master, meters, GR | done | 220-action tour |
 | Reference density + design-token layers | done | `theme.odin`, geometry tests at 900/1180/1920 |
+| Window-responsive type/control zoom | done | `ui_zoom_for_window`, 1.0–1.8x, 57 UI tests |
 | Transport, timecode, BPM, click, monitor | done | tour |
 | FX rack (track + master) | done | knobs, bypass, ping-pong, focus |
 | Command palette, recents, recent overlay | done | 220-action tour |
@@ -67,7 +68,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **211** (70 DSP, 85 core/engine/project, 56 UI) |
+| unit tests | **212** (70 DSP, 85 core/engine/project, 57 UI) |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |
 | hardware capture | 96,000 frames / 2.000 s |
