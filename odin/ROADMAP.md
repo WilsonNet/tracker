@@ -11,7 +11,7 @@ in the reference but not here; **new** = only relevant to the native app.
 | area | status | verification |
 |---|---|---|
 | Odin toolchain + vendored miniaudio | done | `dev-2026-11a`; static lib build script |
-| Device enumeration | done | 8 PipeWire sources on the test machine |
+| Device enumeration | done | PipeWire/JACK sources listed on the test machine |
 | Hardware capture | done | 96,000 frames from a 2 s take through the native UI |
 | Per-channel float WAVs | done | `record`, `trackN.wav`, ffprobe + sox clean |
 | Biquad / EQ / compressor / limiter | done | parity vectors + 62 DSP tests |
@@ -33,7 +33,7 @@ in the reference but not here; **new** = only relevant to the native app.
 | Project persistence | done | save/load round-trip test; palette + engine commands |
 | Resampling | done | 32-tap windowed sinc; mixed-rate session render |
 | Bounce | done | GUI + `bounce --session`, limiter ceiling held |
-| Cooperative JACK capture | done | CLI `record --jack`; 28,800 frames verified |
+| Cooperative JACK capture | done | CLI `record --jack`; 24,000 frames verified |
 | Device persistence | done | device name stored and matched on load |
 | Overdub playback | done | existing mix plays while a new take records |
 | Metronome | done | synth click in the playback callback, BPM 40–240 |
@@ -59,8 +59,8 @@ in the reference but not here; **new** = only relevant to the native app.
 |---|---|---|
 | A/B DSP parity with Rust | done | ported algorithms tested against reference vectors |
 | WAV compatibility | done | IEEE-float 18-byte fmt body, PCM 16/24/32 import |
-| Cross-process UI test harness | done | `ui-test`, semantic targets, assertions |
-| Packaging | done | desktop entry, icon, `install-desktop.sh` |
+| Headless UI test harness | done | `ui-test`, semantic targets, assertions |
+| Packaging | done | desktop entry, PNG/SVG icon, `make install`/`uninstall` |
 | CI entry point | done | `scripts/check.sh` |
 | Memory/leak audit | in progress | test runner reports leaks; project loader cleaned |
 | Device hotplug / unplug mid-take | missing | no retry path yet |

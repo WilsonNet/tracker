@@ -1,2 +1,11 @@
+# Build output
 bin/
+
+# Session audio (recordings, bounces, in-progress take)
 *.wav
+*.raw
+
+# Screenshots and harness output generated from the repo root
+/*.png
+/ui/
+/report.json

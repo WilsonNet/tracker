@@ -14,16 +14,40 @@ The motivation is iteration speed. Measured on this machine (Ryzen, 16 threads):
 
 | step | time |
 |---|---|
-| full `odin build` (UI + audio + DSP + CLI) | **≈0.5 s** |
+| full `odin build` (UI + audio + DSP + CLI) | **≈0.7 s** |
 | Tauri/Rust dev rebuild | minutes |
 
 No Node dev server, no webview, no IPC boundary. Change a pixel or a DSP
 coefficient and the native window is rebuilt and running immediately.
 
-## Quick start
+## Dependencies
 
-Requires Linux, Odin `dev-2026-11a` (or newer) and LLVM, plus ALSA/PipeWire,
-SDL2, JACK and zlib development files.
+Linux, a C toolchain (Odin shells out to `clang`, `cc` and `ld`; `ar` is
+needed only when building the miniaudio archive), Odin `dev-2026-11a` or
+newer, and development files for SDL2, JACK and zlib. ALSA or PipeWire is
+needed at runtime. `make check` also needs `python3`; `sox` and `ffprobe` are
+optional format checks.
+
+Arch:
+
+```sh
+sudo pacman -S --needed base-devel clang sdl2-compat zlib alsa-lib pipewire-jack python
+# optional: sox ffmpeg
+```
+
+Debian/Ubuntu:
+
+```sh
+sudo apt install build-essential clang libsdl2-dev libjack-jackd2-dev \
+  zlib1g-dev libasound2-dev python3
+# optional: sox ffmpeg
+```
+
+The Odin release binary is statically linked, so no `llvm-config` or LLVM
+development package is needed; the build still invokes the system
+`clang`/`cc`/`ld` listed above.
+
+## Quick start
 
 ```sh
 # 1. Toolchain (once)
@@ -34,22 +58,44 @@ tar xzf /tmp/odin.tar.gz -C ~/.local/opt
 mv ~/.local/opt/odin-linux-amd64-* ~/.local/opt/odin
 ln -sf ~/.local/opt/odin/odin ~/.local/bin/odin
 
-# 2. miniaudio static library (once)
+# 2. miniaudio static library (recent releases ship it; build only if missing)
 export ODIN_ROOT="$HOME/.local/opt/odin"
-sh "$ODIN_ROOT/vendor/miniaudio/src/build_miniaudio.sh"
+test -f "$ODIN_ROOT/vendor/miniaudio/lib/miniaudio.a" || \
+  sh "$ODIN_ROOT/vendor/miniaudio/src/build_miniaudio.sh"
 
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 83 unit tests
+make test         # 84 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
+mkdir -p ~/.local/share/tracker   # the engine creates .../session, not parents
 ./bin/tracker-odin ui
 ```
 
-`make install` installs the binary, icon and desktop entry under
-`~/.local` (override with `PREFIX=...`).
+The default session is `~/.local/share/tracker/session`; `--session DIR`
+selects another one (its parent directory must already exist). `ui --demo`
+runs the window with synthetic meters when no audio hardware is available.
+
+`make install` installs the binary, PNG/SVG icons and a desktop entry under
+`~/.local` (override with `PREFIX=...`); `make uninstall` removes them. A
+custom prefix is only picked up by desktop launchers when its `share`
+directory is in `XDG_DATA_DIRS`.
+
+## Make targets
+
+| target | what it does |
+|---|---|
+| `build` | compile `bin/tracker-odin` |
+| `test` | 82 unit tests: 62 DSP, 9 project/WAV, 11 UI |
+| `check` | `scripts/check.sh`: unit tests, 56-action UI tour, offline bounce |
+| `ui` | build and open the native window (`run` is an alias) |
+| `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
+| `ui-test` | run a harness script; `SCRIPT=... UI_OUT=...` |
+| `devices`, `selftest`, `bounce` | CLI helpers; `bounce` uses `SESSION=...` |
+| `install`, `uninstall` | desktop integration under `PREFIX` |
+| `clean` | remove `bin/` |
 
 ## Native UI
 
@@ -64,16 +110,17 @@ make check        # unit + native UI tour + offline end-to-end
 - **Transport:** REC / PLAY / STOP / BOUNCE, timecode, armed count, BPM
   stepper and metronome click.
 - **FX rack:** `x` or FX. Track tabs `1–4`, `MST`; draggable knobs (vertical
-  drag, `Shift` fine), bypass toggles, ping-pong, response visuals.
+  drag), bypass toggles, ping-pong, response visuals.
 - **I/O panel:** live PipeWire/JACK source list from miniaudio.
 - **Playwright replacement:** `ui-test` (below) drives the exact same state
   machine headlessly.
-- **Keyboard:** `Space` play/stop, `R` record, `1–4` arm, `j/k` select,
-  `J/K` level, `m` mute, `s` solo, `a` arm, `i` I/O, `x` FX, `c` click,
-  `[`/`]` FX channel, `:` command palette, `Esc` close.
+- **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `1–4` arm, `j/k`
+  select, `J/K` level, `m` mute, `s` solo, `a` arm, `i` I/O, `x` FX,
+  `c` click, `[`/`]` FX channel, `:` command palette, `Esc` close.
 
 Sessions live in `~/.local/share/tracker/session` by default and contain
-`project.json`, `track1.wav` … `track4.wav`, and `bounce.wav`.
+`project.json`, `track1.wav` … `track4.wav`, and `bounce.wav` (plus a
+transient `take.raw` while a take is being captured).
 
 ## The Playwright replacement
 
@@ -97,6 +144,7 @@ and no IPC socket, and the whole tour runs in well under a second.
     {"type": "assert", "path": "transport", "equals": "Recording"},
     {"type": "wait", "frames": 45},
     {"type": "screenshot", "name": "recording"},
+    {"type": "click", "id": "fx"},
     {"type": "drag", "id": "knob.eq.low", "dy": -40},
     {"type": "assert", "path": "knob.eq.low", "min": 3, "hasMin": true}
   ]
@@ -107,6 +155,10 @@ Targets: `track.N`, `arm.N`, `solo.N`, `mute.N`, `input.N`, `fader.N`,
 `pan.N`, `transport.rec|play|stop`, `bounce`, `fx`, `io`, `bpm.plus|minus`,
 `metronome`, `fx.tab.N`, `fx.close`, `knob.<module>.<param>`,
 `fx.bypass.<module>`, `fx.pingpong.delay`, `palette.row.N`, `io.row.N`.
+Track tabs expose `eq`, `comp` and `send`; the `MST` tab (`fx.tab.4`) exposes
+the master `comp`, `reverb`, `delay`, `width` and `limiter` modules.
+`palette.row.N` requires the palette open and `io.row.N` a populated device
+list (set `devices` in the script).
 
 Assertion paths: `transport`, `mode`, `selected`, `armed.N`, `muted.N`,
 `solo.N`, `input.N`, `level.N`, `pan.N`, `has_audio.N`, `bpm`, `metronome`,
@@ -147,14 +199,21 @@ stereo 32-bit float.
 ## Tests and verification
 
 ```sh
-odin test src/dsp   # 62 DSP tests
-odin test src       # 10 project/WAV/engine tests
-odin test src/ui    # 11 UI state/layout/screenshot tests
-./scripts/check.sh  # all of the above + 56-action UI tour + engine bounce + sox/ffprobe
+make test        # 62 DSP + 11 core/engine + 11 UI = 84 tests
+make test-dsp    # only src/dsp
+make test-core   # only the root src package (engine/project/WAV)
+make test-ui     # only src/ui
+
+make check       # tests + 56-action UI tour + offline bounce + format checks
 ./scripts/check.sh --hardware   # + 2 s miniaudio capture
 ./scripts/check.sh --jack       # + 0.5 s JACK capture
 ./scripts/check.sh --loopback   # + known 440 Hz tone through a null sink
 ```
+
+`scripts/check.sh` needs `python3` (it validates the PNG screenshots). The
+`ffprobe` codec checks and the `sox` header/peak checks run only when those
+tools are installed; the offline core of the script does not need audio
+hardware.
 
 Coverage includes the ported Rust DSP vectors (biquad, EQ, compressor, limiter,
 reverb, delay, widener), resampling quality, WAV layout/import, project
@@ -211,6 +270,9 @@ Correspondence with the Rust reference:
 - JACK capture is exposed through the CLI, not yet as a GUI mode.
 - The session path is fixed per run (`--session`); there is no native file
   picker or recent-projects list.
+- The engine creates the session directory but not its parents, so a fresh
+  account needs `mkdir -p ~/.local/share/tracker` once (or a `--session`
+  directory whose parent already exists).
 - No undo/redo, comping, RF64 (>4 GB), or screen-reader accessibility yet.
 - `ui-test` covers the state machine and rendering, not OS-level window focus or
   audio-device hotplug.
