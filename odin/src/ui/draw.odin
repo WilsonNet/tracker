@@ -110,11 +110,17 @@ param_label :: proc(m: Fx_Module, p: int) -> string {
 }
 
 @(private)
-knob_value_text :: proc(m: Fx_Module, p: int, v: f32) -> string {
+knob_value_text :: proc(m: Fx_Module, p: int, v: f32, compact: bool = false) -> string {
 	switch m {
 	case .EQ:
 		switch p {
 		case 2:
+			if compact {
+				if v >= 1000 {
+					return fmt.tprintf("%.1fk", v / 1000.0)
+				}
+				return fmt.tprintf("%.0f", v)
+			}
 			if v >= 1000 {
 				return fmt.tprintf("%.2f kHz", v / 1000.0)
 			}
@@ -122,44 +128,47 @@ knob_value_text :: proc(m: Fx_Module, p: int, v: f32) -> string {
 		case 3:
 			return fmt.tprintf("%.2f", v)
 		case:
+			if compact {
+				return fmt.tprintf("%+.1f", v)
+			}
 			return fmt.tprintf("%+.1f dB", v)
 		}
 	case .COMP:
 		switch p {
 		case 0:
-			return fmt.tprintf("%.1f dB", v)
+			return fmt.tprintf("%.1f", v) if compact else fmt.tprintf("%.1f dB", v)
 		case 1:
 			return fmt.tprintf("%.1f:1", v)
 		case 4:
-			return fmt.tprintf("%.1f dB", v)
+			return fmt.tprintf("%.1f", v) if compact else fmt.tprintf("%.1f dB", v)
 		case:
-			return fmt.tprintf("%.0f ms", v)
+			return fmt.tprintf("%.0fms", v) if compact else fmt.tprintf("%.0f ms", v)
 		}
 	case .SEND:
 		return fmt.tprintf("%.2f", v)
 	case .REVERB:
 		if p == 3 {
-			return fmt.tprintf("%.0f ms", v)
+			return fmt.tprintf("%.0fms", v) if compact else fmt.tprintf("%.0f ms", v)
 		}
 		return fmt.tprintf("%.2f", v)
 	case .DELAY:
 		if p == 0 {
-			return fmt.tprintf("%.0f ms", v)
+			return fmt.tprintf("%.0fms", v) if compact else fmt.tprintf("%.0f ms", v)
 		}
 		return fmt.tprintf("%.2f", v)
 	case .WIDTH:
 		if p == 1 {
-			return fmt.tprintf("%.0f Hz", v)
+			return fmt.tprintf("%.0fHz", v) if compact else fmt.tprintf("%.0f Hz", v)
 		}
 		return fmt.tprintf("%.2f", v)
 	case .LIMITER:
 		if p == 0 {
-			return fmt.tprintf("%.1f dB", v)
+			return fmt.tprintf("%.1f", v) if compact else fmt.tprintf("%.1f dB", v)
 		}
 		if p == 2 {
-			return fmt.tprintf("%.1f ms", v)
+			return fmt.tprintf("%.1fms", v) if compact else fmt.tprintf("%.1f ms", v)
 		}
-		return fmt.tprintf("%.0f ms", v)
+		return fmt.tprintf("%.0fms", v) if compact else fmt.tprintf("%.0f ms", v)
 	}
 	return "?"
 }
@@ -216,18 +225,18 @@ draw_header :: proc(a: ^App, c: ^Canvas) {
 	canvas_fill(c, Rect{16, 10, 3, 26}, AMBER)
 	canvas_text(c, 27, 6, "TRACKER", AMBER, 2)
 	canvas_vline(c, 142, 10, 36, LINE_BRIGHT)
-	canvas_text(c, 156, 9, app_project(a), TEXT)
+	canvas_text_clip(c, 156, 9, max(f32(a.width) - 456, 120), app_project(a), TEXT)
 	canvas_text(c, 156, 25, "MULTITRACK RECORDER · ODIN NATIVE", MUTED)
+	// Top-right: sample rate, then the device name to its left. Both live on
+	// the first row so the BPM stepper on row two never paints over them.
 	right := f32(a.width) - 16
-	canvas_text(c, 500, 9, fmt.tprintf("%d kHz", a.sample_rate / 1000), DIM)
-	if a.width >= 1040 {
-		canvas_text_clip(c, 574, 9, f32(a.width) - 894, app_device(a), MUTED)
-	}
-	draw_toggle(c, l.click, "CLICK", a.metronome, is_hover(a, l.click), true, TEAL)
+	canvas_text_right(c, right, 8, fmt.tprintf("%d kHz", a.sample_rate / 1000), DIM)
+	device_right := right - 62
+	canvas_text_clip(c, device_right - 210, 8, 210, app_device(a), MUTED)
 	draw_button(c, l.bpm_minus, "-", false, is_hover(a, l.bpm_minus), a.bpm > 40, DIM)
 	draw_button(c, l.bpm_plus, "+", false, is_hover(a, l.bpm_plus), a.bpm < 240, DIM)
-	canvas_text_center(c, (l.bpm_minus.x + l.bpm_minus.w + l.bpm_plus.x) * 0.5, 8, fmt.tprintf("%d BPM", a.bpm), DIM)
-	canvas_text_right(c, right, 25, "TRACKER · 4 TRACK · 32-BIT FLOAT", MUTED)
+	canvas_text_center(c, (l.bpm_minus.x + l.bpm_minus.w + l.bpm_plus.x) * 0.5, 28, fmt.tprintf("%d BPM", a.bpm), DIM)
+	draw_toggle(c, l.click, "CLICK", a.metronome, is_hover(a, l.click), true, TEAL)
 }
 
 @(private)
@@ -251,7 +260,7 @@ draw_transport :: proc(a: ^App, c: ^Canvas) {
 	} else if play_on {
 		tc_col = TEAL
 	}
-	cx: f32 = 640
+	cx := max(f32(a.width) * 0.5, l.io.x + l.io.w + 120)
 	canvas_text_center(c, cx, 54, timecode(a.frames, a.sample_rate), tc_col, 2)
 	state := "STOPPED"
 	if rec_on {
@@ -290,6 +299,7 @@ draw_track :: proc(a: ^App, c: ^Canvas, i: int) {
 	r := l.track[i]
 	selected := a.selected == i
 	recording := a.transport == .Recording && t.armed
+	audible := app_track_audible(a, i)
 
 	border: Color = LINE
 	if selected {
@@ -310,20 +320,22 @@ draw_track :: proc(a: ^App, c: ^Canvas, i: int) {
 		num_col = RED
 	}
 	canvas_text(c, r.x + 10, r.y + 8, fmt.tprintf("%02d", i + 1), num_col, 2)
-	canvas_text(c, r.x + 50, r.y + 11, t.name, TEXT)
+	canvas_text_clip(c, r.x + 50, r.y + 11, r.w - 104, t.name, TEXT)
 	if recording {
 		canvas_fill(c, Rect{r.x + r.w - 44, r.y + 10, 34, 18}, with_alpha(RED, 0x33))
 		canvas_rect(c, Rect{r.x + r.w - 44, r.y + 10, 34, 18}, RED)
 		canvas_text(c, r.x + r.w - 38, r.y + 12, "REC", RED)
+	} else if !audible {
+		canvas_text_right(c, r.x + r.w - 10, r.y + 12, "MUTE" if t.muted else "SOLO", MUTED)
 	} else if t.has_audio {
 		canvas_text_right(c, r.x + r.w - 10, r.y + 12, "TAKE", MUTED)
 	}
 
 	in_btn := l.input[i]
-	in_hover := is_hover(a, in_btn)
+	in_hover := is_hover(a, in_btn) && a.transport != .Recording
 	canvas_fill(c, in_btn, PANEL_2 if !in_hover else PANEL_3)
 	canvas_rect(c, in_btn, LINE_BRIGHT)
-	canvas_text(c, in_btn.x + 6, in_btn.y + 4, fmt.tprintf("IN %d", t.input), AMBER)
+	canvas_text(c, in_btn.x + 6, in_btn.y + 8, fmt.tprintf("IN %d", t.input), AMBER if a.transport != .Recording else MUTED)
 
 	// FX summary chips.
 	chip_x := r.x + 10
@@ -335,14 +347,14 @@ draw_track :: proc(a: ^App, c: ^Canvas, i: int) {
 	}
 	for chip in chips {
 		w: f32 = 30
-		cr := Rect{chip_x, r.y + 64, w, 16}
+		cr := Rect{chip_x, r.y + 62, w, 16}
 		canvas_fill(c, cr, with_alpha(chip.col, 0x22) if chip.on else PANEL_2)
 		canvas_rect(c, cr, with_alpha(chip.col, 0xAA) if chip.on else LINE)
 		canvas_text_center(c, cr.x + w * 0.5, cr.y + 1, chip.label, chip.col if chip.on else MUTED)
 		chip_x += w + 4
 	}
 
-	draw_toggle(c, l.arm[i], "A", t.armed, is_hover(a, l.arm[i]), true, AMBER)
+	draw_toggle(c, l.arm[i], "A", t.armed, is_hover(a, l.arm[i]), a.transport != .Recording, AMBER)
 	draw_toggle(c, l.solo[i], "S", t.soloed, is_hover(a, l.solo[i]), true, TEAL)
 	draw_toggle(c, l.mute[i], "M", t.muted, is_hover(a, l.mute[i]), true, RED)
 
@@ -350,15 +362,15 @@ draw_track :: proc(a: ^App, c: ^Canvas, i: int) {
 	pr := l.pan[i]
 	pcx := pr.x + pr.w * 0.5
 	pcy := pr.y + pr.h * 0.5 - 4
-	draw_knob(c, pcx, pcy, 18, (t.pan + 1) * 0.5, !t.muted)
+	draw_knob(c, pcx, pcy, 18, (t.pan + 1) * 0.5, audible)
 	canvas_text_center(c, pcx, pcy + 23, "PAN", MUTED)
 	canvas_text_center(c, pcx, pcy + 36, pan_label(t.pan), DIM)
 
 	// Fader and meter.
 	norm := clamp(t.level / 1.5, 0, 1)
-	draw_fader(c, l.fader[i], norm, is_hover(a, l.fader[i]))
-	draw_meter(c, l.meter[i], t.peak_db, t.peak_db, AMBER)
-	canvas_text_center(c, l.fader[i].x + 9, l.fader[i].y + l.fader[i].h + 4, fmt.tprintf("%.0f%%", norm * 100), DIM)
+	draw_fader(c, l.fader[i], norm, is_hover(a, l.fader[i]), audible)
+	draw_meter(c, l.meter[i], t.peak_db, t.peak_db, AMBER if audible else MUTED)
+	canvas_text_center(c, l.fader[i].x + l.fader[i].w * 0.5, l.fader[i].y + l.fader[i].h + 4, fmt.tprintf("%.0f%%", norm * 100), DIM)
 
 	// GR meter.
 	if t.comp.enabled {
@@ -379,7 +391,7 @@ draw_master :: proc(a: ^App, c: ^Canvas) {
 	l := &a.layout
 	r := l.master
 	canvas_fill(c, r, PANEL_2)
-	canvas_rect(c, r, LINE_BRIGHT)
+	canvas_rect(c, r, AMBER_DIM if a.selected >= MAX_TRACKS else LINE_BRIGHT)
 	canvas_text(c, r.x + 12, r.y + 10, "MASTER", AMBER)
 	canvas_text(c, r.x + 12, r.y + 28, "STEREO BUS", MUTED)
 
@@ -439,7 +451,8 @@ draw_status :: proc(a: ^App, c: ^Canvas) {
 	// Toast.
 	if a.toast_time > 0 {
 		tw := text_width(app_toast(a)) + 24
-		tr := Rect{f32(a.width) - tw - 300, l.status.y - 30, tw, 22}
+		tx := clamp(f32(a.width) - tw - 300, 8, f32(a.width) - tw - 8)
+		tr := Rect{tx, l.status.y - 30, tw, 22}
 		canvas_fill(c, tr, PANEL_2)
 		canvas_rect(c, tr, with_alpha(AMBER, 0xAA))
 		canvas_text(c, tr.x + 10, tr.y + 4, app_toast(a), AMBER)
@@ -449,6 +462,16 @@ draw_status :: proc(a: ^App, c: ^Canvas) {
 }
 
 // ---------------------------------------------------------------- FX rack
+
+@(private)
+fx_channel_active :: proc(a: ^App, i: int) -> bool {
+	if i >= MAX_TRACKS {
+		return a.master.comp.enabled || a.master.reverb.enabled || a.master.delay.enabled ||
+			a.master.width.enabled || a.master.limiter.enabled
+	}
+	t := &a.tracks[i]
+	return t.eq.enabled || t.comp.enabled || t.send_reverb > 0.001 || t.send_delay > 0.001
+}
 
 @(private)
 draw_fx :: proc(a: ^App, c: ^Canvas) {
@@ -463,6 +486,9 @@ draw_fx :: proc(a: ^App, c: ^Canvas) {
 			label = "MST"
 		}
 		draw_button(c, l.fx_tab[i], label, a.fx_channel == i, is_hover(a, l.fx_tab[i]), true, AMBER)
+		if fx_channel_active(a, i) {
+			canvas_fill(c, Rect{l.fx_tab[i].x + l.fx_tab[i].w * 0.5 - 1.5, l.fx_tab[i].y + l.fx_tab[i].h + 2, 3, 3}, AMBER)
+		}
 	}
 	draw_button(c, l.fx_close, "X", false, is_hover(a, l.fx_close), true, DIM)
 
@@ -470,8 +496,8 @@ draw_fx :: proc(a: ^App, c: ^Canvas) {
 	if a.fx_channel < MAX_TRACKS {
 		chan = fmt.tprintf("TRACK %d", a.fx_channel + 1)
 	}
-	canvas_text(c, l.fx_panel.x + 300, l.fx_panel.y + 18, chan, TEXT)
-	canvas_text_right(c, l.fx_panel.x + l.fx_panel.w - 48, l.fx_panel.y + 18, "DRAG KNOBS  ·  SHIFT FINE  ·  ESC CLOSE", MUTED)
+	canvas_text(c, l.fx_panel.x + 306, l.fx_panel.y + 18, chan, TEXT)
+	canvas_text_right(c, l.fx_panel.x + l.fx_panel.w - 48, l.fx_panel.y + 18, "DRAG/SHIFT FINE · TAB FOCUS · ESC", MUTED)
 
 	// Module panels.
 	for mi in 0 ..< l.fx_module_count {
@@ -501,20 +527,29 @@ draw_fx :: proc(a: ^App, c: ^Canvas) {
 			enabled := bypass_state(a, m)
 			draw_knob(c, cx, cy, 18, n, enabled)
 			canvas_text_center(c, cx, cy + 23, param_label(m, t.param), MUTED)
-			canvas_text_center(c, cx, cy + 37, knob_value_text(m, t.param, v), enabled ? TEXT : MUTED)
+			compact := p.w / 3 < 68
+			canvas_text_center(c, cx, cy + 37, knob_value_text(m, t.param, v, compact), enabled ? TEXT : MUTED)
+			if a.fx_focus == k {
+				canvas_rect(c, Rect{kr.x - 3, kr.y - 3, kr.w + 6, kr.h + 6}, AMBER)
+			}
 		}
 	}
 
 	// Toggles.
 	for i in 0 ..< l.toggle_count {
 		t := l.toggle_target[i]
-		on := app_toggle_value(a, t)
-		label := ("ON" if on else "BYP") if t.param == 0 else "P-P"
+		bypassed := app_toggle_value(a, t)
+		lit := toggle_lit(a, t)
+		label := ("BYP" if bypassed else "ON") if t.param == 0 else "P-P"
 		col: Color = AMBER
 		if t.module == .DELAY {
 			col = TEAL
 		}
-		draw_toggle(c, l.toggle[i], label, on, is_hover(a, l.toggle[i]), true, col)
+		draw_toggle(c, l.toggle[i], label, lit, is_hover(a, l.toggle[i]), true, col)
+		if a.fx_focus == l.knob_count + i {
+			r := l.toggle[i]
+			canvas_rect(c, Rect{r.x - 2, r.y - 2, r.w + 4, r.h + 4}, AMBER)
+		}
 	}
 }
 
@@ -584,34 +619,37 @@ draw_palette :: proc(a: ^App, c: ^Canvas) {
 	l := &a.layout
 	canvas_fill(c, Rect{0, 0, f32(a.width), f32(a.height)}, 0xC00A0A0A)
 	draw_panel(c, l.palette, PANEL_2, AMBER)
-	canvas_text(c, l.palette.x + 16, l.palette.y + 18, "COMMAND", AMBER)
-	canvas_text_right(c, l.palette.x + l.palette.w - 16, l.palette.y + 18, "ESC", MUTED)
+	canvas_text(c, l.palette.x + 16, l.palette.y + 14, "COMMAND", AMBER)
+	canvas_text_right(c, l.palette.x + l.palette.w - 16, l.palette.y + 14, "ESC", MUTED)
 
 	input_rect := l.palette_input
 	canvas_fill(c, input_rect, BG)
 	canvas_rect(c, input_rect, with_alpha(AMBER, 0xAA))
 	canvas_text(c, input_rect.x + 8, input_rect.y + 7, ":", AMBER)
 	typed := string(a.palette_buf[:a.palette_len])
-	canvas_text(c, input_rect.x + 22, input_rect.y + 7, typed, TEXT)
+	canvas_text_clip(c, input_rect.x + 22, input_rect.y + 7, input_rect.w - 34, typed, TEXT)
 	cursor_x := input_rect.x + 22 + text_width(typed)
-	if int(a.time * 2) % 2 == 0 {
+	if cursor_x < input_rect.x + input_rect.w - 8 && int(a.time * 2) % 2 == 0 {
 		canvas_fill(c, Rect{cursor_x + 1, input_rect.y + 7, 2, 14}, AMBER)
 	}
 
 	if a.palette_count == 0 {
-		canvas_text(c, l.palette.x + 16, l.palette.y + 60, "no matching command", MUTED)
+		canvas_text(c, l.palette.x + 16, l.palette.y + 86, "no matching command", MUTED)
 	}
 	for i in 0 ..< a.palette_count {
 		row := l.palette_row[i]
 		selected := i == a.palette_sel
+		hov := is_hover(a, row)
 		if selected {
 			canvas_fill(c, row, AMBER_WASH)
 			canvas_fill(c, Rect{row.x, row.y, 2, row.h}, AMBER)
+		} else if hov {
+			canvas_fill(c, row, PANEL_3)
 		}
 		cmd := PALETTE_COMMANDS[a.palette_items[i]]
-		canvas_text(c, row.x + 10, row.y + 4, cmd.name, TEXT if selected else DIM)
+		canvas_text_clip(c, row.x + 10, row.y + 7, row.w - 110, cmd.name, TEXT if selected else DIM)
 		hint := command_hint(cmd.kind)
-		canvas_text_right(c, row.x + row.w - 8, row.y + 4, hint, MUTED)
+		canvas_text_right(c, row.x + row.w - 8, row.y + 7, hint, MUTED)
 	}
 	canvas_text(c, l.palette.x + 16, l.palette.y + l.palette.h - 22, "ENTER RUN  ·  UP/DOWN SELECT  ·  ESC CLOSE", MUTED)
 }
@@ -641,7 +679,7 @@ draw_io :: proc(a: ^App, c: ^Canvas) {
 	canvas_text(c, l.io_panel.x + 14, l.io_panel.y + 14, "INPUT DEVICES", AMBER, 2)
 	canvas_text(c, l.io_panel.x + 14, l.io_panel.y + 48, "cooperative PipeWire / JACK sources", MUTED)
 
-	l.io_count = len(a.devices)
+	l.io_count = min(len(a.devices), MAX_DEVICES)
 	for i in 0 ..< l.io_count {
 		row := l.io_row[i]
 		sel := i == a.device_index
@@ -674,12 +712,13 @@ draw_bounce :: proc(a: ^App, c: ^Canvas) {
 	r := Rect{(f32(a.width) - w) * 0.5, (f32(a.height) - h) * 0.5, w, h}
 	draw_panel(c, r, PANEL_2, AMBER)
 	canvas_text(c, r.x + 20, r.y + 18, "BOUNCING MIX", AMBER)
-	canvas_text(c, r.x + 20, r.y + 40, "track chains -> master comp -> reverb -> delay -> width -> limiter", MUTED)
+	canvas_text(c, r.x + 20, r.y + 40, "track chains -> master comp -> reverb", MUTED)
+	canvas_text(c, r.x + 20, r.y + 54, "-> delay -> width -> limiter", MUTED)
 	bar := Rect{r.x + 20, r.y + 74, r.w - 40, 18}
 	canvas_fill(c, bar, PANEL_3)
 	canvas_fill(c, Rect{bar.x, bar.y, bar.w * clamp(a.bounce_progress, 0, 1), bar.h}, AMBER)
 	canvas_rect(c, bar, LINE_BRIGHT)
 	canvas_text(c, r.x + 20, r.y + 104, fmt.tprintf("%.0f%%", a.bounce_progress * 100), TEXT)
 	canvas_text_right(c, r.x + r.w - 20, r.y + 104, "writing bounce.wav", MUTED)
-	canvas_text(c, r.x + 20, r.y + h - 24, "ESC cancel", MUTED)
+	canvas_text(c, r.x + 20, r.y + h - 24, "ESC dismiss (render continues)", MUTED)
 }

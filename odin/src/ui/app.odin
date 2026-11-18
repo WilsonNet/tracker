@@ -229,13 +229,32 @@ App :: struct {
 
 	devices:      []string,
 	device_index: int,
+	input_count:  int,
 	bounce_progress: f32,
+	bounce_active:   bool,
 	demo:         bool,
 
 	mouse_x, mouse_y: f32,
 	mouse_down:   bool,
 	drag:         Drag,
 	hover_id:     string,
+
+	// Keyboard focus inside the FX rack: -1 = none, otherwise an index into
+	// the current knob list followed by the toggle list. All indices are
+	// relative to layout.knob / layout.toggle so Tab reaches every control
+	// without a mouse.
+	fx_focus: int,
+
+	// Modifier state for fine dragging. SDL2 reports modifiers on KEYDOWN, so
+	// any key press refreshes this; the window layer may also set it directly.
+	shift_down: bool,
+
+	// Double-click detection (SDL2 has no native event; two mouse-downs in the
+	// same spot within this window are treated as one).
+	click_pending: bool,
+	click_time:    f32,
+	click_x:       f32,
+	click_y:       f32,
 
 	layout:   Layout,
 	commands: [dynamic]Command,
@@ -256,6 +275,8 @@ app_init :: proc(a: ^App, width, height: int) {
 	a.transport = .Stopped
 	a.fx_channel = 0
 	a.device_index = 0
+	a.input_count = MAX_TRACKS
+	a.fx_focus = -1
 	status_buf_set(a, "ready")
 	project_buf_set(a, "untitled")
 	device_buf_set(a, "no input")
@@ -376,12 +397,23 @@ app_set_devices :: proc(a: ^App, names: []string, selected: int) {
 	a.device_index = clamp(selected, 0, max(len(names) - 1, 0))
 	if len(a.devices) > 0 {
 		device_buf_set(a, a.devices[a.device_index])
+	} else {
+		device_buf_set(a, "no input")
 	}
 	app_layout(a)
 }
 
 app_set_device :: proc(a: ^App, name: string) {
 	device_buf_set(a, name)
+}
+
+// Number of input channels the capture device exposes. Track input selectors
+// cycle 1..input_count; the default is one channel per track.
+app_set_input_channels :: proc(a: ^App, count: int) {
+	a.input_count = clamp(count, 1, 32)
+	for i in 0 ..< MAX_TRACKS {
+		a.tracks[i].input = clamp(a.tracks[i].input, 1, a.input_count)
+	}
 }
 
 app_set_project :: proc(a: ^App, name: string) {
@@ -471,9 +503,9 @@ app_layout :: proc(a: ^App) {
 	l.bounce = Rect{16 + (bw + 8) * 3 + 12, btn_y, 104, 44}
 	l.fx = Rect{l.bounce.x + 112, btn_y, 64, 44}
 	l.io = Rect{l.fx.x + 72, btn_y, 64, 44}
-	l.bpm_minus = Rect{w - 180, 6, 20, 18}
-	l.bpm_plus = Rect{w - 56, 6, 20, 18}
-	l.click = Rect{w - 300, 6, 56, 18}
+	l.bpm_minus = Rect{w - 136, 20, 24, 24}
+	l.bpm_plus = Rect{w - 40, 20, 24, 24}
+	l.click = Rect{w - 412, 20, 56, 24}
 
 	area_y := f32(124)
 	area_h := h - area_y - 32
@@ -488,18 +520,21 @@ app_layout :: proc(a: ^App) {
 		inner_x := r.x + 10
 		inner_w := r.w - 20
 
-		l.input[i] = Rect{inner_x, r.y + 36, 70, 22}
-		tog_y := r.y + 90
+		l.input[i] = Rect{inner_x, r.y + 34, 70, 24}
+		tog_y := r.y + 86
 		tog_w := (inner_w - 8) / 3
 		l.arm[i] = Rect{inner_x, tog_y, tog_w, 26}
 		l.solo[i] = Rect{inner_x + tog_w + 4, tog_y, tog_w, 26}
 		l.mute[i] = Rect{inner_x + (tog_w + 4) * 2, tog_y, tog_w, 26}
 
-		l.pan[i] = Rect{inner_x + inner_w * 0.5 - 28, r.y + 128, 56, 56}
+		l.pan[i] = Rect{inner_x + inner_w * 0.5 - 28, r.y + 124, 56, 56}
 		fader_y := r.y + 206
 		fader_h := max(r.h - 270, 80)
-		l.fader[i] = Rect{inner_x + 18, fader_y, 18, fader_h}
-		l.meter[i] = Rect{inner_x + 50, fader_y, 14, fader_h}
+		// Centre the fader/meter cluster so wide strips do not leave a hole.
+		cluster_w: f32 = 46
+		cluster_x := inner_x + (inner_w - cluster_w) * 0.5
+		l.fader[i] = Rect{cluster_x, fader_y, 24, fader_h}
+		l.meter[i] = Rect{cluster_x + 32, fader_y, 14, fader_h}
 		l.gr[i] = Rect{inner_x, r.y + r.h - 38, inner_w, 18}
 	}
 
@@ -515,7 +550,7 @@ app_layout :: proc(a: ^App) {
 	for i in 0 ..< 5 {
 		l.fx_tab[i] = Rect{l.fx_panel.x + 56 + f32(i) * (tab_w + 4), fx_y + 12, tab_w, 24}
 	}
-	l.fx_close = Rect{l.fx_panel.x + l.fx_panel.w - 34, fx_y + 12, 22, 24}
+	l.fx_close = Rect{l.fx_panel.x + l.fx_panel.w - 36, fx_y + 12, 24, 24}
 
 	inner := Rect{l.fx_panel.x + 14, fx_y + 48, l.fx_panel.w - 28, fx_h - 62}
 	if a.fx_channel >= MAX_TRACKS {
@@ -529,9 +564,9 @@ app_layout :: proc(a: ^App) {
 			l.fx_module_id[i] = m
 			l.fx_module_count += 1
 			layout_module(l, p, m, counts[i], p.y + 96)
-			add_toggle(l, Rect{p.x + p.w - 46, p.y + 8, 38, 18}, m, 0)
+			add_toggle(l, Rect{p.x + p.w - 48, p.y + 6, 42, 24}, m, 0)
 			if m == .DELAY {
-				add_toggle(l, Rect{p.x + p.w - 92, p.y + 8, 40, 18}, m, 1)
+				add_toggle(l, Rect{p.x + p.w - 86, p.y + 6, 28, 24}, m, 1)
 			}
 		}
 	} else {
@@ -546,15 +581,15 @@ app_layout :: proc(a: ^App) {
 			l.fx_module_count += 1
 			layout_module(l, p, m, counts[i], p.y + 96)
 			if m != .SEND {
-				add_toggle(l, Rect{p.x + p.w - 46, p.y + 8, 38, 18}, m, 0)
+				add_toggle(l, Rect{p.x + p.w - 48, p.y + 6, 42, 24}, m, 0)
 			}
 		}
 	}
 
-	l.palette = Rect{(w - 560) * 0.5, (h - 480) * 0.5, 560, 480}
-	l.palette_input = Rect{l.palette.x + 14, l.palette.y + 14, l.palette.w - 28, 28}
+	l.palette = Rect{(w - 560) * 0.5, max(96, (h - 460) * 0.5), 560, 460}
+	l.palette_input = Rect{l.palette.x + 14, l.palette.y + 38, l.palette.w - 28, 28}
 	for i in 0 ..< MAX_PALETTE {
-		l.palette_row[i] = Rect{l.palette.x + 10, l.palette.y + 52 + f32(i) * 26, l.palette.w - 20, 24}
+		l.palette_row[i] = Rect{l.palette.x + 10, l.palette.y + 78 + f32(i) * 25, l.palette.w - 20, 24}
 	}
 
 	l.io_panel = Rect{w - 440, 124, 426, h - 160}
@@ -563,6 +598,9 @@ app_layout :: proc(a: ^App) {
 		l.io_row[i] = Rect{l.io_panel.x + 12, l.io_panel.y + 78 + f32(i) * 30, l.io_panel.w - 24, 26}
 	}
 	l.palette_count = a.palette_count
+	if a.fx_focus >= l.knob_count + l.toggle_count {
+		a.fx_focus = -1
+	}
 	a.layout = l^
 }
 
@@ -577,6 +615,11 @@ app_resize :: proc(a: ^App, width, height: int) {
 app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 	switch kind {
 	case .Play:
+		if a.transport == .Recording {
+			toast(a, "stop recording before play")
+			status_buf_set(a, "stop recording before play")
+			return
+		}
 		a.transport = .Playing
 		a.frames = 0
 		status_buf_set(a, "playing preview")
@@ -587,6 +630,9 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		status_buf_set(a, "stopped")
 		emit(a, .Stop)
 	case .Record_Start:
+		if a.transport == .Recording {
+			return
+		}
 		armed := false
 		for t in a.tracks {
 			if t.armed {
@@ -609,10 +655,16 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 	case .Bounce:
 		if a.transport == .Recording {
 			toast(a, "stop recording before bounce")
+			status_buf_set(a, "stop recording before bounce")
+			return
+		}
+		if a.bounce_active {
+			toast(a, "bounce already running")
 			return
 		}
 		a.mode = .Bounce
 		a.bounce_progress = 0
+		a.bounce_active = true
 		status_buf_set(a, "bouncing")
 		emit(a, .Bounce)
 	case .Save:
@@ -630,6 +682,9 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		status_buf_set(a, "input device selected")
 	case .Fx:
 		a.mode = .Fx if a.mode != .Fx else .Normal
+		if a.mode != .Fx {
+			a.fx_focus = -1
+		}
 		status_buf_set(a, "fx rack")
 	case .Io:
 		a.mode = .Io if a.mode != .Io else .Normal
@@ -641,11 +696,19 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 	case .Bpm_Down:
 		a.bpm = clamp(a.bpm - 1, 40, 240)
 	case .Arm_All:
+		if a.transport == .Recording {
+			toast(a, "stop recording to change arms")
+			return
+		}
 		for i in 0 ..< MAX_TRACKS {
 			a.tracks[i].armed = true
 		}
 		status_buf_set(a, "all tracks armed")
 	case .Clear_Arms:
+		if a.transport == .Recording {
+			toast(a, "stop recording to change arms")
+			return
+		}
 		for i in 0 ..< MAX_TRACKS {
 			a.tracks[i].armed = false
 		}
@@ -654,6 +717,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		a.transport = .Stopped
 		a.frames = 0
 		a.mode = .Normal
+		a.fx_focus = -1
 		status_buf_set(a, "stopped")
 		toast(a, "panic stop")
 		emit(a, .Stop)
@@ -668,6 +732,7 @@ app_force_stopped :: proc(a: ^App, msg: string) {
 app_bounce_finished :: proc(a: ^App, ok: bool, msg: string) {
 	a.mode = .Normal
 	a.bounce_progress = 1.0
+	a.bounce_active = false
 	status_buf_set(a, msg)
 	if ok {
 		for i in 0 ..< MAX_TRACKS {
@@ -690,11 +755,26 @@ app_toggle_record :: proc(a: ^App) {
 }
 
 app_toggle_play :: proc(a: ^App) {
+	if a.transport == .Recording {
+		status_buf_set(a, "stop recording before play")
+		toast(a, "stop recording before play")
+		return
+	}
 	if a.transport == .Playing {
 		app_execute(a, .Stop)
 	} else {
 		app_execute(a, .Play)
 	}
+}
+
+// Dismissing the overlay does not stop the render job; the progress bar keeps
+// advancing in the tick so the take still finishes.
+app_bounce_dismiss :: proc(a: ^App) {
+	if a.mode != .Bounce {
+		return
+	}
+	a.mode = .Normal
+	status_buf_set(a, "bounce continues in background")
 }
 
 // ---------------------------------------------------------------- tick
@@ -738,11 +818,15 @@ app_tick :: proc(a: ^App, dt: f32) {
 		a.master.gr_db = -abs(math.sin(a.time * 1.7)) * 0.8 if a.master.limiter.enabled && peak > -3 else 0
 	}
 
-	if a.mode == .Bounce {
-		a.bounce_progress += dt * 0.9
+	// The render job is independent of the overlay: dismissing the panel must
+	// not freeze a half-finished bounce.
+	if a.bounce_active {
+		a.bounce_progress = min(a.bounce_progress + dt * 0.9, 1.0)
 		if a.bounce_progress >= 1.0 {
-			a.bounce_progress = 1.0
-			a.mode = .Normal
+			a.bounce_active = false
+			if a.mode == .Bounce {
+				a.mode = .Normal
+			}
 			for i in 0 ..< MAX_TRACKS {
 				if a.tracks[i].armed {
 					a.tracks[i].has_audio = true

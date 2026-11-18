@@ -99,18 +99,18 @@ draw_gr :: proc(c: ^Canvas, r: Rect, gr_db: f32) {
 	canvas_text(c, r.x + 4, r.y + (r.h - text_height()) * 0.5, "GR", MUTED)
 }
 
-draw_fader :: proc(c: ^Canvas, r: Rect, norm: f32, hover: bool) {
+draw_fader :: proc(c: ^Canvas, r: Rect, norm: f32, hover: bool, enabled: bool = true) {
 	track_w: f32 = 6
 	tx := r.x + r.w * 0.5 - track_w * 0.5
 	canvas_fill(c, Rect{tx, r.y, track_w, r.h}, PANEL_3)
 	canvas_rect(c, Rect{tx, r.y, track_w, r.h}, LINE)
 	fill_h := (r.h - 4) * clamp(norm, 0, 1)
-	canvas_fill(c, Rect{tx + 1, r.y + r.h - 2 - fill_h, track_w - 2, fill_h}, AMBER)
+	canvas_fill(c, Rect{tx + 1, r.y + r.h - 2 - fill_h, track_w - 2, fill_h}, AMBER if enabled else MUTED)
 	// unity mark at 1.0/1.5
 	unity_y := r.y + r.h - 2 - (r.h - 4) * (1.0 / 1.5)
 	canvas_hline(c, tx - 5, tx + track_w + 5, unity_y, with_alpha(DIM, 0xAA))
 	thumb_y := r.y + r.h - 2 - fill_h
-	thumb_col: Color = Color(AMBER_BRIGHT) if hover else Color(TEXT)
+	thumb_col: Color = Color(AMBER_BRIGHT) if hover && enabled else Color(TEXT if enabled else MUTED)
 	canvas_fill(c, Rect{r.x, thumb_y - 3, r.w, 6}, thumb_col)
 	canvas_rect(c, Rect{r.x, thumb_y - 3, r.w, 6}, BLACK)
 }
@@ -207,8 +207,8 @@ draw_delay_lanes :: proc(c: ^Canvas, r: Rect, feedback: f32, ping_pong: bool) {
 		y := r.y + 5 if lane == 0 else r.y + r.h * 0.5 + 2
 		canvas_fill(c, Rect{x, y + (r.h * 0.36 - h) * 0.5, 3, h}, AMBER)
 	}
-	canvas_text(c, r.x + 4, r.y + r.h - 14, "L", MUTED)
-	canvas_text(c, r.x + 4, r.y + r.h * 0.5 + 2, "R", MUTED)
+	canvas_text_right(c, r.x + r.w - 4, r.y + 4, "L", MUTED)
+	canvas_text_right(c, r.x + r.w - 4, r.y + r.h * 0.5 + 2, "R", MUTED)
 }
 
 draw_width_scope :: proc(c: ^Canvas, r: Rect, width: f32) {

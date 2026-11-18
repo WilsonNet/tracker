@@ -96,6 +96,26 @@ canvas_clear :: proc(c: ^Canvas, col: Color) {
 	c.clip = Rect{0, 0, f32(c.width), f32(c.height)}
 }
 
+// False for a uniform frame, which is what a renderer regression (or a
+// screenshot taken before the first draw) would produce.
+canvas_nonblank :: proc(c: ^Canvas) -> bool {
+	if len(c.pixels) == 0 {
+		return false
+	}
+	base := c.pixels[0]
+	changed := 0
+	threshold := max(len(c.pixels) / 200, 1)
+	for p in c.pixels {
+		if p != base {
+			changed += 1
+			if changed > threshold {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 canvas_push_clip :: proc(c: ^Canvas, r: Rect) -> Rect {
 	old := c.clip
 	c.clip = rect_intersect(c.clip, r)
