@@ -33,6 +33,15 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"recent projects", .Recent},
 	{"high contrast", .High_Contrast},
 	{"reduced motion", .Reduced_Motion},
+	{"monitor", .Monitor},
+	{"jack capture", .Backend},
+	{"rescan devices", .Rescan},
+	{"latency up", .Latency_Up},
+	{"latency down", .Latency_Down},
+	{"next take", .Take_Next},
+	{"previous take", .Take_Prev},
+	{"comp active take", .Comp_Use},
+	{"clear comp", .Comp_Clear},
 }
 
 // Longest query that still fits the palette input without clipping.
@@ -800,6 +809,22 @@ app_mouse_down :: proc(a: ^App, x, y: f32, button: int = 0) {
 	}
 
 	if a.mode == .Io {
+		if rect_contains(l.jack, x, y) {
+			app_execute(a, .Backend)
+			return
+		}
+		if rect_contains(l.rescan, x, y) {
+			app_execute(a, .Rescan)
+			return
+		}
+		if rect_contains(l.lat_minus, x, y) {
+			app_execute(a, .Latency_Down)
+			return
+		}
+		if rect_contains(l.lat_plus, x, y) {
+			app_execute(a, .Latency_Up)
+			return
+		}
 		for i in 0 ..< l.io_count {
 			if rect_contains(l.io_row[i], x, y) {
 				app_execute(a, .Select_Device, i)
@@ -892,6 +917,10 @@ app_mouse_down :: proc(a: ^App, x, y: f32, button: int = 0) {
 	}
 	if rect_contains(l.click, x, y) {
 		app_execute(a, .Metronome)
+		return
+	}
+	if rect_contains(l.monitor, x, y) {
+		app_execute(a, .Monitor)
 		return
 	}
 
@@ -1145,6 +1174,18 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 		case 'c':
 			app_execute(a, .Metronome)
 			return
+		case 'o':
+			app_execute(a, .Monitor)
+			return
+		case 'y':
+			app_execute(a, .Backend)
+			return
+		case 't':
+			app_execute(a, .Take_Next, a.selected)
+			return
+		case 'T':
+			app_execute(a, .Take_Prev, a.selected)
+			return
 		case '+', '=':
 			app_execute(a, .Bpm_Up)
 			return
@@ -1300,6 +1341,16 @@ app_target_rect :: proc(a: ^App, name: string) -> (Rect, bool) {
 		return l.bpm_plus, true
 	case "metronome":
 		return l.click, true
+	case "monitor":
+		return l.monitor, true
+	case "jack":
+		return l.jack, true
+	case "rescan":
+		return l.rescan, true
+	case "latency.minus":
+		return l.lat_minus, true
+	case "latency.plus":
+		return l.lat_plus, true
 	case "fx":
 		return l.fx, true
 	case "io":
@@ -1340,6 +1391,9 @@ app_target_rect :: proc(a: ^App, name: string) -> (Rect, bool) {
 		}
 		if name == fmt.tprintf("pan.%d", i) {
 			return l.pan[i], true
+		}
+		if name == fmt.tprintf("take.%d", i) {
+			return l.take[i], true
 		}
 	}
 	for i in 0 ..< 5 {
@@ -1392,7 +1446,9 @@ app_target_available :: proc(a: ^App, name: string) -> bool {
 		strings.has_prefix(name, "palette.row.")
 	is_recent := name == "recent.panel" || name == "recent.input" ||
 		strings.has_prefix(name, "recent.row.")
-	is_io := name == "io.panel" || strings.has_prefix(name, "io.row.")
+	is_io := name == "io.panel" || strings.has_prefix(name, "io.row.") ||
+		name == "jack" || name == "rescan" ||
+		name == "latency.minus" || name == "latency.plus"
 
 	switch a.mode {
 	case .Normal:
@@ -1544,6 +1600,24 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "High_Contrast"
 	case .Reduced_Motion:
 		return "Reduced_Motion"
+	case .Monitor:
+		return "Monitor"
+	case .Latency_Up:
+		return "Latency_Up"
+	case .Latency_Down:
+		return "Latency_Down"
+	case .Backend:
+		return "Backend"
+	case .Rescan:
+		return "Rescan"
+	case .Take_Next:
+		return "Take_Next"
+	case .Take_Prev:
+		return "Take_Prev"
+	case .Comp_Use:
+		return "Comp_Use"
+	case .Comp_Clear:
+		return "Comp_Clear"
 	}
 	return "None"
 }
@@ -1645,6 +1719,12 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 		return fmt.tprintf("%d", a.bpm), true
 	case "metronome":
 		return "true" if a.metronome else "false", true
+	case "monitor":
+		return "true" if a.monitor else "false", true
+	case "latency":
+		return fmt.tprintf("%.0f", a.latency_ms), true
+	case "backend":
+		return "Jack" if a.jack_backend else "Miniaudio", true
 	case "solo.any":
 		return "true" if app_any_solo(a) else "false", true
 	case "armed.count":
@@ -1688,6 +1768,12 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 		}
 		if path == fmt.tprintf("has_audio.%d", i) {
 			return "true" if a.tracks[i].has_audio else "false", true
+		}
+		if path == fmt.tprintf("take.count.%d", i) {
+			return fmt.tprintf("%d", a.take_count[i]), true
+		}
+		if path == fmt.tprintf("take.active.%d", i) {
+			return fmt.tprintf("%d", a.take_active[i]), true
 		}
 	}
 	for k in 0 ..< a.layout.knob_count {

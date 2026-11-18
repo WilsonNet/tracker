@@ -561,3 +561,23 @@ cli_flag_validation_and_directory_helpers :: proc(t: ^testing.T) {
 	testing.expect(t, !ensure_dir(test_path(base, "file")), "file accepted as directory")
 	testing.expect(t, ensure_parent_dir(test_path(nested, "file.txt")), "parent helper")
 }
+
+@(test)
+project_latency_and_accessibility_roundtrip :: proc(t: ^testing.T) {
+	path := "/tmp/tracker-project-latency-a11y.json"
+	defer os.remove(path)
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	a.latency_ms = 12
+	a.high_contrast = true
+	a.reduced_motion = true
+	testing.expect(t, project_save(&a, path), "save")
+	b: ui.App
+	ui.app_init(&b, 1180, 760)
+	defer ui.app_destroy(&b)
+	testing.expect(t, project_load(&b, "/tmp", path), "load")
+	testing.expectf(t, abs(b.latency_ms - 12) < 1e-4, "latency %v", b.latency_ms)
+	testing.expect(t, b.high_contrast, "high contrast")
+	testing.expect(t, b.reduced_motion, "reduced motion")
+}

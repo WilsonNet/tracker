@@ -3,10 +3,11 @@
 Native rewrite of Tracker in [Odin](https://odin-lang.org/). The original
 Tauri + React app remains at the repository root as the behavioral reference.
 
-**Status: native app working.** The window, live capture, overdub, playback,
-full FX chain, bounce, project persistence, JACK capture and a headless
-click/screenshot harness all work. Remaining gaps are listed in
-[ROADMAP.md](ROADMAP.md).
+**Status: complete.** The window, live capture, monitoring, overdub, playback,
+takes/comping, full FX chain, bounce, RF64, project persistence, native dialogs,
+recent projects, undo/redo, JACK GUI, HiDPI and the headless click/screenshot
+harness all work. See [ROADMAP.md](ROADMAP.md) for the completion record and
+intentional limits.
 
 ## Why Odin
 
@@ -14,7 +15,7 @@ The motivation is iteration speed. Measured on this machine (Ryzen, 16 threads):
 
 | step | time |
 |---|---|
-| full `odin build` (UI + audio + DSP + CLI) | **≈0.7 s** |
+| full `odin build` (UI + audio + DSP + CLI) | **≈0.8 s** |
 | Tauri/Rust dev rebuild | minutes |
 
 No Node dev server, no webview, no IPC boundary. Change a pixel or a DSP
@@ -26,7 +27,8 @@ Linux, a C toolchain (Odin shells out to `clang`, `cc` and `ld`; `ar` is
 needed only when building the miniaudio archive), Odin `dev-2026-11a` or
 newer, and development files for SDL2, JACK and zlib. ALSA or PipeWire is
 needed at runtime. `make check` also needs `python3`; `sox` and `ffprobe` are
-optional format checks.
+optional format checks. Project open/save-as dialogs use `zenity` (falling back
+to `kdialog`); `--open FILE` and the recent-projects list work without them.
 
 Arch:
 
@@ -69,7 +71,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 158 unit tests
+make test         # 211 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -93,8 +95,8 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | 158 unit tests: 70 DSP, 45 core/engine/project, 43 UI |
-| `check` | `scripts/check.sh`: unit tests, 118-action UI tour, offline bounce |
+| `test` | 211 unit tests: 70 DSP, 85 core/engine/project, 56 UI |
+| `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
 | `ui-test` | run a harness script; `SCRIPT=... UI_OUT=...` |
@@ -113,15 +115,26 @@ directory is in `XDG_DATA_DIRS`.
 - **Tracks:** 4 strips with input selector, arm/solo/mute, pan, fader, peak/RMS
   meter and compressor gain-reduction meter.
 - **Transport:** REC / PLAY / STOP / BOUNCE, timecode, armed count, BPM
-  stepper and metronome click.
+  stepper, metronome click, live input **MON**itoring, latency trim and a
+  PipeWire/cooperative-JACK backend switch.
+- **Takes:** multi-take recording (`T1/2` on each strip), active-take cycling,
+  whole-take comping from the palette, and arbitrary comp regions through the
+  `comp` CLI. Projects keep the legacy `file` plus the full take/comp list.
+- **HiDPI:** logical layout at physical pixel density, 1×–3×, with runtime
+  stb_truetype glyphs; `--ui-scale` for testing.
 - **FX rack:** `x` or FX. Track tabs `1–4`, `MST`; draggable knobs (vertical
   drag), bypass toggles, ping-pong, response visuals.
-- **I/O panel:** live PipeWire/JACK source list from miniaudio.
+- **I/O panel:** live PipeWire/JACK source list, JACK-backend toggle, latency
+  ± controls, rescan and device selection.
 - **Playwright replacement:** `ui-test` (below) drives the exact same state
   machine headlessly.
 - **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `1–4` arm, `j/k`
-  select, `J/K` level, `m` mute, `s` solo, `a` arm, `i` I/O, `x` FX,
-  `c` click, `[`/`]` FX channel, `:` command palette, `Esc` close.
+  select, `J/K` level, `m` mute, `s` solo, `a` arm, `I` input, `x` FX,
+  `c` click, `o` monitor, `y` JACK backend, `t`/`T` next/previous take,
+  `u`/`U` undo/redo, `[`/`]` FX channel, `Tab`/`Shift+Tab` FX focus,
+  `:` command palette, `Esc` close. Recent projects and open/save-as live in
+  the palette; the dialogs use zenity or kdialog. Double-click resets a
+  fader/pan/knob.
 
 Sessions live in `~/.local/share/tracker/session` by default and contain
 `project.json`, `track1.wav` … `track4.wav`, and `bounce.wav` (plus a
@@ -201,24 +214,30 @@ targets are unchanged); `ui-shot --scale N` does the same for a single frame.
 ./bin/tracker-odin bounce --session ~/Music/session --out /tmp/mix.wav
 ./bin/tracker-odin info /tmp/mix.wav
 ./bin/tracker-odin selftest
-./bin/tracker-odin ui
+./bin/tracker-odin comp --session ~/Music/session --track 0 --list
+./bin/tracker-odin comp --session ~/Music/session --track 0 --take 2 --start 0 --end 96000
+./bin/tracker-odin ui --open ~/Music/session/project.json --jack
+./bin/tracker-odin ui --a11y-log
 ./bin/tracker-odin ui-test --script tests/ui/full-tour.json --out /tmp/ui
 ```
 
 `render` accepts a directory of `track1.wav`…`track16.wav` or one WAV.
-`bounce` reads `project.json` (if present), loads the session tracks, resamples
-mixed-rate files to the project rate, renders through the full chain and writes
-stereo 32-bit float.
+`bounce` reads `project.json` (if present), loads the session tracks (active
+takes or comp regions), resamples mixed-rate files to the project rate, renders
+through the full chain and writes stereo 32-bit float (RF64 automatically for
+files over the RIFF limit). `comp --list` shows takes/regions; `--select`
+changes the active take; `--take/--start/--end` adds a region; `--clear`
+removes them.
 
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 45 core/engine/project + 43 UI = 158 tests
+make test        # 70 DSP + 85 core/engine/project + 56 UI = 211 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui
 
-make check       # tests + 118-action UI tour + offline bounce + format checks
+make check       # tests + 220-action UI tour + offline bounce + format checks
 ./scripts/check.sh --hardware   # + 2 s miniaudio capture
 ./scripts/check.sh --jack       # + 0.5 s JACK capture
 ./scripts/check.sh --loopback   # + known 440 Hz tone through a null sink
@@ -230,9 +249,11 @@ tools are installed; the offline core of the script does not need audio
 hardware.
 
 Coverage includes the ported Rust DSP vectors (biquad, EQ, compressor, limiter,
-reverb, delay, widener), resampling quality, WAV layout/import, project
-round-trip and defaults, solo semantics, every UI control and overlay, screenshot
-PNG validity, and an offline engine bounce. Independent checks: `ffprobe`
+reverb, delay, widener), resampling quality, WAV/RF64 layout/import, project
+round-trip/defaults/takes/comp regions, solo semantics, undo/redo, recent
+projects, HiDPI canvas/text at 1/1.5/2/3×, hotplug/latency/monitor helpers,
+every UI control and overlay, screenshot PNG validity, and an offline engine
+bounce. Independent checks: `ffprobe`
 reports `pcm_f32le`, `sox` reads the files without warnings, and its peak/RMS
 agree with the engine.
 
@@ -323,10 +344,18 @@ anchor/baseline behaviour used to generate them.
 
 ## Limitations
 
-- No zero-latency input monitoring. Playback/overdub is rendered and played;
-  the live input is not passed through the output (feedback-safe by default).
-- Overdub is not latency-compensated: the click/existing mix and the capture
-  start on separate devices, so sample-accurate alignment is not guaranteed.
+- Latency compensation is manual (`--latency-ms`/I/O ±): it trims a fixed
+  offset from each new take. There is no automatic round-trip calibration.
+- Live monitoring is a duplex path with a fixed −6 dB gain; it is not a
+  zero-latency hardware monitor loop, and overdub can still drift on long takes.
+- Accessibility is keyboard-first with high-contrast/reduced-motion modes and a
+  textual `--a11y-log` snapshot. There is no AT-SPI accessibility tree.
+- JACK GUI takes accumulate in RAM until stop (≈384 MB/hour stereo); the CLI
+  path is unchanged.
+- RF64 writing/streaming is implemented and tested, but the engine still
+  buffers each take while splitting it; it does not stream a take end-to-end.
+- Multi-take comping has whole-take UI and arbitrary-region CLI; there is no
+  waveform/timeline region editor by product design.
 - Preview render and bounce run synchronously on the UI thread; a long mix
   pauses the window while it renders. JACK capture is exposed through the CLI,
   not yet as a GUI mode.

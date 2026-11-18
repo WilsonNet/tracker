@@ -90,17 +90,37 @@ run_ui_window :: proc(args: []string) -> bool {
 	delete(names)
 	e.device_index = default_idx
 	a.demo = has_flag(args, "--demo")
+	a.latency_ms = clamp(flag_f32(args, "--latency-ms", a.latency_ms), 0, 10_000)
+	if has_flag(args, "--jack") {
+		e.backend = .Jack
+		a.jack_backend = true
+	}
 
-	if os.exists(e.project_path) {
-		if project_load(&a, e.session_dir, e.project_path) {
+	recent_store := recent_config_path()
+	defer delete(recent_store)
+	ui_load_recent(&a, recent_store)
+
+	open_path, has_open := flag_value(args, "--open")
+	if has_open && open_path != "" {
+		if engine_open_project(&a, &e, open_path) {
+			ui_sync_takes(&a, &e)
+			ui_add_recent(&a, open_path, recent_store)
+		}
+	} else if os.exists(e.project_path) {
+		if project_load_with_takes(&a, e.session_dir, e.project_path, e.takes[:]) {
 			engine_match_device(&e, &a, ui.app_device(&a))
-			engine_load_tracks(&e, &a)
+			engine_set_latency_ms(&e, a.latency_ms)
+			_ = engine_load_tracks(&e, &a)
+			ui_sync_takes(&a, &e)
+			ui.app_history_reset(&a)
 			ui.status_buf_set(&a, "project loaded")
 		}
 	} else {
-		engine_load_tracks(&e, &a)
+		_ = engine_load_tracks(&e, &a)
+		ui_sync_takes(&a, &e)
 		ui.status_buf_set(&a, "ready")
 	}
+	engine_set_latency_ms(&e, a.latency_ms)
 
 	canvas: ui.Canvas
 	ui.canvas_init(&canvas, ui.canvas_pixel_size(logical_w, scale), ui.canvas_pixel_size(logical_h, scale), scale)
@@ -113,6 +133,8 @@ run_ui_window :: proc(args: []string) -> bool {
 	}
 	defer sdl.DestroyTexture(texture)
 
+	a11y_log := has_flag(args, "--a11y-log")
+	a11y_revision: u64 = a.state_revision
 	running := true
 	last := time.now()
 	for running {
@@ -184,7 +206,7 @@ run_ui_window :: proc(args: []string) -> bool {
 				}
 			case .Stop:
 				engine_stop_playback(&e)
-				if e.rec.active {
+				if e.rec.active || jack_session_is_running(&e.jack) {
 					_ = engine_record_stop(&e, &a)
 				}
 			case .Record_Start:
@@ -193,11 +215,13 @@ run_ui_window :: proc(args: []string) -> bool {
 				}
 			case .Record_Stop:
 				_ = engine_record_stop(&e, &a)
+				ui_sync_takes(&a, &e)
 			case .Bounce:
 				_ = engine_bounce(&e, &a)
 			case .Save:
-				if project_save(&a, e.project_path) {
+				if project_save_with_takes(&a, e.takes[:], e.project_path) {
 					ui.status_buf_set(&a, "project saved")
+					ui_add_recent(&a, e.project_path, recent_store)
 				} else {
 					ui.status_buf_set(&a, "save failed")
 					ui.toast(&a, "save failed")
@@ -207,9 +231,12 @@ run_ui_window :: proc(args: []string) -> bool {
 				if e.rec.active {
 					_ = engine_record_stop(&e, &a)
 				}
-				if project_load(&a, e.session_dir, e.project_path) {
+				if project_load_with_takes(&a, e.session_dir, e.project_path, e.takes[:]) {
 					_ = engine_load_tracks(&e, &a)
 					engine_match_device(&e, &a, ui.app_device(&a))
+					engine_set_latency_ms(&e, a.latency_ms)
+					ui_sync_takes(&a, &e)
+					ui.app_history_reset(&a)
 					ui.status_buf_set(&a, "project loaded")
 				} else {
 					ui.status_buf_set(&a, "load failed")
@@ -217,10 +244,92 @@ run_ui_window :: proc(args: []string) -> bool {
 				}
 			case .Select_Device:
 				engine_set_device(&e, &a, cmd.index)
+			case .Monitor:
+				if a.monitor {
+					_ = engine_monitor_start(&e, &a)
+				} else {
+					_ = engine_monitor_stop(&e, &a)
+				}
+			case .Latency_Up, .Latency_Down:
+				engine_set_latency_ms(&e, a.latency_ms)
+			case .Backend:
+				if !engine_set_backend(&e, .Jack if a.jack_backend else .Miniaudio) {
+					a.jack_backend = !a.jack_backend
+					ui.status_buf_set(&a, "stop transport before changing capture backend")
+					ui.toast(&a, "stop transport first")
+				} else {
+					ui.status_buf_set(&a, "JACK capture selected" if a.jack_backend else "PipeWire capture selected")
+				}
+			case .Rescan:
+				names2 := engine_rescan_devices(&e, &a)
+				ui.app_set_devices(&a, names2, max(e.device_index, 0))
+				for name in names2 {
+					delete(name)
+				}
+				delete(names2)
+				ui.status_buf_set(&a, "devices rescanned")
+			case .Take_Next:
+				if engine_take_cycle(&e, &a, cmd.index, 1) {
+					ui_sync_takes(&a, &e)
+				} else {
+					ui.status_buf_set(&a, "no takes on this track")
+				}
+			case .Take_Prev:
+				if engine_take_cycle(&e, &a, cmd.index, -1) {
+					ui_sync_takes(&a, &e)
+				} else {
+					ui.status_buf_set(&a, "no takes on this track")
+				}
+			case .Comp_Use:
+				if engine_comp_use_active(&e, &a, cmd.index) {
+					_ = engine_take_select(&e, &a, cmd.index, e.takes[cmd.index].active)
+					ui_sync_takes(&a, &e)
+					_ = project_save_with_takes(&a, e.takes[:], e.project_path)
+					ui_add_recent(&a, e.project_path, recent_store)
+				} else {
+					ui.status_buf_set(&a, "no active take to comp")
+				}
+			case .Comp_Clear:
+				_ = engine_comp_clear(&e, &a, cmd.index)
+				_ = engine_take_select(&e, &a, cmd.index, e.takes[cmd.index].active)
+				ui_sync_takes(&a, &e)
+				_ = project_save_with_takes(&a, e.takes[:], e.project_path)
+			case .Open_Project:
+				path, picked := pick_project_open()
+				if picked {
+					if engine_open_project(&a, &e, path) {
+						ui_sync_takes(&a, &e)
+						ui_add_recent(&a, path, recent_store)
+					}
+					delete(path)
+				} else {
+					ui.status_buf_set(&a, "project picker cancelled")
+				}
+			case .Save_As:
+				path, picked := pick_project_save()
+				if picked {
+					if engine_save_as_to(&a, &e, path) {
+						ui_add_recent(&a, path, recent_store)
+					}
+					delete(path)
+				} else {
+					ui.status_buf_set(&a, "save-as picker cancelled")
+				}
+			case .Open_Recent:
+				path := ui.app_recent_target(&a)
+				if path != "" && engine_open_project(&a, &e, path) {
+					ui_sync_takes(&a, &e)
+					ui_add_recent(&a, path, recent_store)
+				}
 			case:
 			}
 		}
 		engine_update(&e, &a)
+		ui_sync_takes(&a, &e)
+		if a11y_log && a.state_revision != a11y_revision {
+			a11y_revision = a.state_revision
+			fmt.println(ui.app_describe(&a))
+		}
 		ui.app_draw(&a, &canvas)
 
 		sdl.UpdateTexture(texture, nil, raw_data(canvas.pixels), c.int(canvas.width * 4))

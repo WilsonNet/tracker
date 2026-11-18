@@ -240,6 +240,7 @@ draw_header :: proc(a: ^App, c: ^Canvas) {
 	draw_button(c, l.bpm_plus, "+", false, is_hover(a, l.bpm_plus), a.bpm < 240, ACTIVE_TOKENS.dim)
 	canvas_text_center(c, (l.bpm_minus.x + l.bpm_minus.w + l.bpm_plus.x) * 0.5, 28, fmt.tprintf("%d BPM", a.bpm), ACTIVE_TOKENS.dim)
 	draw_toggle(c, l.click, "CLICK", a.metronome, is_hover(a, l.click), true, ACTIVE_TOKENS.teal)
+	draw_toggle(c, l.monitor, "MON", a.monitor, is_hover(a, l.monitor), true, ACTIVE_TOKENS.teal)
 }
 
 @(private)
@@ -342,6 +343,16 @@ draw_track :: proc(a: ^App, c: ^Canvas, i: int) {
 	canvas_fill(c, in_btn, ACTIVE_TOKENS.panel_2 if !in_hover else ACTIVE_TOKENS.panel_3)
 	canvas_rect(c, in_btn, ACTIVE_TOKENS.line_bright)
 	canvas_text(c, in_btn.x + 6, in_btn.y + 8, fmt.tprintf("IN %d", t.input), ACTIVE_TOKENS.amber if a.transport != .Recording else ACTIVE_TOKENS.muted)
+	if a.take_count[i] > 0 {
+		tr := l.take[i]
+		count := a.take_count[i]
+		active := a.take_active[i]
+		hov := is_hover(a, tr) && a.transport != .Recording
+		canvas_fill(c, tr, ACTIVE_TOKENS.panel_2 if !hov else ACTIVE_TOKENS.panel_3)
+		canvas_rect(c, tr, ACTIVE_TOKENS.line_bright)
+		label := "T?" if active <= 0 else fmt.tprintf("T%d/%d", active, count)
+		canvas_text_center(c, tr.x + tr.w * 0.5, tr.y + 4, label, ACTIVE_TOKENS.amber if count > 1 else ACTIVE_TOKENS.muted)
+	}
 
 	// FX summary chips.
 	chip_x := r.x + 10
@@ -680,6 +691,12 @@ command_hint :: proc(kind: Command_Kind) -> string {
 		return "project"
 	case .Undo, .Redo:
 		return "history"
+	case .Monitor, .Backend, .Rescan, .Latency_Up, .Latency_Down:
+		return "audio"
+	case .Take_Next, .Take_Prev:
+		return "take"
+	case .Comp_Use, .Comp_Clear:
+		return "take"
 	case .High_Contrast, .Reduced_Motion:
 		return "a11y"
 	case .Select_Device:
@@ -720,6 +737,11 @@ draw_io :: proc(a: ^App, c: ^Canvas) {
 	if l.io_count == 0 {
 		canvas_text(c, l.io_panel.x + 14, l.io_panel.y + 64, "no devices reported", ACTIVE_TOKENS.muted)
 	}
+	draw_toggle(c, l.jack, "JACK", a.jack_backend, is_hover(a, l.jack), true, TEAL)
+	draw_button(c, l.rescan, "RESCAN", false, is_hover(a, l.rescan), true, ACTIVE_TOKENS.text)
+	draw_button(c, l.lat_minus, "-", false, is_hover(a, l.lat_minus), a.latency_ms > 0, ACTIVE_TOKENS.text)
+	draw_button(c, l.lat_plus, "+", false, is_hover(a, l.lat_plus), a.latency_ms < 500, ACTIVE_TOKENS.text)
+	canvas_text_center(c, (l.lat_minus.x + l.lat_minus.w + l.lat_plus.x) * 0.5, l.lat_minus.y + 4, fmt.tprintf("LAT %.0f", a.latency_ms), ACTIVE_TOKENS.text)
 	canvas_text(c, l.io_panel.x + 14, l.io_panel.y + l.io_panel.h - 24, "click to select  ·  ESC close", ACTIVE_TOKENS.muted)
 }
 

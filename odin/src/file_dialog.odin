@@ -25,8 +25,21 @@ trim_line :: proc(s: string) -> string {
 
 @(private)
 run_dialog :: proc(argv: []string) -> (string, bool) {
+	command := argv
+	forced: [dynamic]string
+	defer delete(forced)
+	if driver := os.get_env("SDL_VIDEODRIVER", context.allocator); driver == "x11" {
+		// SDL is on X11 (e.g. Xvfb in tests). GTK would otherwise prefer
+		// Wayland and open the dialog on a different display.
+		defer delete(driver)
+		append(&forced, "env", "GDK_BACKEND=x11")
+		for arg in argv {
+			append(&forced, arg)
+		}
+		command = forced[:]
+	}
 	desc := os.Process_Desc {
-		command = argv,
+		command = command,
 	}
 	state, stdout, stderr, err := os.process_exec(desc, context.allocator)
 	defer delete(stdout)

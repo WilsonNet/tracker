@@ -48,6 +48,7 @@ engine_save_as_and_open_roundtrip :: proc(t: ^testing.T) {
 	testing.expect(t, ui.app_project(&b) == "path test", "project name")
 	testing.expect(t, b.tracks[0].has_audio, "take restored")
 	testing.expect(t, e2.loaded[0] != nil, "engine loaded take")
+	testing.expectf(t, engine_take_count(&e2, 0) >= 1, "take count %d", engine_take_count(&e2, 0))
 }
 
 @(test)

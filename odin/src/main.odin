@@ -16,7 +16,7 @@ import "core:strings"
 import dsp "dsp"
 import ui "ui"
 
-VERSION :: "0.3.0-native"
+VERSION :: "1.0.0"
 
 MAX_CLI_SECONDS :: 3_600.0
 MAX_CLI_CHANNELS :: 32
@@ -60,7 +60,7 @@ main :: proc() {
 			ok = run_selftest()
 		}
 	case "ui":
-		if !validate_flags(args[2:], []string{"--session", "--width", "--height", "--ui-scale"}, []string{"--demo"}) {
+		if !validate_flags(args[2:], []string{"--session", "--width", "--height", "--ui-scale", "--open", "--latency-ms"}, []string{"--demo", "--jack", "--a11y-log"}) {
 			ok = false
 		} else {
 			w := flag_int(args[2:], "--width", 1180)
@@ -80,6 +80,8 @@ main :: proc() {
 		ok = run_ui_test(args[2:])
 	case "bounce":
 		ok = run_bounce(args[2:])
+	case "comp":
+		ok = run_comp(args[2:])
 	case "version", "--version":
 		fmt.printfln("tracker-odin %s", VERSION)
 	case "help", "--help", "-h":
@@ -104,9 +106,14 @@ usage:
   tracker-odin tone   --out FILE [--seconds 3] [--freq 440] [--amp 0.5] [--channels 1]
   tracker-odin render --in DIR_OR_FILE --out FILE [chain options]
   tracker-odin bounce --session DIR [--out FILE]
+  tracker-odin comp --session DIR --track N --list
+  tracker-odin comp --session DIR --track N --select ID
+  tracker-odin comp --session DIR --track N --take ID --start FRAME --end FRAME
+  tracker-odin comp --session DIR --track N --clear
   tracker-odin info   FILE.wav
   tracker-odin selftest
-  tracker-odin ui [--ui-scale 1|1.25|1.5|2|3] [--demo]
+  tracker-odin ui [--ui-scale 1|1.25|1.5|2|3] [--demo] [--open FILE]
+                  [--jack] [--a11y-log] [--latency-ms N]
   tracker-odin ui-shot --out FILE [--scale 1|1.25|1.5|2|3] [--fx|--palette|--io|--bounce|--playing|--recording]
   tracker-odin ui-test --script FILE.json --out DIR [--scale 1|1.25|1.5|2|3]
   tracker-odin version
@@ -642,7 +649,7 @@ run_bounce :: proc(args: []string) -> bool {
 	ui.app_init(&a, 1180, 760)
 	defer ui.app_destroy(&a)
 	if os.exists(e.project_path) {
-		if !project_load(&a, e.session_dir, e.project_path) {
+		if !project_load_with_takes(&a, e.session_dir, e.project_path, e.takes[:]) {
 			fmt.eprintln("cannot load project")
 			return false
 		}
@@ -671,5 +678,90 @@ run_bounce :: proc(args: []string) -> bool {
 		fmt.printfln("  track %d comp GR %.2f dB", i + 1, gr)
 	}
 	fmt.printfln("  master GR %.2f dB  limiter GR %.2f dB", out.stats.master_gr, out.stats.limiter_gr)
+	return true
+}
+
+@(private)
+run_comp :: proc(args: []string) -> bool {
+	if !validate_flags(args, []string{"--session", "--track", "--take", "--start", "--end", "--select"}, []string{"--clear", "--list"}) {
+		return false
+	}
+	session, has_session := flag_value(args, "--session")
+	if !has_session {
+		fmt.eprintln("comp needs --session DIR")
+		return false
+	}
+	track := clamp(flag_int(args, "--track", 0), 0, MAX_ENGINE_TRACKS - 1)
+	e: Engine
+	if !engine_init(&e, []string{"--session", session}) {
+		return false
+	}
+	defer engine_destroy(&e)
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+
+	if os.exists(e.project_path) {
+		if !project_load_with_takes(&a, e.session_dir, e.project_path, e.takes[:]) {
+			fmt.eprintln("cannot load project")
+			return false
+		}
+	} else {
+		_ = engine_load_tracks(&e, &a)
+	}
+	list := &e.takes[track]
+	if len(list.takes) == 0 {
+		fmt.eprintln("no takes on that track")
+		return false
+	}
+
+	if has_flag(args, "--list") {
+		fmt.printfln("track %d: %d take(s), active %d", track + 1, len(list.takes), list.active)
+		for take in list.takes {
+			marker := "*" if take.id == list.active else " "
+			fmt.printfln("  %s %d  %s  %s  %d frames", marker, take.id, take.name, take.file, 0)
+		}
+		for region in list.comp {
+			fmt.printfln("  comp: take %d  [%d, %d)", region.take_id, region.start_frame, region.end_frame)
+		}
+		return true
+	}
+
+	changed := false
+	if _, has_select := flag_value(args, "--select"); has_select {
+		id := flag_int(args, "--select", 0)
+		if !take_list_select(list, id) {
+			fmt.eprintln("unknown take id")
+			return false
+		}
+		changed = true
+	}
+	if has_flag(args, "--clear") {
+		comp_clear(list)
+		changed = true
+	}
+	if has_flag(args, "--take") || has_flag(args, "--start") || has_flag(args, "--end") {
+		take_id := flag_int(args, "--take", list.active)
+		start := flag_int(args, "--start", 0)
+		end := flag_int(args, "--end", 0)
+		if end <= start {
+			fmt.eprintln("--end must be greater than --start")
+			return false
+		}
+		if !comp_add_region(list, take_id, start, end) {
+			fmt.eprintln("invalid region (unknown take, overlap, or unsorted)")
+			return false
+		}
+		changed = true
+	}
+	if !changed {
+		fmt.eprintln("nothing to do (use --list, --select, --clear, or --take/--start/--end)")
+		return false
+	}
+	if !project_save_with_takes(&a, e.takes[:], e.project_path) {
+		fmt.eprintln("cannot save project")
+		return false
+	}
+	fmt.printfln("track %d: active take %d, %d comp region(s)", track + 1, list.active, len(list.comp))
 	return true
 }

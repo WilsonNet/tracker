@@ -941,6 +941,64 @@
       "key": "escape"
     },
     {
+      "type": "click",
+      "id": "monitor"
+    },
+    {
+      "type": "assert",
+      "path": "monitor",
+      "equals": "true"
+    },
+    {
+      "type": "click",
+      "id": "io"
+    },
+    {
+      "type": "assert",
+      "path": "mode",
+      "equals": "Io"
+    },
+    {
+      "type": "click",
+      "id": "latency.plus"
+    },
+    {
+      "type": "assert",
+      "path": "latency",
+      "equals": "1"
+    },
+    {
+      "type": "click",
+      "id": "jack"
+    },
+    {
+      "type": "assert",
+      "path": "backend",
+      "equals": "Jack"
+    },
+    {
+      "type": "click",
+      "id": "rescan"
+    },
+    {
+      "type": "assert",
+      "path": "command",
+      "equals": "Rescan"
+    },
+    {
+      "type": "click",
+      "id": "io"
+    },
+    {
+      "type": "assert",
+      "path": "mode",
+      "equals": "Normal"
+    },
+    {
+      "type": "screenshot",
+      "name": "audio-controls"
+    },
+    {
       "type": "resize",
       "width": 1180,
       "height": 760

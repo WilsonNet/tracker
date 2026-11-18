@@ -1371,6 +1371,8 @@ ui_describe_is_a_screen_reader_snapshot :: proc(t: ^testing.T) {
 	text2 := app_describe(&a)
 	testing.expect(t, strings.contains(text2, "track 1 Track 1: armed, mute on"), "describe reflects mute")
 	testing.expect(t, text2 != text, "describe changes with state")
+}
+
 // ---------------------------------------------------------------- HiDPI
 
 @(private)

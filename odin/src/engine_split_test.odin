@@ -174,6 +174,7 @@ engine_load_tracks_clears_stale_audio_on_bad_files :: proc(t: ^testing.T) {
 		for i in 0 ..< MAX_ENGINE_TRACKS {
 			delete(e.loaded[i])
 		}
+		engine_takes_clear(&e)
 		delete(e.session_dir)
 	}
 	e.session_dir = fmt.aprintf("%s", dir)

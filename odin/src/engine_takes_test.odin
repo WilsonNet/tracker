@@ -58,3 +58,28 @@ engine_takes_register_stabilize_and_comp :: proc(t: ^testing.T) {
 	testing.expect(t, len(e.loaded[0]) == 256, "comp frames")
 	testing.expectf(t, abs(e.loaded[0][128] - 0.25) < 1e-6, "comp source %v len %d active %d", e.loaded[0][50], len(e.loaded[0]), e.takes[0].active)
 }
+
+@(test)
+engine_comp_use_active_and_clear :: proc(t: ^testing.T) {
+	base := "/tmp/tracker-engine-comp-ui"
+	os.remove_all(base)
+	defer os.remove_all(base)
+	_ = os.make_directory_all(base)
+	samples := make([]f32, 128)
+	defer delete(samples)
+	for i in 0 ..< len(samples) {
+		samples[i] = 0.1
+	}
+	testing.expect(t, wav_write(fmt.tprintf("%s/track1.wav", base), 48_000, 1, samples))
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	e: Engine
+	testing.expect(t, engine_init(&e, []string{"--session", base}))
+	defer engine_destroy(&e)
+	testing.expect(t, engine_load_tracks(&e, &a))
+	testing.expect(t, engine_comp_use_active(&e, &a, 0), "comp use")
+	testing.expectf(t, len(e.takes[0].comp) == 1, "regions %d", len(e.takes[0].comp))
+	testing.expect(t, engine_comp_clear(&e, &a, 0), "comp clear")
+	testing.expect(t, len(e.takes[0].comp) == 0, "regions remain")
+}

@@ -184,11 +184,12 @@ engine_destroy :: proc(e: ^Engine) {
 	delete(e.bounce_path)
 }
 
-engine_set_backend :: proc(e: ^Engine, backend: Capture_Backend) {
+engine_set_backend :: proc(e: ^Engine, backend: Capture_Backend) -> bool {
 	if e.rec.active || jack_session_is_running(&e.jack) {
-		return
+		return false
 	}
 	e.backend = backend
+	return true
 }
 
 // ---------------------------------------------------------------- capture
@@ -966,8 +967,13 @@ engine_load_tracks :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	for i in 0 ..< MAX_ENGINE_TRACKS {
 		if handled, ok := engine_load_track_from_takes(e, a, i); handled {
 			any = any || ok
-			if !ok && a != nil {
-				a.tracks[i].has_audio = false
+			if !ok {
+				delete(e.loaded[i])
+				e.loaded[i] = nil
+				e.loaded_rate[i] = 0
+				if a != nil {
+					a.tracks[i].has_audio = false
+				}
 			}
 			continue
 		}

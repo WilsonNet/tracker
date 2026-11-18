@@ -34,6 +34,9 @@ engine_takes_ensure :: proc(e: ^Engine) {
 @(private)
 engine_take_stabilize_canonical :: proc(e: ^Engine, track: int) {
 	list := &e.takes[track]
+	if len(list.takes) == 0 {
+		_ = takes_load_from_dir(list, e.session_dir, track)
+	}
 	canonical := fmt.tprintf("track%d.wav", track + 1)
 	for &take in list.takes {
 		if take.file != canonical {
@@ -167,6 +170,42 @@ engine_take_select :: proc(e: ^Engine, a: ^ui.App, track, id: int) -> bool {
 		return false
 	}
 	return ok
+}
+
+// Builds a one-region comp from the active take's full loaded length. This is
+// the UI's whole-take comping action; the CLI can add arbitrary regions.
+engine_comp_use_active :: proc(e: ^Engine, a: ^ui.App, track: int) -> bool {
+	if track < 0 || track >= MAX_ENGINE_TRACKS {
+		return false
+	}
+	list := &e.takes[track]
+	take, has := take_list_active(list)
+	if !has {
+		return false
+	}
+	frames := len(e.loaded[track])
+	if frames <= 0 {
+		return false
+	}
+	comp_clear(list)
+	if !comp_add_region(list, take.id, 0, frames) {
+		return false
+	}
+	if a != nil {
+		ui.status_buf_set(a, "comp: active take")
+	}
+	return true
+}
+
+engine_comp_clear :: proc(e: ^Engine, a: ^ui.App, track: int) -> bool {
+	if track < 0 || track >= MAX_ENGINE_TRACKS {
+		return false
+	}
+	comp_clear(&e.takes[track])
+	if a != nil {
+		ui.status_buf_set(a, "comp cleared")
+	}
+	return true
 }
 
 engine_take_cycle :: proc(e: ^Engine, a: ^ui.App, track, delta: int) -> bool {

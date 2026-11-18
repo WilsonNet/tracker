@@ -11,7 +11,7 @@ MAX_TRACKS :: 4
 MAX_KNOBS :: 24
 MAX_TOGGLES :: 16
 MAX_DEVICES :: 16
-MAX_PALETTE :: 24
+MAX_PALETTE :: 40
 MAX_HISTORY :: 64
 MAX_RECENT :: 8
 RECENT_PATH_MAX :: 192
@@ -50,6 +50,15 @@ Command_Kind :: enum {
 	Open_Recent,
 	High_Contrast,
 	Reduced_Motion,
+	Monitor,
+	Latency_Up,
+	Latency_Down,
+	Backend,
+	Rescan,
+	Take_Next,
+	Take_Prev,
+	Comp_Use,
+	Comp_Clear,
 }
 
 Command :: struct {
@@ -197,6 +206,8 @@ Layout :: struct {
 	bpm_minus: Rect,
 	bpm_plus:  Rect,
 	click:     Rect,
+	monitor:   Rect,
+	take:      [MAX_TRACKS]Rect,
 
 	track: [MAX_TRACKS]Rect,
 	arm:   [MAX_TRACKS]Rect,
@@ -240,6 +251,10 @@ Layout :: struct {
 	io_panel: Rect,
 	io_row:   [MAX_DEVICES]Rect,
 	io_count: int,
+	jack:     Rect,
+	rescan:   Rect,
+	lat_minus: Rect,
+	lat_plus:  Rect,
 }
 
 Drag_Kind :: enum { None, Fader, Pan, Knob }
@@ -263,6 +278,11 @@ App :: struct {
 	sample_rate:   u32,
 	bpm:           int,
 	metronome:     bool,
+	monitor:       bool,
+	latency_ms:    f32,
+	jack_backend:  bool,
+	take_count:    [MAX_TRACKS]int,
+	take_active:   [MAX_TRACKS]int,
 	frames:        i64,
 	time:          f32,
 
@@ -833,16 +853,19 @@ app_describe :: proc(a: ^App) -> string {
 	} else {
 		describe_append(out[:], &n, "selected track %d. ", a.selected + 1)
 	}
-	describe_append(out[:], &n, "tempo %d bpm. metronome %s. high contrast %s. reduced motion %s. ",
+	describe_append(out[:], &n, "tempo %d bpm. metronome %s. monitor %s. latency %.0f ms. capture %s. high contrast %s. reduced motion %s. ",
 		a.bpm, "on" if a.metronome else "off",
+		"on" if a.monitor else "off", a.latency_ms,
+		"Jack" if a.jack_backend else "PipeWire",
 		"on" if a.high_contrast else "off",
 		"on" if a.reduced_motion else "off")
 	for t, i in a.tracks {
-		describe_append(out[:], &n, "track %d %s: %s, mute %s, solo %s, level %d percent, pan %s, peak %.1f dB. ",
+		describe_append(out[:], &n, "track %d %s: %s, mute %s, solo %s, %d take(s), level %d percent, pan %s, peak %.1f dB. ",
 			i + 1, t.name,
 			"armed" if t.armed else "disarmed",
 			"on" if t.muted else "off",
 			"on" if t.soloed else "off",
+			a.take_count[i],
 			int(t.level / 1.5 * 100.0 + 0.5),
 			"center" if abs(t.pan) < 0.02 else fmt.tprintf("%s%.0f", "left " if t.pan < 0 else "right ", abs(t.pan) * 100),
 			t.peak_db)
@@ -887,6 +910,14 @@ app_set_input_channels :: proc(a: ^App, count: int) {
 
 app_set_project :: proc(a: ^App, name: string) {
 	project_buf_set(a, name)
+}
+
+app_set_takes :: proc(a: ^App, track, count, active: int) {
+	if track < 0 || track >= MAX_TRACKS {
+		return
+	}
+	a.take_count[track] = max(count, 0)
+	a.take_active[track] = max(active, 0)
 }
 
 app_set_meters :: proc(a: ^App, peaks, rms, gr: []f32) {
@@ -975,6 +1006,7 @@ app_layout :: proc(a: ^App) {
 	l.bpm_minus = Rect{w - 136, 20, 24, 24}
 	l.bpm_plus = Rect{w - 40, 20, 24, 24}
 	l.click = Rect{w - 412, 20, 56, 24}
+	l.monitor = Rect{w - 480, 20, 60, 24}
 
 	area_y := f32(124)
 	area_h := h - area_y - 32
@@ -990,6 +1022,7 @@ app_layout :: proc(a: ^App) {
 		inner_w := r.w - 20
 
 		l.input[i] = Rect{inner_x, r.y + 34, 70, 24}
+		l.take[i] = Rect{inner_x + inner_w - 66, r.y + 34, 66, 24}
 		tog_y := r.y + 86
 		tog_w := (inner_w - 8) / 3
 		l.arm[i] = Rect{inner_x, tog_y, tog_w, 26}
@@ -1083,6 +1116,11 @@ app_layout :: proc(a: ^App) {
 	}
 
 	l.io_panel = Rect{w - 440, 124, 426, h - 160}
+	io_ctl_y := l.io_panel.y + l.io_panel.h - 64
+	l.jack = Rect{l.io_panel.x + 14, io_ctl_y, 64, 22}
+	l.rescan = Rect{l.io_panel.x + 86, io_ctl_y, 74, 22}
+	l.lat_minus = Rect{l.io_panel.x + 176, io_ctl_y, 22, 22}
+	l.lat_plus = Rect{l.io_panel.x + 266, io_ctl_y, 22, 22}
 	l.io_count = min(len(a.devices), MAX_DEVICES)
 	for i in 0 ..< MAX_DEVICES {
 		l.io_row[i] = Rect{l.io_panel.x + 12, l.io_panel.y + 78 + f32(i) * 30, l.io_panel.w - 24, 26}
@@ -1220,6 +1258,54 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 	case .Metronome:
 		a.metronome = !a.metronome
 		status_buf_set(a, "metronome on" if a.metronome else "metronome off")
+		app_history_note(a, "metronome")
+		app_touch(a)
+	case .Monitor:
+		a.last_command = .Monitor
+		a.last_command_index = 0
+		a.monitor = !a.monitor
+		emit(a, .Monitor)
+		status_buf_set(a, "monitor on" if a.monitor else "monitor off")
+		app_history_note(a, "monitor")
+		app_touch(a)
+	case .Latency_Up:
+		a.last_command = .Latency_Up
+		a.last_command_index = 0
+		a.latency_ms = clamp(a.latency_ms + 1, 0, 500)
+		emit(a, .Latency_Up)
+		status_buf_set(a, fmt.tprintf("latency %.0f ms", a.latency_ms))
+		app_history_note(a, "latency")
+		app_touch(a)
+	case .Latency_Down:
+		a.last_command = .Latency_Down
+		a.last_command_index = 0
+		a.latency_ms = clamp(a.latency_ms - 1, 0, 500)
+		emit(a, .Latency_Down)
+		status_buf_set(a, fmt.tprintf("latency %.0f ms", a.latency_ms))
+		app_history_note(a, "latency")
+		app_touch(a)
+	case .Backend:
+		a.last_command = .Backend
+		a.last_command_index = 0
+		a.jack_backend = !a.jack_backend
+		emit(a, .Backend)
+		status_buf_set(a, "JACK capture" if a.jack_backend else "PipeWire capture")
+		app_history_note(a, "backend")
+		app_touch(a)
+	case .Rescan:
+		a.last_command = .Rescan
+		a.last_command_index = 0
+		emit(a, .Rescan)
+		status_buf_set(a, "rescanning devices")
+	case .Take_Next, .Take_Prev:
+		emit(a, kind, a.selected)
+		status_buf_set(a, "take selected")
+	case .Comp_Use:
+		emit(a, .Comp_Use, a.selected)
+		status_buf_set(a, "comp: active take")
+	case .Comp_Clear:
+		emit(a, .Comp_Clear, a.selected)
+		status_buf_set(a, "comp cleared")
 		app_history_note(a, "metronome")
 		app_touch(a)
 	case .Bpm_Up:

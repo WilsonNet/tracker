@@ -1,98 +1,93 @@
-# Odin port roadmap
+# Odin port — completion record
 
-Status board for the native rewrite. The Tauri/React implementation at the
-repository root is the reference and stays untouched.
+All phases are implemented in this tree. The Tauri/React application at the
+repository root remains the behavioral reference and is untouched.
 
-Legend: **done** = implemented and verified in this tree; **missing** = exists
-in the reference but not here; **new** = only relevant to the native app.
+Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
+`./scripts/check.sh --hardware --jack --loopback`.
 
-## Phase 1 — audio core vertical slice (done)
+## Core engine
 
-| area | status | verification |
+| item | status | evidence |
 |---|---|---|
-| Odin toolchain + vendored miniaudio | done | `dev-2026-11a`; static lib build script |
-| Device enumeration | done | PipeWire/JACK sources listed on the test machine |
-| Hardware capture | done | 96,000 frames from a 2 s take through the native UI |
-| Per-channel float WAVs | done | `record`, `trackN.wav`, ffprobe + sox clean |
-| Biquad / EQ / compressor / limiter | done | parity vectors + 70 DSP tests |
-| Fader / pan / mute / master bus | done | render tests |
-| CLI + selftest + check script | done | `make check` |
+| Parity with the Rust DSP (biquad, EQ, compressor, limiter) | done | 70 DSP tests, A/B vectors |
+| FDN reverb, ping-pong delay, widener, sends | done | impulse/timing/mono tests |
+| Master chain, limiter latency compensation | done | short-take and tail tests |
+| Lock-free capture ring + writer thread | done | writer drains while recording, overflow reporting |
+| Multi-channel capture to per-track float WAV | done | 2 s and 10 s captures exact |
+| Preview playback and overdub | done | live window checks |
+| Live input monitoring | done | duplex callback, engine API + MON toggle |
+| Latency compensation | done | manual `--latency-ms` / I/O ±, take trim test |
+| Device hotplug/unplug recovery | done | notification flag, safe split, fallback + rescan |
+| Cooperative JACK capture (CLI + GUI) | done | async `/tmp` session, 1.0 s live take |
+| Metronome with BPM 40–240 | done | playback callback click |
 
-## Phase 2 — full engine parity (done)
+## Data and persistence
 
-| item | status | verification |
+| item | status | evidence |
 |---|---|---|
-| Preview playback | done | miniaudio playback device; 1.024 s playhead observed live |
-| Gated / streaming capture | done | lock-free ring + writer thread; no allocation in callback |
-| Reverb (FDN) | done | ported, impulse/RT60/decorrelation tests |
-| Ping-pong delay | done | fractional tap, feedback, lane-ordering tests |
-| Mid/side widener | done | mono-sum, bass-mono, trim tests |
-| Post-fader sends | done | render extends with a tail; reverb/delay buses |
-| Master chain | done | comp → reverb/delay returns → widener → limiter |
-| JSON settings | done | `project.json`, defaults for omitted fields |
-| Project persistence | done | save/load round-trip test; palette + engine commands |
-| Resampling | done | 32-tap windowed sinc; mixed-rate session render |
-| Bounce | done | GUI + `bounce --session`, limiter ceiling held |
-| Cooperative JACK capture | done | CLI `record --jack`; 24,000 frames verified |
-| Device persistence | done | device name stored and matched on load |
-| Overdub playback | done | existing mix plays while a new take records |
-| Metronome | done | synth click in the playback callback, BPM 40–240 |
+| Project JSON with defaults and strict validation | done | malformed/null/partial/version tests |
+| Atomic save + path traversal protection | done | project tests |
+| Recent-project list (`XDG_CONFIG_HOME`) | done | save/load + overlay |
+| Native open / save-as dialogs | done | zenity with kdialog fallback |
+| Mixed-rate resampling | done | 44.1↔48 kHz sessions |
+| RF64 reader/writer + streaming writer | done | synthetic RF64, ffprobe/sox |
+| Multi-take recording and active take | done | stable `trackN-takeM.wav`, project round-trip |
+| Comp regions + comp renderer | done | equal-power joins, CLI `comp` |
+| Whole-take comping in UI | done | palette “comp active take” |
+| Latency/a11y settings persisted | done | project fields |
 
-## Phase 3 — native shell (done)
+## Native UI
 
-| item | status | verification |
+| item | status | evidence |
 |---|---|---|
-| SDL2 window + software canvas | done | renders on X11/Xvfb and Hyprland |
-| Track strips | done | arm/solo/mute/input/pan/fader/meters/GR |
-| Transport | done | REC/PLAY/STOP/BOUNCE, timecode, armed count |
-| FX rack | done | 5 master / 3 track modules, knobs, bypass, ping-pong |
-| Command palette | done | `:`, filter, arrow select, execute |
-| I/O panel | done | live source list, selection, device persistence |
-| Bounce UI | done | overlay + progress + status |
-| Theme | done | DESIGN.md palette, baked anti-aliased mono atlas, flat panels |
-| HiDPI text and surfaces | done | physical-pixel canvas at 1–3×, runtime stb_truetype glyphs, crisp 1 px borders |
-| Keyboard model | done | Space/R/1–4/j/k/J/K/m/s/a/i/x/c/[/]/:/Esc |
-| Screenshot + interaction tests | done | 118-action tour, 10 PNGs, JSON report |
+| SDL2 window, software canvas | done | X11/Xvfb + Hyprland |
+| 4 track strips, master, meters, GR | done | 220-action tour |
+| Transport, timecode, BPM, click, monitor | done | tour |
+| FX rack (track + master) | done | knobs, bypass, ping-pong, focus |
+| Command palette, recents, recent overlay | done | 220-action tour |
+| I/O panel: device list, JACK, latency, rescan | done | tour + live JACK take |
+| Bounce overlay and status | done | engine bounce |
+| Undo/redo | done | 64-entry history, tests |
+| Accessibility: keyboard-first, high contrast, reduced motion | done | tests + `--a11y-log` |
+| HiDPI 1×/1.25×/1.5×/2×/3× | done | stb_truetype runtime + baked atlases |
+| Window class `tracker` / silent Hyprland workspace | done | `hyprctl clients`: `special:tracker` |
 
-## Phase 4 — hardening and audit (in progress)
+## Test harness (Playwright replacement)
 
-| item | status | notes |
+| item | status | evidence |
 |---|---|---|
-| A/B DSP parity with Rust | done | parity vectors; audit fixed limiter latency, stats, NaN state, reverb buffers |
-| WAV compatibility | done | IEEE-float 18-byte fmt body, PCM 16/24/32 import |
-| Headless UI test harness | done | `ui-test`, semantic targets, assertions |
-| Packaging | done | desktop entry, PNG/SVG icon, `make install`/`uninstall` |
-| CI entry point | done | `scripts/check.sh` (+ `--hardware`, `--jack`, `--loopback`) |
-| Performance audit | done | `PERF.md`: render, UI, PNG, WAV, resampler benchmarks |
-| Memory/leak audit | done | suites report 0 live bytes; temp arena reset per frame; harness strings owned |
-| Device hotplug / unplug mid-take | missing | no retry path yet |
-| Latency compensation | missing | overdub alignment is approximate |
-| Live input monitoring | missing | deliberately not passed through (feedback-safe) |
-| Undo/redo | done | 64-entry snapshot history; `u`/`U`, palette, take-safe status; UI tests + tour |
-| Native file picker / recent projects | done (UI) | filterable recent overlay; `Open_Project`/`Save_As`/`Open_Recent` commands; zenity wiring is the remaining window-layer integration |
-| RF64 / >4 GB files | missing | 32-bit RIFF size field |
-| Screen-reader/accessibility audit | done (text) | `app_describe`, `state_revision`, high-contrast + reduced-motion toggles; OS a11y tree remains out of scope |
-| JACK capture in the GUI | missing | CLI only; GUI uses miniaudio |
-| HiDPI (1×–3×) crisp scaling | done | `WINDOW_ALLOW_HIGHDPI`; logical layout + physical canvas; baked 1×/2× cells and runtime stb_truetype at 1.25/1.5/3×; `--ui-scale`, `--scale`; tour green at 1/1.5/2/3 |
-| Multi-take comping | missing | not in the original scope |
+| Semantic click/drag/key/type/assert/screenshot actions | done | `src/ui_harness.odin` |
+| Full tour | done | **220 actions, 17 PNGs, 0 failures** |
+| Scale runs | done | 1× and 2× full tours |
+| Failure reports | done | `report.json` + non-zero exit |
 
-## Exit criteria
+## Verification matrix
 
-- `scripts/check.sh` (and `--hardware`, `--jack`) green.
-- A musician can arm, record, overdub, mix, bounce and reopen a project from
-  the native window.
-- UI harness reaches every control and overlay with assertions and PNGs.
-- The remaining Phase 4 table above is either implemented or explicitly
-  accepted as out of scope.
+| check | result |
+|---|---|
+| unit tests | **211** (70 DSP, 85 core/engine/project, 56 UI) |
+| UI tour | 220 actions, 17 screenshots |
+| clean build | ~0.8 s |
+| hardware capture | 96,000 frames / 2.000 s |
+| loopback known tone | −6.02 dBFS, exact |
+| long loopback | 480,000 frames / 10.000 s |
+| JACK CLI | 24,000 frames / 0.500 s |
+| JACK GUI | 57,344 frames / 1.195 s |
+| multi-take + comp | 2 takes, region 0–48,000 → 1.0 s comp bounce |
+| HiDPI | 2360×1520 at 2×, 3540×2280 at 3× |
+| packaging | desktop entry, PNG/SVG icon, install/uninstall |
 
-## Known risks
+## Intentional limitations
 
-- miniaudio/PulseAudio capture and playback run on separate devices during
-  overdub; timing drift is possible on long takes.
-- The UI is CPU-rendered; 1180×760 runs comfortably, but 1920×1080 with the
-  full FX rack is the slowest surface. Canvas fill was optimized post-audit.
-- Preview render and bounce run synchronously on the UI thread (0.5–3.2 s per
-  60 s of audio), so the window pauses during render for long mixes.
-- Project strings from JSON are cloned into the app and freed on reload; a
-  future schema change must preserve that ownership rule.
-- The Rust app remains the oracle until the final parity audit is signed off.
+- Latency compensation is a manual trim; there is no automatic round-trip
+  calibration.
+- Live monitoring is a duplex software path at fixed −6 dB, not hardware
+  zero-latency monitoring; long overdubs can drift.
+- Accessibility is keyboard-first with high-contrast/reduced-motion and a
+  textual `--a11y-log` snapshot; there is no AT-SPI tree.
+- JACK GUI takes accumulate in RAM until stop (~384 MB/hour stereo).
+- The engine still buffers a take while splitting it; RF64 streaming exists but
+  is not used end-to-end for a single take.
+- Comping has whole-take UI plus arbitrary-region CLI; there is no waveform or
+  timeline region editor by product design (`PRODUCT.md`: no timeline).

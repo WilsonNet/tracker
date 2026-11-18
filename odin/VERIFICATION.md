@@ -1,56 +1,52 @@
 # Verification matrix
 
-Recorded on the development machine (Arch Linux, PipeWire 1.6.11, Odin
-`dev-2026-11-nightly`), 2026-11-17/18.
+Measured on the development machine (Arch Linux, PipeWire 1.6.11, Odin
+`dev-2026-11-nightly`), 2026-11-17/18. The port is complete; details and
+intentional limits are in `ROADMAP.md`.
 
 ## Build and unit tests
 
 | check | command | result |
 |---|---|---|
-| clean build | `make clean && make build` | 0.68 s, 1 binary |
-| DSP tests | `odin test src/dsp` | 70 passed |
-| engine/project/WAV | `odin test src` | 45 passed |
-| UI state/layout/PNG | `odin test src/ui` | 43 passed |
-| vet | `odin check src -no-entry-point -vet` | clean |
-| packaging | `PREFIX=/tmp/tracker-install ./scripts/install-desktop.sh` | binary + icon + desktop entry |
+| clean build | `make clean && make build` | ≈0.8 s |
+| DSP | `odin test src/dsp` | **70 passed** |
+| engine / project / WAV / RF64 / takes / CLI | `odin test src` | **83 passed** |
+| UI state, layout, HiDPI, PNG | `odin test src/ui` | **56 passed** |
+| static checks | `odin check src -no-entry-point -vet` | clean |
+| packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry |
 
-Total: **158 unit tests**.
+Total: **211 unit tests**.
 
-## Native UI harness (Playwright replacement)
+## Native UI harness
 
 `./bin/tracker-odin ui-test --script tests/ui/full-tour.json --out /tmp/ui`
 
-- **118 actions, 0 failures**
-- 10 PNG screenshots at 900×620, 1180×760 and 1920×1080
-- the same tour is green at `--scale 1.5`, `--scale 2` and `--scale 3`
-  (physical PNGs 1770×1140, 2360×1520, 3540×2280)
-- assertions cover arm/mute/solo, record/play/stop, fader/pan drag, FX tabs,
-  knobs, bypass, ping-pong, palette filtering/execution, bounce, I/O selection,
-  tempo/click, resize, and final state
+- **220 actions, 0 failures**
+- **17 PNG screenshots** at 900×620, 1180×760, 1920×1080
+- Full tour also passes at `--scale 2` (physical 2360×1520)
+- Covers arm/mute/solo, record/play/stop, faders/pans, FX tabs/knobs/bypass,
+  palette, recents, bounce, I/O, tempo/click, monitor, JACK toggle, latency,
+  rescan, undo/redo, keyboard focus, resizes
 
 ## Real audio
 
 | check | result |
 |---|---|
-| miniaudio capture (default source) | 96,000 frames / 2.000 s, short 0 |
-| native UI record (default source) | 100,352 frames / 2.091 s, peak **−6.02 dBFS** with loopback |
-| JACK capture (`record --jack`) | 24,000 frames / 0.500 s, short 0 |
-| loopback capture (known 440 Hz, 0.5 amplitude) | peak **−6.02 dBFS**, RMS −9.13, exact 2.000 s |
-| long loopback capture | 480,000 frames / **10.000 s**, exact |
-| mic input (phantom on, input 1) | peak ≈ −43 dBFS (quiet room) |
-| 10 s loopback capture | 480,000 frames / 10.000 s, exact |
-| 5 s UI take | 239,616 frames / 4.992 s, overflow 0 |
-| final UI take (post-audit engine) | 191,488 frames / 3.989 s + bounce + project.json |
-| overdub | existing mix plays while track 2 records; both takes written |
-| bounce from native UI | `bounce.wav`, stereo float, limiter ceiling respected |
-| project save/reload | `project.json` + `track1.wav`; TAKE restored after relaunch |
-| UI loopback recording | track 1 peak **−6.02 dBFS**, master −7.9 dBFS on screen |
-| text rendering | baked 12.5px/25px anti-aliased mono atlas, descenders/baseline tests |
-| Hyprland window rule | class `tracker`, workspace `special:tracker`, silent, no focus steal |
-| mixed-rate session | 44.1 kHz track → 48 kHz bounce |
-| project-driven reverb send | 2 s take → 7.50 s bounce with tail |
-| DSP audit | limiter latency, short-take stats, NaN recovery, reverb buffers fixed |
-| WAV compatibility | `ffprobe` = `pcm_f32le`; `sox` header warnings absent |
+| miniaudio capture (default source) | 96,000 frames / 2.000 s |
+| native UI capture (loopback tone) | 100,352 frames, **−6.02 dBFS** |
+| loopback known tone | **−6.02 dBFS**, RMS −9.13, exact 2.000 s |
+| long loopback | 480,000 frames / **10.000 s** |
+| JACK CLI | 24,000 frames / 0.500 s |
+| JACK GUI (`ui --jack`) | 57,344 frames / 1.195 s |
+| live monitor + latency + 2 takes | duplex monitor, track1-take1 + canonical, T1/2 |
+| comp region | 2 takes, region [0, 48000) → 1.000 s comp bounce |
+| bounce | stereo float, limiter ceiling held |
+| project save/reload | takes, active take, latency and a11y flags restored |
+| recent projects | `/tmp/tracker-feature/project.json` persisted and reopened |
+| HiDPI | 1180×760, 1770×1140, 2360×1520, 3540×2280 screenshots |
+
+A real 2-second take through the native window and a 4-second take followed by
+bounce/project save were both verified with xdotool on Xvfb.
 
 The loopback test is reproducible with:
 
@@ -58,23 +54,23 @@ The loopback test is reproducible with:
 ./scripts/check.sh --loopback
 ```
 
-It creates a PulseAudio null sink, plays a known 0.5-amplitude 440 Hz tone,
-records its monitor through `tracker-odin record`, and asserts the WAV peak is
-−6.02 dBFS ±2 dB.
+## Accessibility
 
-## Window-level tests
+- `ui --a11y-log` prints `app_describe()` on every state revision: mode,
+  transport, selection, per-track arm/mute/solo/takes/level/pan/peak, tempo,
+  monitor/latency/backend, contrast/motion flags, undo depth and status.
+- High-contrast and reduced-motion modes are keyboard/palette accessible and
+  persisted in `project.json`.
+- No AT-SPI tree; the textual log is the screen-reader surface.
 
-Driven through SDL2 under Xvfb with xdotool (X11 backend because the developer
-session is Wayland):
+## Packaging
 
-- arm → record → stop → play → screenshot
-- 10 s capture and overdub
-- palette `: save`, `b save`, relaunch and reload
-- keyboard-only path (`1`, `2`, `r`, `c`, `b`, `:`)
+`make install` and `make uninstall` are idempotent. The desktop entry uses
+`Name=Tracker (Odin)`, `StartupWMClass=tracker`, quoted `Exec`, PNG and SVG
+icons. The window class matches the existing silent `special:tracker` rule.
 
-## Known gaps
+## Sources consulted
 
-See `ROADMAP.md` Phase 4: live input monitoring, latency compensation, native
-file picker, undo/redo, RF64, a11y tree, JACK GUI mode, hotplug. These are
-explicitly out of scope for the current port; everything else on the roadmap is
-implemented and exercised above.
+The implementation follows the project research rule in `AGENTS.md`; the
+significant sources are recorded in the README (SDL2 high-DPI, stb_truetype,
+RF64/EBU, JACK, XDG, Odin core/vendor).

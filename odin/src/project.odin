@@ -58,6 +58,9 @@ Project_Doc :: struct {
 	name:        string          `json:"name"`,
 	sample_rate: u32             `json:"sampleRate"`,
 	bpm:         int             `json:"bpm"`,
+	latency_ms:  f32             `json:"latencyMs"`,
+	high_contrast: bool          `json:"highContrast"`,
+	reduced_motion: bool         `json:"reducedMotion"`,
 	device:      string          `json:"device"`,
 	tracks:      []Project_Track `json:"tracks"`,
 	master:      Project_Master  `json:"master"`,
@@ -261,6 +264,9 @@ project_from_app_with_takes :: proc(a: ^ui.App, takes: []Take_List) -> Project_D
 	doc.name = ui.app_project(a)
 	doc.sample_rate = a.sample_rate
 	doc.bpm = a.bpm
+	doc.latency_ms = a.latency_ms
+	doc.high_contrast = a.high_contrast
+	doc.reduced_motion = a.reduced_motion
 	doc.device = ui.app_device(a)
 	for i in 0 ..< 4 {
 		t := a.tracks[i]
@@ -325,6 +331,9 @@ Project_Load_Doc :: struct {
 	name:        string                  `json:"name"`,
 	sample_rate: u32                     `json:"sampleRate"`,
 	bpm:         int                     `json:"bpm"`,
+	latency_ms:  f32                     `json:"latencyMs"`,
+	high_contrast: bool                  `json:"highContrast"`,
+	reduced_motion: bool                 `json:"reducedMotion"`,
 	device:      string                  `json:"device"`,
 	tracks:      [PROJECT_MAX_LOAD_TRACKS]Project_Track `json:"tracks"`,
 	master:      Project_Master          `json:"master"`,
@@ -566,6 +575,9 @@ project_load_with_takes :: proc(a: ^ui.App, dir, path: string, takes: []Take_Lis
 
 	a.sample_rate = sample_rate
 	a.bpm = bpm
+	a.latency_ms = clamp(doc.latency_ms, 0, 10_000)
+	a.high_contrast = doc.high_contrast
+	a.reduced_motion = doc.reduced_motion
 	ui.app_set_project(a, truncate_utf8(doc.name, PROJECT_NAME_MAX) if doc.name != "" else "untitled")
 	if len(doc.device) > 0 {
 		ui.app_set_device(a, truncate_utf8(doc.device, PROJECT_DEVICE_NAME_MAX))

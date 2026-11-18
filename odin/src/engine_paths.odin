@@ -52,11 +52,18 @@ engine_retarget :: proc(e: ^Engine, session_dir, project_path: string) -> bool {
 // new project is self-contained. Returns false without changing the engine if
 // anything fails midway.
 engine_save_as :: proc(a: ^ui.App, e: ^Engine, new_dir: string) -> bool {
+	return engine_save_as_to(a, e, fmt.tprintf("%s/project.json", new_dir))
+}
+
+// Saves a self-contained project at an explicit .json path (used by the native
+// save-as picker), copying takes next to it.
+engine_save_as_to :: proc(a: ^ui.App, e: ^Engine, project_path: string) -> bool {
 	if e.rec.active || e.play.active {
 		ui.status_buf_set(a, "stop transport before save as")
 		return false
 	}
-	if !ensure_dir(new_dir) {
+	dir := parent_dir(project_path)
+	if !ensure_dir(dir) {
 		ui.status_buf_set(a, "cannot create save-as directory")
 		return false
 	}
@@ -65,17 +72,33 @@ engine_save_as :: proc(a: ^ui.App, e: ^Engine, new_dir: string) -> bool {
 		if !os.exists(src) {
 			continue
 		}
-		dst := fmt.tprintf("%s/track%d.wav", new_dir, i)
-		if !copy_file(src, dst) {
+		dst := fmt.tprintf("%s/track%d.wav", dir, i)
+		if src != dst && !copy_file(src, dst) {
 			ui.status_buf_set(a, "cannot copy take to new project")
 			return false
 		}
 	}
-	if !project_save_with_takes(a, e.takes[:], fmt.tprintf("%s/project.json", new_dir)) {
+	for list in e.takes {
+		for take in list.takes {
+			if take.file == "" {
+				continue
+			}
+			src := fmt.tprintf("%s/%s", e.session_dir, take.file)
+			dst := fmt.tprintf("%s/%s", dir, take.file)
+			if src == dst || !os.exists(src) {
+				continue
+			}
+			if !copy_file(src, dst) {
+				ui.status_buf_set(a, "cannot copy take to new project")
+				return false
+			}
+		}
+	}
+	if !project_save_with_takes(a, e.takes[:], project_path) {
 		ui.status_buf_set(a, "save as failed")
 		return false
 	}
-	if !engine_retarget(e, new_dir, fmt.tprintf("%s/project.json", new_dir)) {
+	if !engine_retarget(e, dir, project_path) {
 		ui.status_buf_set(a, "cannot retarget project")
 		return false
 	}
@@ -99,7 +122,9 @@ engine_open_project :: proc(a: ^ui.App, e: ^Engine, path: string) -> bool {
 		return false
 	}
 	e.sample_rate = a.sample_rate
+	engine_set_latency_ms(e, a.latency_ms)
 	_ = engine_load_tracks(e, a)
+	ui.app_history_reset(a)
 	ui.status_buf_set(a, "project loaded")
 	return true
 }
