@@ -67,6 +67,7 @@ test "knob drag changes value"
   expect-exact "+0.0" 3
   drag-text LOW 0 -60
   expect-exact "+0.0" 2
+  expect-exact "+12.7"
   screenshot knob-dragged
 
 test "bpm stepper"
@@ -111,3 +112,10 @@ test "minimum window size"
   expect-text "Track 4"
   expect-text RHYTHM
   screenshot min-size
+
+test "shift drag is fine"
+  type x
+  drag-text LOW 0 -60 shift
+  expect-exact "+0.0" 2
+  expect-exact "+1.5"
+  screenshot shift-drag
