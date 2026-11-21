@@ -9,6 +9,7 @@ package ui
 import "core:fmt"
 import "core:math"
 import vui "vinland:vui"
+import vui_icons "vinland:vui/icons"
 
 JBM_REGULAR :: #load("../../assets/fonts/JetBrainsMono-Regular.ttf")
 JBM_MEDIUM :: #load("../../assets/fonts/JetBrainsMono-Medium.ttf")
@@ -36,12 +37,14 @@ View :: struct {
 	ic_close:      vui.Icon,
 	ic_left:       vui.Icon,
 	ic_right:      vui.Icon,
+	ic_settings:   vui.Icon,
 	high_contrast: bool,
 	fine:          bool, // Shift held: fine knob drag / wheel
 	tight:         bool, // FX rack open in a short window: compact strips + rack
 	knob_wheel:    bool, // a rack knob consumed this frame's wheel
 	focus_rect:    vui.Rect, // module holding the keyboard focus (last frame)
 	last_focus:    int,
+	last_mode:     Mode,
 	chain_w:       f32,
 }
 
@@ -67,6 +70,7 @@ view_init :: proc(v: ^View, ctx: ^vui.Context) {
 	v.ic_close = vui.icon_register(ctx, "tracker-close", {20, 20}, CLOSE_PATH[:])
 	v.ic_left = vui.icon_register(ctx, "tracker-left", {20, 20}, LEFT_PATH[:])
 	v.ic_right = vui.icon_register(ctx, "tracker-right", {20, 20}, RIGHT_PATH[:])
+	v.ic_settings = vui.icon_register(ctx, "tracker-settings", {20, 20}, vui_icons.COG_6_TOOTH_PATHS[:])
 	view_theme(&ctx.theme, false)
 	vui.set_dark(true)
 }
@@ -115,6 +119,15 @@ view_frame :: proc(a: ^App, v: ^View) {
 		v.high_contrast = a.high_contrast
 		view_theme(&ctx.theme, a.high_contrast)
 	}
+	if v.last_mode != a.mode {
+		// Opening Settings from the SET button leaves vinland focus on that
+		// button; a later Enter would both run the selected row and toggle
+		// Settings closed. The overlay has its own keyboard model.
+		if a.mode == .Settings {
+			vui.focus(0)
+		}
+		v.last_mode = a.mode
+	}
 	// keyboard focus in the FX rack indexes the model's knob/toggle lists
 	app_layout(a)
 	a.mouse_x = ctx.input.mouse.x
@@ -159,6 +172,8 @@ view_frame :: proc(a: ^App, v: ^View) {
 			view_io(a)
 		case .Recent:
 			view_recent(a)
+		case .Settings:
+			view_settings(a)
 		case .Bounce:
 			view_bounce_overlay(a)
 		}
@@ -259,6 +274,8 @@ status_mode :: proc(a: ^App) -> (string, string) {
 		return "BOUNCE", "bg-rec-bg text-rec-hi"
 	case .Recent:
 		return "RECENT", "bg-cue-bg text-cue"
+	case .Settings:
+		return "SETTINGS", "bg-cue-bg text-cue"
 	}
 	return "NORMAL", "bg-sig-bg text-sig"
 }
@@ -349,6 +366,14 @@ view_transport :: proc(a: ^App, v: ^View) {
 				}
 				if vui.clicked() {
 					app_execute(a, .Io)
+				}
+			}
+			settings := a.mode == .Settings
+			if vui.button_box(vui.cx(TBTN, "border px-2", settings ? "border-line-sig bg-sig-bg text-sig" : "border-line text-ink-dim hover:border-ink-muted hover:bg-panel-hover hover:text-ink")) {
+				vui.icon(v.ic_settings, "size-3.5")
+				vui.text("SET")
+				if vui.clicked() {
+					app_execute(a, .Settings)
 				}
 			}
 		}
@@ -1225,6 +1250,8 @@ view_status :: proc(a: ^App) {
 			hint = "enter: run  esc: close"
 		case .Io:
 			hint = "click: select  esc: close"
+		case .Settings:
+			hint = "type: edit path  enter: apply  esc: cancel" if a.settings_path_edit else "j/k: select  enter: run  b: browse  esc: close"
 		}
 		vui.text(hint, "ml-2 whitespace-pre text-ink-muted")
 	}
@@ -1278,8 +1305,14 @@ close_on_backdrop :: proc(a: ^App) {
 	// (JACK, RESCAN, LAT ±) also reports clicked() here. Only the backdrop
 	// itself -- the topmost hit under the pointer -- dismisses the overlay.
 	if vui.clicked() && vui.ctx_get().hover_id == vui.current_id() {
-		a.mode = .Normal
-		bump_revision(a)
+		if a.mode == .Settings {
+			// Cancel a path edit too, otherwise the caret keeps the window
+			// redrawing after the overlay is gone.
+			app_settings_close(a)
+		} else {
+			a.mode = .Normal
+			bump_revision(a)
+		}
 	}
 }
 
@@ -1416,6 +1449,128 @@ view_recent :: proc(a: ^App) {
 				vui.pop_id()
 			}
 			vui.text("TYPE filter   ENTER open   ↑↓ select   ESC close", "whitespace-pre pt-1 text-[11px] text-ink-muted")
+		}
+	}
+}
+
+@(private = "file")
+SETTINGS_HEAD :: "border-t border-line-subtle pt-3 text-[10px] font-semibold tracking-[0.12em] text-ink-muted"
+
+@(private = "file")
+settings_toggle :: proc(a: ^App, item: Settings_Item, label: string, on: bool, cmd: Command_Kind) {
+	selected := a.settings_sel == item
+	if vui.button(label, vui.cx(BBTN, "px-2 py-0.5 text-[10px]", on ? "border-cue bg-cue-bg text-cue" : "border-line text-ink-dim hover:bg-panel-hover hover:text-ink", selected ? "ring-2 ring-sig" : "")) {
+		a.settings_sel = item
+		app_execute(a, cmd)
+	}
+}
+
+@(private = "file")
+settings_item_class :: proc(a: ^App, item: Settings_Item, base: string) -> string {
+	return vui.cx(base, a.settings_sel == item ? "ring-2 ring-sig" : "")
+}
+
+// A full preferences surface: grouped sections so new settings can be added
+// without redesigning the panel. Storage edits the project folder; audio and
+// accessibility mirror the transport / I/O controls.
+@(private = "file")
+view_settings :: proc(a: ^App) {
+	if vui.pressable(OVERLAY) {
+		close_on_backdrop(a)
+		if vui.pressable(vui.cx(PANEL, "max-h-[94%] w-[700px] gap-3 overflow-y-auto")) {
+			if vui.div("flex items-baseline gap-3") {
+				vui.text("Settings", "text-[14px] font-semibold text-ink")
+				vui.text("Machine preferences", "text-[11px] text-ink-muted")
+				vui.text("ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
+			}
+
+			// ── storage ───────────────────────────────────────────────
+			vui.text("STORAGE", "text-[10px] font-semibold tracking-[0.12em] text-ink-muted")
+			vui.text("Project folder", "text-[12px] font-medium text-ink")
+			editing := a.settings_path_edit
+			changed := app_settings_path(a) != app_save_dir(a)
+			path_selected := a.settings_sel == .Path
+			// A plain box, not a focusable button: the window consumes real
+			// keys, but vui-ctl's synthetic Enter would otherwise activate the
+			// focused field and re-enter edit mode after APPLY.
+			if vui.div(vui.cx("flex w-full items-center gap-2 rounded-[2px] border bg-canvas px-3 py-2 text-left", editing ? "border-sig" : path_selected ? "border-sig ring-2 ring-sig" : "border-line hover:border-sig-dim")) {
+				vui.text("$", "text-[12px] font-bold text-sig")
+				path := app_settings_path(a)
+				vui.text(path if path != "" else "not set", vui.cx("flex-1 truncate text-[11px]", path != "" ? "text-ink" : "text-ink-muted"))
+				if editing {
+					vui.el("h-4 w-[2px] animate-pulse bg-sig")
+					vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+				} else {
+					vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
+				}
+				if vui.clicked() {
+					a.settings_sel = .Path
+					if !editing {
+						app_settings_begin_edit(a)
+					}
+				}
+			}
+			vui.text("project.json, per-track WAVs, takes and bounce.wav are written here.", "text-[10px] text-ink-muted")
+			if changed && !editing {
+				vui.text("Edited · APPLY copies the current takes into the new folder.", "text-[10px] text-sig")
+			}
+			if vui.div("flex items-center gap-2") {
+				if vui.button("BROWSE…", settings_item_class(a, .Browse, vui.cx(BBTN, "border-line text-ink-dim hover:bg-panel-hover hover:text-ink"))) {
+					a.settings_sel = .Browse
+					app_execute(a, .Choose_Save_Dir)
+				}
+				if vui.button("APPLY", settings_item_class(a, .Apply, vui.cx(BBTN, "border-line-sig text-sig hover:bg-sig-bg"))) {
+					a.settings_sel = .Apply
+					app_execute(a, .Apply_Save_Dir)
+				}
+				if vui.button("DEFAULT", settings_item_class(a, .Default, vui.cx(BBTN, "border-line text-ink-dim hover:bg-panel-hover hover:text-ink"))) {
+					a.settings_sel = .Default
+					app_execute(a, .Reset_Save_Dir)
+				}
+			}
+
+			// ── audio ─────────────────────────────────────────────────
+			vui.text("AUDIO", SETTINGS_HEAD)
+			if vui.div("flex items-center gap-2") {
+				vui.text("Input device", "flex-1 text-[12px] text-ink")
+				vui.text(app_device(a), "max-w-[260px] truncate text-[11px] text-ink-dim")
+				if vui.button("INPUTS…", settings_item_class(a, .Inputs, vui.cx(BBTN, "px-2 py-0.5 text-[10px] border-line text-ink-dim hover:bg-panel-hover hover:text-ink"))) {
+					a.settings_sel = .Inputs
+					app_execute(a, .Io)
+				}
+			}
+			if vui.div("flex items-center gap-2") {
+				vui.text("Capture backend", "flex-1 text-[12px] text-ink")
+				settings_toggle(a, .Backend, "JACK" if a.jack_backend else "PIPEWIRE", a.jack_backend, .Backend)
+			}
+			if vui.div("flex items-center gap-2") {
+				vui.text("Input latency", "flex-1 text-[12px] text-ink")
+				vui.text(fmt.tprintf("%.0f ms", a.latency_ms), "w-16 text-right text-[11px] tabular-nums text-ink-dim")
+				if vui.button("−", settings_item_class(a, .Latency_Down, vui.cx(BBTN, "border-line px-2 py-0.5 text-[10px] text-ink-dim hover:text-ink"))) {
+					a.settings_sel = .Latency_Down
+					app_execute(a, .Latency_Down)
+				}
+				if vui.button("+", settings_item_class(a, .Latency_Up, vui.cx(BBTN, "border-line px-2 py-0.5 text-[10px] text-ink-dim hover:text-ink"))) {
+					a.settings_sel = .Latency_Up
+					app_execute(a, .Latency_Up)
+				}
+			}
+			if vui.div("flex items-center gap-2") {
+				vui.text("Direct monitoring", "flex-1 text-[12px] text-ink")
+				settings_toggle(a, .Monitor, "ON" if a.monitor else "OFF", a.monitor, .Monitor)
+			}
+
+			// ── appearance ───────────────────────────────────────────
+			vui.text("APPEARANCE", SETTINGS_HEAD)
+			if vui.div("flex items-center gap-2") {
+				vui.text("High contrast", "flex-1 text-[12px] text-ink")
+				settings_toggle(a, .High_Contrast, "ON" if a.high_contrast else "OFF", a.high_contrast, .High_Contrast)
+			}
+			if vui.div("flex items-center gap-2") {
+				vui.text("Reduced motion", "flex-1 text-[12px] text-ink")
+				settings_toggle(a, .Reduced_Motion, "ON" if a.reduced_motion else "OFF", a.reduced_motion, .Reduced_Motion)
+			}
+			vui.text("Stored in settings.json · audio and mix settings travel with the project.", "pt-1 text-[10px] text-ink-muted")
 		}
 	}
 }

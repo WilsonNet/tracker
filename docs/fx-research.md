@@ -74,11 +74,11 @@ VST, no external DSP crate.
 
 ## Verification
 
-- `cd odin && make test` — 226 tests across DSP, engine/project/WAV and UI:
+- `cd odin && make test` — 236 tests across DSP, engine/project/WAV/settings and UI:
   filter magnitude responses, compressor transfer curve/makeup, reverb decay +
   stereo decorrelation, delay echo timing + feedback stability, widener
   mono-sum invariance, limiter ceiling, resampling, full mixdown, RF64/WAV
   write and project round-trip.
-- `cd odin && make e2e` — 14 headless window cases, including the FX rack.
+- `cd odin && make e2e` — 15 headless window cases, including the FX rack and settings.
 - `cd odin && ./scripts/check.sh --loopback` — known 440 Hz tone through the
   full chain, with format and peak assertions.

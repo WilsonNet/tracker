@@ -1,7 +1,7 @@
 # Verification matrix
 
 Measured on the development machine (Arch Linux, PipeWire 1.6.11, Odin
-`dev-2026-11-nightly`), 2026-11-17/18. The port is complete; details and
+`dev-2026-11-nightly`), 2026-11-17/21. The port is complete; details and
 intentional limits are in `ROADMAP.md`.
 
 ## Build and unit tests
@@ -10,14 +10,14 @@ intentional limits are in `ROADMAP.md`.
 |---|---|---|
 | clean build | `make clean && make build` | ≈0.8 s |
 | DSP | `odin test src/dsp` | **70 passed** |
-| engine / project / WAV / RF64 / takes / CLI | `odin test src` | **99 passed** |
-| UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **57 passed** |
+| engine / project / WAV / RF64 / takes / CLI / settings | `odin test src` | **106 passed** |
+| UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **60 passed** |
 | vector renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
 | charts | level history + 5 FX response graphs | 17 screenshots inspected |
-| static checks | `odin check src -no-entry-point -vet` | clean |
+| static checks | `odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
-Total: **226 unit tests**.
+Total: **236 unit tests**.
 
 ## Native UI harness
 
@@ -32,6 +32,39 @@ Total: **226 unit tests**.
 - Window-responsive zoom verified at 1440x900 (1.20x), 1920x1080 (1.52x),
   2536x986 (1.59x) and 3840x2160 (1.80x cap); the virtual frame never drops
   below 900x620
+- Window suite (`make e2e`): **15 cases**, including settings keyboard
+  selection, path edit, apply and close
+
+## Settings persistence (2026-11-21)
+
+Verified against the real window with isolated XDG dirs, no `--session`:
+
+```sh
+VUI_HIDDEN=1 VUI_PORT=7426 \
+  XDG_DATA_HOME=/tmp/opencode/final2/data \
+  XDG_CONFIG_HOME=/tmp/opencode/final2/config \
+  ./bin/tracker-odin ui &
+
+vui-ctl --port 7426 click-text SET
+vui-ctl --port 7426 key down            # j/k selection reaches APPLY
+vui-ctl --port 7426 key up              # back to the path row
+vui-ctl --port 7426 key enter           # edit
+vui-ctl --port 7426 type "/kb2"
+vui-ctl --port 7426 key enter           # apply
+```
+
+| check | result |
+|---|---|
+| Project folder | `/tmp/opencode/final2/data/tracker/session/kb2` created with `project.json` |
+| settings.json | `saveDir` updated, `highContrast` toggled via keyboard |
+| visuals | 1180×760 and 900×620 screenshots inspected; `unknown_classes: []` |
+| restart | opens the saved project, keeps high contrast and the folder |
+| idle | frame count 489 → 496 over 3 s after closing the overlay |
+| isolation | explicit `--session` ignores and never writes the real config |
+
+`engine_apply_save_dir` refuses a folder that already contains `project.json`
+or `track1..4.wav`, so the picker and DEFAULT cannot silently overwrite another
+session.
 
 ## Real audio
 

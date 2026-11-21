@@ -26,7 +26,12 @@ Every prompt that produces a feature, component, or change must result in a **wo
 
 1. `cd odin && make build` must succeed with no errors.
 2. Run the relevant tests (`make test`, or `make test-dsp` / `test-core` / `test-ui`).
-3. For any UI change, render it offscreen and **look at the PNG** (see vinland-ui below). Check `vui-ctl info` for `unknown_classes` and frame time, and run `make e2e`.
+3. **Every UI change must be validated with `vui-ctl`** against the real offscreen
+   window (see vinland-ui below): open the changed panel, click/type through the
+   full flow, take screenshots, read the PNGs back, check `vui-ctl info` for
+   `unknown_classes` and `frame_ms`, and confirm the window idles when the live
+   state ends. A green build, unit tests, or `ui-shot` alone do not prove a UI
+   change; run `make e2e` as well.
 4. If something breaks, fix it in the same turn. Never leave a broken surface for the next prompt.
 
 One-shot means: prompt in, working feature out.
@@ -49,7 +54,7 @@ Before implementing any complex or unfamiliar feature, do an online search first
 - `odin/ROADMAP.md` is the status board: update it in the same change that moves a subsystem.
 - `odin/README.md` documents the build, test, CLI and verification loop.
 - `odin/VERIFICATION.md` is the test/measurement matrix; add new hardware or end-to-end evidence there.
-- Keep `odin check src -no-entry-point -vet` clean when touching package-level code.
+- Keep `odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` clean when touching package-level code.
 - `proc "c"` audio callbacks have no Odin context: helpers they call must be
   `proc "contextless"`, and they must not allocate (see `recorder_push` and
   `preview_push`). Slicing or calling a contextful proc from a callback fails to
@@ -67,6 +72,13 @@ The upstream skill is symlinked at `.opencode/skills/vinland-ui` (`.claude/skill
 points at the same directory). **Load it before writing or changing any `vui`
 code** — it covers the element API, the utility subset that actually renders,
 design tokens, layout rules that differ from the web, and the screenshot/e2e loop.
+
+vinland-ui is maintained by the same owner, so framework changes are allowed.
+Keep them **generic and useful to every vinland app**: no tracker model types,
+product names, or audio assumptions in `vui`. Add or update an upstream test or
+example, run the vinland build/tests, and record the upstream change in the
+closeout. Prefer composing the UI in `tracker` when existing primitives already
+cover it.
 
 - Build with `cd odin && make build`; rerun `./build.sh` in the vinland-ui checkout
   when its API changes. All UI edits must leave the build green.
@@ -87,7 +99,7 @@ design tokens, layout rules that differ from the web, and the screenshot/e2e loo
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — 226 unit tests (DSP + core/engine/project + UI)
+- `make test` — 236 unit tests (DSP + core/engine/project + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
@@ -128,8 +140,8 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 70 DSP + 99 core/engine/project/WAV + 57 UI tests.
-- `make e2e` — 14 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, palette, I/O, rhythm, undo, minimum size, fine drag).
+- `make test` — 70 DSP + 106 core/engine/project/WAV/settings + 60 UI tests.
+- `make e2e` — 15 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow).
 - The Cairo/Pango harness (`ui-test`, `ui-shot`) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.
 - Do not claim a UI works without inspecting the generated PNG/report. Hardware recording evidence belongs in `odin/VERIFICATION.md`.
@@ -140,7 +152,7 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 - **Engine** — lock-free capture ring drained by a writer thread, preview/overdub playback, duplex live monitoring, metronome (40–240 BPM), manual latency trim, mixed-rate resampling to the project rate.
 - **Track chain** — 3-band EQ (low shelf 110 Hz → mid bell → high shelf 7.5 kHz) → compressor → fader/pan, with post-fader sends into the shared reverb and delay buses.
 - **Master chain** — compressor → FDN reverb → ping-pong delay → mid/side widener (mono-safe below the bass crossover) → lookahead limiter with a soft-clip ceiling.
-- **Persistence** — atomic `project.json` (takes, active take, comp regions, FX, view and a11y flags), recent projects under `XDG_CONFIG_HOME`, RF64/BW64 reading and writing.
+- **Persistence** — atomic `project.json` (takes, active take, comp regions, FX, view and a11y flags), recent projects and machine settings under `XDG_CONFIG_HOME` (`settings.json`: project folder, high contrast, reduced motion), RF64/BW64 reading and writing. The Settings overlay (`SET`, `,`) retargets the project folder by copying takes and persists it; an explicit `--session` ignores global settings so tests and throwaway takes stay isolated.
 - Bounce renders the same chain offline to stereo float `bounce.wav`, including reverb tails.
 
 ## Docs

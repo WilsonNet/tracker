@@ -190,7 +190,7 @@ ui_draws_every_overlay_without_panicking :: proc(t: ^testing.T) {
 	canvas_init(&c, 1180, 760)
 	defer canvas_destroy(&c)
 
-	modes := [6]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent}
+	modes := [7]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent, .Settings}
 	for mode in modes {
 		a.mode = mode
 		app_draw(&a, &c)
@@ -815,7 +815,7 @@ ui_interactive_targets_meet_minimum_size :: proc(t: ^testing.T) {
 @(test)
 ui_render_is_nonblank_in_every_mode_and_size :: proc(t: ^testing.T) {
 	sizes := [3][2]int{{900, 620}, {1180, 760}, {1920, 1080}}
-	modes := [6]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent}
+	modes := [7]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent, .Settings}
 	for size in sizes {
 		vw, vh := ui_virtual_size(size[0], size[1])
 		a: App
@@ -1541,6 +1541,87 @@ ui_hidpi_pointer_maps_to_logical_targets :: proc(t: ^testing.T) {
 	app_mouse_down(&a, mx, my)
 	app_mouse_up(&a)
 	testing.expect(t, !a.tracks[2].muted, "click outside mute.2 toggled it")
+}
+
+@(test)
+ui_settings_edits_and_applies_project_folder :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	app_set_save_dir(&a, "/tmp/tracker-ui-settings")
+	app_execute(&a, .Settings)
+	testing.expect(t, a.mode == .Settings, "settings mode")
+	testing.expect(t, app_settings_path(&a) == "/tmp/tracker-ui-settings", "path seeded from save dir")
+
+	app_key(&a, .Enter)
+	testing.expect(t, a.settings_path_edit, "enter starts editing")
+	suffix := "/studio"
+	for i in 0 ..< len(suffix) {
+		app_key(&a, .Char, suffix[i])
+	}
+	testing.expectf(t, app_settings_path(&a) == "/tmp/tracker-ui-settings/studio", "typed %s", app_settings_path(&a))
+	app_key(&a, .Enter)
+	testing.expect(t, !a.settings_path_edit, "enter stops editing")
+	testing.expect(t, a.last_command == .Apply_Save_Dir, "apply command emitted")
+
+	app_execute(&a, .Settings)
+	testing.expect(t, a.mode == .Normal, "settings closes")
+}
+
+@(test)
+ui_settings_keyboard_selection_reaches_every_row :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_execute(&a, .Settings)
+	testing.expect(t, a.settings_sel == .Path, "starts on path")
+
+	app_key(&a, .Down)
+	testing.expect(t, a.settings_sel == .Browse, "down moves to browse")
+	app_key(&a, .Char, 'k')
+	testing.expect(t, a.settings_sel == .Path, "k moves up")
+
+	for _ in 0 ..< int(Settings_Item.High_Contrast) {
+		app_key(&a, .Down)
+	}
+	testing.expect(t, a.settings_sel == .High_Contrast, "reached high contrast")
+	app_key(&a, .Enter)
+	testing.expect(t, a.high_contrast, "enter toggles high contrast")
+	testing.expect(t, a.settings_dirty, "toggle asks for persistence")
+
+	app_key(&a, .Down)
+	testing.expect(t, a.settings_sel == .Reduced_Motion, "reached reduced motion")
+	app_key(&a, .Down)
+	testing.expect(t, a.settings_sel == .Path, "selection wraps")
+}
+
+@(test)
+ui_settings_escape_cancels_path_edit :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_save_dir(&a, "/tmp/tracker-ui-cancel")
+	app_execute(&a, .Settings)
+	app_key(&a, .Enter)
+	app_key(&a, .Char, 'x')
+	testing.expect(t, app_settings_path(&a) != app_save_dir(&a), "edit changed path")
+	app_key(&a, .Escape)
+	testing.expect(t, a.mode == .Settings, "first escape keeps settings open")
+	testing.expect(t, app_settings_path(&a) == app_save_dir(&a), "escape restores path")
+	app_key(&a, .Escape)
+	testing.expect(t, a.mode == .Normal, "second escape closes")
+
+	// Closing the overlay while editing must clear the edit flag so the
+	// window stops redrawing the caret.
+	app_execute(&a, .Settings)
+	app_key(&a, .Enter)
+	testing.expect(t, a.settings_path_edit, "entered edit")
+	app_settings_close(&a)
+	testing.expect(t, !a.settings_path_edit, "close cancels edit")
+
+	app_execute(&a, .High_Contrast)
+	testing.expect(t, a.settings_dirty, "a11y change asks for persistence")
 }
 
 @(test)

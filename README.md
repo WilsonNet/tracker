@@ -18,9 +18,12 @@ fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
 - **Bounce** — render the full chain to a stereo float mixdown, with reverb tails
 - **Live metering** — peak/RMS per track plus compressor gain reduction
 - **Keyboard-first** — Vim navigation, `1`–`4` arm, `Space` play/stop, `R` record,
-  `x` FX rack, `:` command palette
+  `x` FX rack, `,` settings, `:` command palette
 - **Project persistence** — atomic `project.json`, recent projects, undo/redo,
   native open/save dialogs
+- **Settings** — choose the project folder, input backend, latency and
+  monitoring, plus high contrast and reduced motion; folder and accessibility
+  choices persist in `settings.json`
 - **HiDPI and responsive density** — crisp type at 1×–3×, whole-panel zoom for larger windows
 - **Linux audio** — PipeWire/ALSA capture and cooperative JACK capture (`--jack`)
 
@@ -36,23 +39,25 @@ git clone https://github.com/WilsonNet/vinland-ui ../vinland-ui
 
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 226 unit tests
+make test         # 236 unit tests
 make check        # tests + native UI tour + offline bounce
 
 ./bin/tracker-odin ui              # real window
 ./bin/tracker-odin ui --demo       # synthetic meters, no audio hardware
 ```
 
-Sessions default to `~/.local/share/tracker/session`; pass `--session DIR` to
-use another directory. `make install` installs the binary, icons and desktop
-entry under `~/.local`.
+Sessions default to `$XDG_DATA_HOME/tracker/session` (usually
+`~/.local/share/tracker/session`); press `,` and choose a
+project folder to change it (persisted in `~/.config/tracker/settings.json`),
+or pass `--session DIR` for an isolated run that ignores saved settings.
+`make install` installs the binary, icons and desktop entry under `~/.local`.
 
 ## Verification
 
 ```sh
 cd odin
 make test          # DSP + engine/project/WAV + UI unit tests
-make e2e           # headless vinland-ui suite (tests/ui/window.vt)
+make e2e           # 15 headless vinland-ui cases (tests/ui/window.vt)
 make check         # unit + 220-action UI tour + offline bounce + format checks
 ```
 

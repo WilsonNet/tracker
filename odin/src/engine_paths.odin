@@ -106,6 +106,59 @@ engine_save_as_to :: proc(a: ^ui.App, e: ^Engine, project_path: string) -> bool 
 	return true
 }
 
+// True when a folder already holds tracker output. Used to avoid silently
+// overwriting another project when the user picks a save folder.
+@(private)
+save_dir_occupied :: proc(dir: string) -> bool {
+	if os.exists(fmt.tprintf("%s/project.json", dir)) {
+		return true
+	}
+	for i in 1 ..= 4 {
+		if os.exists(fmt.tprintf("%s/track%d.wav", dir, i)) {
+			return true
+		}
+	}
+	return false
+}
+
+// Moves the current project into `new_dir` and makes it the default save
+// folder. Existing takes are copied first, so the new folder is
+// self-contained; the old folder is left untouched as a recovery copy.
+engine_apply_save_dir :: proc(a: ^ui.App, e: ^Engine, new_dir: string) -> bool {
+	if a == nil || e == nil || new_dir == "" {
+		return false
+	}
+	normalized, valid := normalize_save_dir(new_dir)
+	if !valid {
+		ui.status_buf_set(a, "project folder must be an absolute path")
+		return false
+	}
+	defer delete(normalized)
+	target := normalized
+	if target == e.session_dir {
+		ui.status_buf_set(a, "project folder unchanged")
+		return true
+	}
+	if e.rec.active || e.play.active {
+		ui.status_buf_set(a, "stop transport before changing project folder")
+		return false
+	}
+	if !ensure_dir(target) {
+		ui.status_buf_set(a, "cannot create project folder")
+		return false
+	}
+	if save_dir_occupied(target) {
+		ui.status_buf_set(a, "folder already contains a tracker project")
+		return false
+	}
+	path := fmt.tprintf("%s/project.json", target)
+	if !engine_save_as_to(a, e, path) {
+		return false
+	}
+	ui.status_buf_set(a, "project folder updated")
+	return true
+}
+
 // Opens a project.json from any directory and reloads its tracks.
 engine_open_project :: proc(a: ^ui.App, e: ^Engine, path: string) -> bool {
 	if e.rec.active || e.play.active {

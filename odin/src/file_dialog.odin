@@ -112,12 +112,26 @@ pick_project_save :: proc() -> (string, bool) {
 
 // Opens a session directory. Returns an owned string.
 pick_session_open :: proc() -> (string, bool) {
+	return pick_directory("Open Tracker Session")
+}
+
+// Chooses the folder where project.json, takes and bounces are written.
+pick_save_dir :: proc() -> (string, bool) {
+	return pick_directory("Choose Tracker Project Folder")
+}
+
+@(private)
+pick_directory :: proc(title: string) -> (string, bool) {
 	home := os.get_env("HOME", context.allocator)
 	defer delete(home)
 	start := home if home != "" else "."
 	argv: []string
 	if zenity_available() {
-		argv = []string{"zenity", "--file-selection", "--directory", "--title=Open Tracker Session", fmt.tprintf("--filename=%s/", start)}
+		argv = []string{
+			"zenity", "--file-selection", "--directory",
+			fmt.tprintf("--title=%s", title),
+			fmt.tprintf("--filename=%s/", start),
+		}
 	} else {
 		argv = []string{"kdialog", "--getexistingdirectory", start}
 	}

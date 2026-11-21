@@ -16,11 +16,30 @@ MAX_HISTORY :: 64
 MAX_RECENT :: 8
 RECENT_PATH_MAX :: 192
 RECENT_QUERY_MAX :: 40
+SAVE_DIR_MAX :: 4096
 DESCRIBE_MAX :: 1024
 HISTORY_LABEL_MAX :: 40
 HISTORY_LEN :: 120
 
-Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent }
+Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent, Settings }
+
+// Keyboard order of the settings rows. Keep view_settings, app_settings_key
+// and this enum in the same order.
+Settings_Item :: enum u8 {
+	Path,
+	Browse,
+	Apply,
+	Default,
+	Inputs,
+	Backend,
+	Latency_Down,
+	Latency_Up,
+	Monitor,
+	High_Contrast,
+	Reduced_Motion,
+}
+
+SETTINGS_ITEM_COUNT :: int(Settings_Item.Reduced_Motion) + 1
 Transport :: enum { Stopped, Playing, Recording }
 Key :: enum { Char, Space, Enter, Escape, Backspace, Left, Right, Up, Down, Tab }
 
@@ -60,6 +79,10 @@ Command_Kind :: enum {
 	Take_Prev,
 	Comp_Use,
 	Comp_Clear,
+	Settings,
+	Choose_Save_Dir,
+	Apply_Save_Dir,
+	Reset_Save_Dir,
 }
 
 Command :: struct {
@@ -353,6 +376,17 @@ App :: struct {
 	// window keeps redrawing the meters without waiting for an event.
 	input_live:   bool,
 
+	// Machine-local settings. `save_dir` is the project folder currently in
+	// use; `settings_path` is the editable candidate shown in the overlay.
+	// `settings_dirty` asks the window to persist settings.json.
+	save_dir:          [SAVE_DIR_MAX]u8,
+	save_dir_len:      int,
+	settings_path:     [SAVE_DIR_MAX]u8,
+	settings_path_len: int,
+	settings_path_edit: bool,
+	settings_sel:      Settings_Item,
+	settings_dirty:    bool,
+
 	mouse_x, mouse_y: f32,
 	mouse_down:   bool,
 	drag:         Drag,
@@ -399,6 +433,8 @@ app_init :: proc(a: ^App, width, height: int) {
 	status_buf_set(a, "ready")
 	project_buf_set(a, "untitled")
 	device_buf_set(a, "no input")
+	save_dir_set(a, "")
+	settings_path_set(a, "")
 	a.recent_sel = 0
 	a.history_count = 0
 	for i in 0 ..< MAX_TRACKS {
@@ -816,6 +852,83 @@ app_recent_choose :: proc(a: ^App) {
 	bump_revision(a)
 }
 
+// ---------------------------------------------------------------- settings
+
+app_save_dir :: proc(a: ^App) -> string {
+	return string(a.save_dir[:a.save_dir_len])
+}
+
+app_settings_path :: proc(a: ^App) -> string {
+	return string(a.settings_path[:a.settings_path_len])
+}
+
+@(private)
+save_dir_set :: proc(a: ^App, s: string) {
+	buf_set(a.save_dir[:], &a.save_dir_len, s)
+}
+
+@(private)
+settings_path_set :: proc(a: ^App, s: string) {
+	buf_set(a.settings_path[:], &a.settings_path_len, s)
+}
+
+app_set_save_dir :: proc(a: ^App, s: string) {
+	save_dir_set(a, s)
+	bump_revision(a)
+}
+
+app_set_settings_path :: proc(a: ^App, s: string) {
+	settings_path_set(a, s)
+	bump_revision(a)
+}
+
+app_mark_settings_dirty :: proc(a: ^App) {
+	a.settings_dirty = true
+}
+
+app_settings_open :: proc(a: ^App) {
+	a.mode = .Settings
+	a.settings_path_edit = false
+	a.settings_sel = .Path
+	settings_path_set(a, app_save_dir(a))
+	status_buf_set(a, "settings")
+	bump_revision(a)
+}
+
+app_settings_close :: proc(a: ^App) {
+	a.settings_path_edit = false
+	settings_path_set(a, app_save_dir(a))
+	a.mode = .Normal
+	status_buf_set(a, "settings closed")
+	bump_revision(a)
+}
+
+app_settings_begin_edit :: proc(a: ^App) {
+	a.settings_path_edit = true
+	// Keep a candidate left over from a failed apply so the user can fix it;
+	// only seed an empty field from the applied folder.
+	if app_settings_path(a) == "" {
+		settings_path_set(a, app_save_dir(a))
+	}
+	bump_revision(a)
+}
+
+app_settings_cancel_edit :: proc(a: ^App) {
+	a.settings_path_edit = false
+	settings_path_set(a, app_save_dir(a))
+	bump_revision(a)
+}
+
+@(private)
+settings_path_append :: proc(a: ^App, ch: u8) {
+	if a.settings_path_len >= len(a.settings_path) {
+		return
+	}
+	a.settings_path[a.settings_path_len] = ch
+	a.settings_path_len += 1
+	bump_revision(a)
+}
+
 // ---------------------------------------------------------------- accessibility
 
 app_tokens :: proc(a: ^App) -> Tokens {
@@ -848,6 +961,8 @@ app_describe :: proc(a: ^App) -> string {
 		mode_name = "Bounce"
 	case .Recent:
 		mode_name = "Recent projects"
+	case .Settings:
+		mode_name = "Settings"
 	}
 	transport := "stopped"
 	switch a.transport {
@@ -864,12 +979,12 @@ app_describe :: proc(a: ^App) -> string {
 	} else {
 		describe_append(out[:], &n, "selected track %d. ", a.selected + 1)
 	}
-	describe_append(out[:], &n, "tempo %d bpm. metronome %s. monitor %s. latency %.0f ms. capture %s. high contrast %s. reduced motion %s. ",
+	describe_append(out[:], &n, "tempo %d bpm. metronome %s. monitor %s. latency %.0f ms. capture %s. high contrast %s. reduced motion %s. project folder %s. ",
 		a.bpm, "on" if a.metronome else "off",
 		"on" if a.monitor else "off", a.latency_ms,
 		"Jack" if a.jack_backend else "PipeWire",
 		"on" if a.high_contrast else "off",
-		"on" if a.reduced_motion else "off")
+		"on" if a.reduced_motion else "off", app_save_dir(a))
 	for t, i in a.tracks {
 		describe_append(out[:], &n, "track %d %s: %s, mute %s, solo %s, %d take(s), level %d percent, pan %s, peak %.1f dB. ",
 			i + 1, t.name,
@@ -1299,6 +1414,39 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 	case .Io:
 		a.mode = .Io if a.mode != .Io else .Normal
 		bump_revision(a)
+	case .Settings:
+		if a.mode == .Settings {
+			app_settings_close(a)
+		} else {
+			app_settings_open(a)
+		}
+	case .Choose_Save_Dir:
+		a.settings_path_edit = false
+		a.last_command = .Choose_Save_Dir
+		a.last_command_index = 0
+		emit(a, .Choose_Save_Dir)
+		status_buf_set(a, "choose project folder")
+	case .Apply_Save_Dir:
+		path := app_settings_path(a)
+		if path == "" {
+			toast(a, "project folder is empty")
+			status_buf_set(a, "project folder is empty")
+			bump_revision(a)
+		} else {
+			a.settings_path_edit = false
+			a.last_command = .Apply_Save_Dir
+			a.last_command_index = 0
+			emit(a, .Apply_Save_Dir)
+			status_buf_set(a, "applying project folder")
+			bump_revision(a)
+		}
+	case .Reset_Save_Dir:
+		a.last_command = .Reset_Save_Dir
+		a.last_command_index = 0
+		a.settings_path_edit = false
+		emit(a, .Reset_Save_Dir)
+		status_buf_set(a, "reset to default folder")
+		bump_revision(a)
 	case .Recent:
 		if a.mode == .Recent {
 			a.mode = .Normal
@@ -1415,11 +1563,13 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		app_redo(a)
 	case .High_Contrast:
 		a.high_contrast = !a.high_contrast
+		a.settings_dirty = true
 		status_buf_set(a, "high contrast on" if a.high_contrast else "high contrast off")
 		toast(a, "high contrast on" if a.high_contrast else "high contrast off")
 		bump_revision(a)
 	case .Reduced_Motion:
 		a.reduced_motion = !a.reduced_motion
+		a.settings_dirty = true
 		status_buf_set(a, "reduced motion on" if a.reduced_motion else "reduced motion off")
 		toast(a, "reduced motion on" if a.reduced_motion else "reduced motion off")
 		bump_revision(a)

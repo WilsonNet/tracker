@@ -52,6 +52,77 @@ engine_save_as_and_open_roundtrip :: proc(t: ^testing.T) {
 }
 
 @(test)
+engine_apply_save_dir_copies_takes_and_retargets :: proc(t: ^testing.T) {
+	base := "/tmp/tracker-engine-apply-dir"
+	_ = os.remove_all(base)
+	defer _ = os.remove_all(base)
+	source_dir := fmt.tprintf("%s/source", base)
+	target_dir := fmt.tprintf("%s/target", base)
+	_ = os.make_directory_all(source_dir)
+
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	a.tracks[0].has_audio = true
+
+	e: Engine
+	testing.expect(t, engine_init(&e, []string{"--session", source_dir}), "engine init")
+	defer engine_destroy(&e)
+
+	samples := make([]f32, 480)
+	defer delete(samples)
+	for i in 0 ..< len(samples) {
+		samples[i] = 0.1
+	}
+	testing.expect(t, wav_write(fmt.tprintf("%s/track1.wav", source_dir), 48_000, 1, samples), "fixture wav")
+
+	testing.expect(t, engine_apply_save_dir(&a, &e, target_dir), "apply save dir")
+	testing.expectf(t, e.session_dir == target_dir, "session dir %s", e.session_dir)
+	testing.expect(t, os.exists(fmt.tprintf("%s/project.json", target_dir)), "project written")
+	testing.expect(t, os.exists(fmt.tprintf("%s/track1.wav", target_dir)), "take copied")
+	testing.expect(t, ui.app_status(&a) == "project folder updated", ui.app_status(&a))
+	testing.expect(t, os.exists(fmt.tprintf("%s/track1.wav", source_dir)), "source kept")
+}
+
+@(test)
+engine_init_rejects_a_file_session_path :: proc(t: ^testing.T) {
+	base := "/tmp/tracker-engine-session-file"
+	_ = os.remove_all(base)
+	defer _ = os.remove_all(base)
+	_ = os.make_directory_all(base)
+	path := fmt.tprintf("%s/not-a-dir", base)
+	testing.expect(t, os.write_entire_file(path, "x") == nil, "fixture")
+
+	e: Engine
+	testing.expect(t, !engine_init(&e, []string{"--session", path}), "file session must be rejected")
+	testing.expect(t, e.session_dir == "", "no leaked session path")
+}
+
+@(test)
+engine_apply_save_dir_refuses_occupied_folder :: proc(t: ^testing.T) {
+	base := "/tmp/tracker-engine-occupied"
+	_ = os.remove_all(base)
+	defer _ = os.remove_all(base)
+	source_dir := fmt.tprintf("%s/source", base)
+	occupied := fmt.tprintf("%s/occupied", base)
+	_ = os.make_directory_all(source_dir)
+	_ = os.make_directory_all(occupied)
+	testing.expect(t, os.write_entire_file(fmt.tprintf("%s/project.json", occupied), "{}") == nil, "fixture")
+
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+
+	e: Engine
+	testing.expect(t, engine_init(&e, []string{"--session", source_dir}), "engine init")
+	defer engine_destroy(&e)
+
+	testing.expect(t, !engine_apply_save_dir(&a, &e, occupied), "occupied folder must be refused")
+	testing.expectf(t, e.session_dir == source_dir, "session moved to %s", e.session_dir)
+	testing.expect(t, ui.app_status(&a) == "folder already contains a tracker project", ui.app_status(&a))
+}
+
+@(test)
 engine_retarget_rejects_transport :: proc(t: ^testing.T) {
 	e: Engine
 	e.session_dir = fmt.aprintf("/tmp/old")

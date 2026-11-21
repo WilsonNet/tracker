@@ -119,3 +119,21 @@ test "shift drag is fine"
   expect-exact "+0.0" 2
   expect-exact "+1.5"
   screenshot shift-drag
+
+test "settings menu edits project folder"
+  click-text SET
+  expect-text "Project folder"
+  expect-text "Capture backend"
+  key down
+  key down
+  expect-class APPLY ring-sig
+  key up
+  key up
+  expect-no-class APPLY ring-sig
+  key enter
+  type "/e2e"
+  key enter
+  expect-text "saving to"
+  expect-text e2e
+  key escape
+  expect-no-text "Machine preferences"

@@ -18,6 +18,7 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"bounce", .Bounce},
 	{"fx rack", .Fx},
 	{"io panel", .Io},
+	{"settings", .Settings},
 	{"save project", .Save},
 	{"load project", .Load},
 	{"arm all", .Arm_All},
@@ -732,6 +733,93 @@ app_recent_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
 	return true
 }
 
+@(private)
+app_settings_activate :: proc(a: ^App) {
+	switch a.settings_sel {
+	case .Path:
+		app_settings_begin_edit(a)
+	case .Browse:
+		app_execute(a, .Choose_Save_Dir)
+	case .Apply:
+		app_execute(a, .Apply_Save_Dir)
+	case .Default:
+		app_execute(a, .Reset_Save_Dir)
+	case .Inputs:
+		app_execute(a, .Io)
+	case .Backend:
+		app_execute(a, .Backend)
+	case .Latency_Down:
+		app_execute(a, .Latency_Down)
+	case .Latency_Up:
+		app_execute(a, .Latency_Up)
+	case .Monitor:
+		app_execute(a, .Monitor)
+	case .High_Contrast:
+		app_execute(a, .High_Contrast)
+	case .Reduced_Motion:
+		app_execute(a, .Reduced_Motion)
+	}
+}
+
+@(private)
+settings_move :: proc(a: ^App, delta: int) {
+	a.settings_sel = Settings_Item((int(a.settings_sel) + delta + SETTINGS_ITEM_COUNT) % SETTINGS_ITEM_COUNT)
+	bump_revision(a)
+}
+
+@(private)
+app_settings_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
+	if a.settings_path_edit {
+		#partial switch key {
+		case .Escape:
+			app_settings_cancel_edit(a)
+		case .Enter:
+			a.settings_path_edit = false
+			app_execute(a, .Apply_Save_Dir)
+		case .Backspace:
+			if a.settings_path_len > 0 {
+				a.settings_path_len -= 1
+				bump_revision(a)
+			}
+		case .Space:
+			settings_path_append(a, ' ')
+		case .Char:
+			if ch >= 32 && ch <= 126 {
+				settings_path_append(a, ch)
+			}
+		case:
+		}
+		return true
+	}
+	#partial switch key {
+	case .Escape:
+		app_settings_close(a)
+	case .Enter:
+		app_settings_activate(a)
+	case .Up:
+		settings_move(a, -1)
+	case .Down:
+		settings_move(a, 1)
+	case .Char:
+		switch ch {
+		case 'j':
+			settings_move(a, 1)
+		case 'k':
+			settings_move(a, -1)
+		case 'b':
+			a.settings_sel = .Browse
+			app_execute(a, .Choose_Save_Dir)
+		case 'a':
+			a.settings_sel = .Apply
+			app_execute(a, .Apply_Save_Dir)
+		case 'r':
+			a.settings_sel = .Default
+			app_execute(a, .Reset_Save_Dir)
+		}
+	}
+	return true
+}
+
 // ---------------------------------------------------------------- pointer
 
 app_set_shift :: proc(a: ^App, down: bool) {
@@ -1143,6 +1231,10 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 			return
 		}
 	}
+	if a.mode == .Settings {
+		app_settings_key(a, key, ch)
+		return
+	}
 	if a.mode == .Bounce {
 		if key == .Escape {
 			app_bounce_dismiss(a)
@@ -1186,6 +1278,9 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 			return
 		case 'i':
 			app_execute(a, .Io)
+			return
+		case ',':
+			app_execute(a, .Settings)
 			return
 		case 'I':
 			if a.selected < MAX_TRACKS && a.transport != .Recording {
@@ -1494,6 +1589,8 @@ app_target_available :: proc(a: ^App, name: string) -> bool {
 		return is_io || name == "io"
 	case .Recent:
 		return is_recent
+	case .Settings:
+		return false
 	case .Bounce:
 		return false
 	}
@@ -1649,6 +1746,14 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Comp_Use"
 	case .Comp_Clear:
 		return "Comp_Clear"
+	case .Settings:
+		return "Settings"
+	case .Choose_Save_Dir:
+		return "Choose_Save_Dir"
+	case .Apply_Save_Dir:
+		return "Apply_Save_Dir"
+	case .Reset_Save_Dir:
+		return "Reset_Save_Dir"
 	}
 	return "None"
 }
@@ -1678,6 +1783,8 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 			return "Bounce", true
 		case .Recent:
 			return "Recent", true
+		case .Settings:
+			return "Settings", true
 		}
 	case "selected":
 		return fmt.tprintf("%d", a.selected), true
@@ -1716,6 +1823,14 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 		return app_recent_path(a, a.recent_items[clamp(a.recent_sel, 0, a.recent_filtered - 1)]), true
 	case "recent.target":
 		return app_recent_target(a), true
+	case "settings.open":
+		return "true" if a.mode == .Settings else "false", true
+	case "settings.dir":
+		return app_save_dir(a), true
+	case "settings.path":
+		return app_settings_path(a), true
+	case "settings.editing":
+		return "true" if a.settings_path_edit else "false", true
 	case "command":
 		return command_name(a.last_command), true
 	case "command.index":

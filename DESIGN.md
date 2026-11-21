@@ -92,6 +92,8 @@ All components live in `src/components/`. Shared tokens are in `src/styles/token
 
 **Command palette** — Vim `:` overlay, monospace, amber selection.
 
+**Settings overlay** — grouped preferences (Storage, Audio, Appearance) in the same panel style. One row is selected at a time with `j/k` or the arrows; `Enter` edits the folder or runs the row. The project-folder row is a full-width monospace path field with an `EDIT` affordance, followed by BROWSE / APPLY / DEFAULT. New settings are added as rows inside an existing group so the panel scales.
+
 **Status line / rhythm section** — mode badge, transient message, capture/record indicators, hint string; rhythm toggle at the right.
 
 ### Interaction vocabulary

@@ -156,9 +156,7 @@ engine_init :: proc(e: ^Engine, args: []string) -> bool {
 	e.latency_ms = 0
 	dir := flag_string(args, "--session", "")
 	if dir == "" {
-		home := os.get_env("HOME", context.allocator)
-		defer delete(home)
-		dir = fmt.aprintf("%s/.local/share/tracker/session", home)
+		dir = default_session_dir()
 	} else {
 		dir = fmt.aprintf("%s", dir)
 	}
@@ -166,9 +164,9 @@ engine_init :: proc(e: ^Engine, args: []string) -> bool {
 	e.project_path = fmt.aprintf("%s/project.json", dir)
 	e.take_path = fmt.aprintf("%s/take.raw", dir)
 	e.bounce_path = fmt.aprintf("%s/bounce.wav", dir)
-	if !os.exists(dir) {
-		if err := os.make_directory_all(dir); err != nil {
-			fmt.eprintfln("cannot create session dir %s", dir)
+	if os.exists(dir) {
+		if !os.is_directory(dir) {
+			fmt.eprintfln("session path is not a directory: %s", dir)
 			delete(e.session_dir)
 			delete(e.project_path)
 			delete(e.take_path)
@@ -179,6 +177,17 @@ engine_init :: proc(e: ^Engine, args: []string) -> bool {
 			e.bounce_path = ""
 			return false
 		}
+	} else if err := os.make_directory_all(dir); err != nil {
+		fmt.eprintfln("cannot create session dir %s", dir)
+		delete(e.session_dir)
+		delete(e.project_path)
+		delete(e.take_path)
+		delete(e.bounce_path)
+		e.session_dir = ""
+		e.project_path = ""
+		e.take_path = ""
+		e.bounce_path = ""
+		return false
 	}
 	return true
 }

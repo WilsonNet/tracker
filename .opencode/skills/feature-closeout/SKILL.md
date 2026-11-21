@@ -23,7 +23,7 @@ make test-dsp              # DSP only
 make test-core             # engine / project / WAV / CLI
 make test-ui               # UI state, layout, HiDPI, PNG
 make test                  # all unit tests (counts live in README/VERIFICATION)
-make e2e                   # 14 headless vinland-ui window cases
+make e2e                   # 15 headless vinland-ui window cases
 make check                 # tests + 220-action UI tour + offline bounce + format checks
 ```
 
@@ -40,6 +40,27 @@ vui-ctl --port 7421 quit
 Read the PNG back. Check `unknown_classes`, `frame_ms` and, when the change
 involves meters, that the window idles again after the live state ends. Do not
 claim a UI works from a passing command alone.
+
+**Every UI change must be validated with `vui-ctl` against the offscreen
+window.** `ui-shot`/Cairo PNGs and green unit tests are supporting evidence,
+not proof of the real window. Click and type through the actual flow, inspect
+`info`, and add the flow to `tests/ui/window.vt` when it is repeatable.
+
+For settings/persistence work, use isolated XDG dirs and no `--session` so the
+saved values are actually exercised:
+
+```sh
+XDG_DATA_HOME=/tmp/opencode/closeout/data \
+XDG_CONFIG_HOME=/tmp/opencode/closeout/config \
+VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-odin ui &
+vui-ctl --port 7421 type ","
+vui-ctl --port 7421 key down
+vui-ctl --port 7421 key enter
+vui-ctl --port 7421 screenshot /tmp/opencode/settings.png
+```
+
+Then inspect `config/tracker/settings.json` and restart the app to prove the
+value is loaded, not just written.
 
 Evidence that needs hardware (input capture, JACK, loopback) goes in
 `odin/VERIFICATION.md`, not just in the chat.
@@ -118,6 +139,31 @@ message state:
   preview, unarm decays and idles. Unit tests cover the envelope, the
   wanted-state matrix and the signature that avoids retrying a failed open.
 - Limit: JACK uses its take session; arm preview is miniaudio/PipeWire only.
+
+### Settings overlay (2026-11-21)
+
+- Settings are machine-local in `settings.json` (`saveDir`, `highContrast`,
+  `reducedMotion`); project/audio mix settings stay in `project.json`. Apply
+  the global a11y values after loading a project when a settings file exists.
+- Changing the project folder uses the save-as path: copy takes, write
+  `project.json`, retarget, then persist. Refuse a folder that already has
+  `project.json` or `track1..4.wav`; the old folder remains as a recovery copy.
+- An explicit `--session` is a sandbox: do not load global settings, and write
+  any settings changes beside the session. Tests and throwaway takes must not
+  touch the user's real config.
+- Long-lived path strings must use `fmt.aprintf`, not `fmt.tprintf`: the
+  temporary allocator invalidated the settings store between frames and produced
+  a garbage `.tmp` path plus "cannot save settings".
+- vui-ctl synthetic Enter can activate a vinland-focused button *and* reach
+  `app_key`, closing the panel. Clear `vui.focus(0)` when entering Settings and
+  use a non-focusable box for the path field.
+- The overlay is keyboard-complete: `j/k` or arrows select rows, `Enter` edits
+  the folder or runs the row, `b/a/r` jump to storage actions, `Esc` cancels an
+  edit or closes. Add new settings to `Settings_Item`, `app_settings_activate`,
+  `view_settings` and the selection test together.
+- Validation: `vui-ctl` open → select → edit path → apply → inspect
+  `project.json`/`settings.json` → toggle contrast → restart → 900×620 →
+  idle. Keep the 15-case `make e2e` suite green.
 
 ### Window visibility (2026-11-21)
 

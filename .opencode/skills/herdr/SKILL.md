@@ -111,14 +111,20 @@ or close the tab.
   `info`, `screenshot`, `tree`, `click-text`, `type`, `key`, `resize`, `dark`,
   `scroll`, `quit`.
 - Always read the PNG back and check `info.unknown_classes` and `frame_ms`.
+- Every UI change must be driven through `vui-ctl`, not just `ui-shot` or unit
+  tests: open the changed panel, click/type the full flow, screenshot, read it.
+- Settings: `,` or the SET button; `j/k` + `Enter` navigate rows. The project
+  folder and a11y choices persist in `~/.config/tracker/settings.json`.
+  Launch with isolated `XDG_DATA_HOME`/`XDG_CONFIG_HOME` when testing settings;
+  an explicit `--session` deliberately ignores saved settings.
 - Arming a track opens a capture-only input preview: the window stays busy
   (meter and history graph redraw) while armed and releases the input device
   when disarmed. A rising `frame` count is expected then; unarm before judging
   idle CPU.
 - Arm preview is miniaudio/PipeWire only. With `--jack` the input graph starts
   with the take; do not report it as a hang.
-- `make e2e` runs `tests/ui/window.vt` headless and sandboxed through
-  `vinland-ui/build/vui-test`; inspect `/tmp/tracker-e2e/report.html`.
+- `make e2e` runs the 15 cases in `tests/ui/window.vt` headless and sandboxed
+  through `vinland-ui/build/vui-test`; inspect `/tmp/tracker-e2e/report.html`.
 - Hardware recording evidence belongs in `odin/VERIFICATION.md`; the loopback
   checks are `cd odin && ./scripts/check.sh --hardware --jack --loopback`.
 

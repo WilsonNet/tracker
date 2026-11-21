@@ -217,6 +217,8 @@ app_draw :: proc(a: ^App, c: ^Canvas) {
 		draw_bounce(a, c)
 	} else if a.mode == .Recent {
 		draw_recent(a, c)
+	} else if a.mode == .Settings {
+		draw_settings(a, c)
 	}
 }
 
@@ -240,6 +242,8 @@ draw_header :: proc(a: ^App, c: ^Canvas) {
 		mode_text = "INPUT"; mode_col = T.color.teal
 	case .Recent:
 		mode_text = "RECENT"; mode_col = T.color.teal
+	case .Settings:
+		mode_text = "SET"; mode_col = T.color.teal
 	case .Bounce:
 		mode_text = "BOUNCE"; mode_col = T.color.red
 	}
@@ -494,6 +498,8 @@ draw_status :: proc(a: ^App, c: ^Canvas) {
 		mode_text = "BOUNCE"; mode_col = T.color.red
 	case .Recent:
 		mode_text = "RECENT"; mode_col = T.color.teal
+	case .Settings:
+		mode_text = "SET"; mode_col = T.color.teal
 	}
 	if a.transport == .Recording {
 		mode_text = "REC"; mode_col = T.color.red
@@ -661,6 +667,10 @@ command_hint :: proc(kind: Command_Kind) -> string {
 		return "take"
 	case .High_Contrast, .Reduced_Motion:
 		return "a11y"
+	case .Settings:
+		return "ui"
+	case .Choose_Save_Dir, .Apply_Save_Dir, .Reset_Save_Dir:
+		return "storage"
 	case .Select_Device:
 		return "audio"
 	case .Fx, .Io, .Arm_All, .Clear_Arms, .Panic:
@@ -808,6 +818,69 @@ draw_recent :: proc(a: ^App, c: ^Canvas) {
 		canvas_text_px_right(c, row.x + row.w - 12, row.y + 9, fmt.tprintf("%d", a.recent_items[i] + 1), T.color.ink_muted, T.type.caption, .Mono)
 	}
 	canvas_text_px(c, l.recent_panel.x + 20, l.recent_panel.y + l.recent_panel.h - 30, "TYPE filter    ENTER open    ↑↓ select    ESC close", T.color.ink_muted, T.type.caption, .Regular)
+}
+
+@(private)
+draw_settings :: proc(a: ^App, c: ^Canvas) {
+	T := ACTIVE_TOKENS
+	canvas_fill(c, Rect{0, 0, f32(a.width), f32(a.height)}, with_alpha(T.color.bg, 0xC0))
+	w: f32 = 660
+	h: f32 = 500
+	r := Rect{(f32(a.width) - w) * 0.5, (f32(a.height) - h) * 0.5, w, h}
+	canvas_shadow(c, r, T.radius.xl, 16, with_alpha(T.color.black, 0x66))
+	canvas_fill_round(c, r, T.radius.xl, T.color.surface)
+	canvas_stroke_round(c, r, T.radius.xl, T.color.line, 1)
+	canvas_text_px(c, r.x + 24, r.y + 20, "Settings", T.color.ink, T.type.title, .SemiBold)
+	canvas_text_px(c, r.x + 112, r.y + 24, "Machine preferences", T.color.ink_muted, T.type.caption, .Regular)
+	canvas_text_px_right(c, r.x + r.w - 24, r.y + 24, "ESC", T.color.ink_muted, T.type.caption, .Medium)
+
+	x := r.x + 24
+	y := r.y + 60
+	canvas_text_px(c, x, y, "STORAGE", T.color.ink_muted, T.type.caption, .SemiBold)
+	y += 24
+	canvas_text_px(c, x, y, "Project folder", T.color.ink, T.type.body, .Medium)
+	y += 20
+	field := Rect{x, y, r.w - 48, 34}
+	canvas_fill_round(c, field, T.radius.sm, T.color.bg)
+	canvas_stroke_round(c, field, T.radius.sm, with_alpha(T.color.amber, 0x88), 1)
+	canvas_text_px(c, field.x + 12, field.y + 8, "$", T.color.amber, T.type.body, .SemiBold)
+	path := app_settings_path(a) if a.settings_path_edit else app_save_dir(a)
+	if path == "" {
+		path = "not set"
+	}
+	canvas_text_px_clip(c, field.x + 28, field.y + 8, field.w - 42, path, T.color.ink, T.type.caption, .Regular)
+	y += 44
+	draw_button(c, Rect{x, y, 88, 26}, "BROWSE", false, false, true, T.color.ink)
+	draw_button(c, Rect{x + 96, y, 72, 26}, "APPLY", false, false, true, T.color.teal)
+	draw_button(c, Rect{x + 176, y, 80, 26}, "DEFAULT", false, false, true, T.color.ink)
+	y += 42
+	canvas_text_px_clip(c, x, y, r.w - 48, "project.json, takes and bounce.wav are written here.", T.color.ink_muted, T.type.caption, .Regular)
+
+	y += 30
+	canvas_text_px(c, x, y, "AUDIO", T.color.ink_muted, T.type.caption, .SemiBold)
+	y += 22
+	canvas_text_px(c, x, y, "Input device", T.color.ink, T.type.body, .Regular)
+	canvas_text_px_right(c, r.x + r.w - 24, y, app_device(a), T.color.ink_dim, T.type.caption, .Regular)
+	y += 22
+	canvas_text_px(c, x, y, "Capture backend", T.color.ink, T.type.body, .Regular)
+	canvas_text_px_right(c, r.x + r.w - 24, y, "JACK" if a.jack_backend else "PipeWire", T.color.ink_dim, T.type.caption, .Regular)
+	y += 22
+	canvas_text_px(c, x, y, "Input latency", T.color.ink, T.type.body, .Regular)
+	canvas_text_px_right(c, r.x + r.w - 24, y, fmt.tprintf("%.0f ms", a.latency_ms), T.color.ink_dim, T.type.caption, .Mono)
+	y += 22
+	canvas_text_px(c, x, y, "Direct monitoring", T.color.ink, T.type.body, .Regular)
+	canvas_text_px_right(c, r.x + r.w - 24, y, "On" if a.monitor else "Off", T.color.ink_dim, T.type.caption, .Regular)
+
+	y += 30
+	canvas_text_px(c, x, y, "APPEARANCE", T.color.ink_muted, T.type.caption, .SemiBold)
+	y += 22
+	canvas_text_px(c, x, y, "High contrast", T.color.ink, T.type.body, .Regular)
+	canvas_text_px_right(c, r.x + r.w - 24, y, "On" if a.high_contrast else "Off", T.color.ink_dim, T.type.caption, .Regular)
+	y += 22
+	canvas_text_px(c, x, y, "Reduced motion", T.color.ink, T.type.body, .Regular)
+	canvas_text_px_right(c, r.x + r.w - 24, y, "On" if a.reduced_motion else "Off", T.color.ink_dim, T.type.caption, .Regular)
+
+	canvas_text_px(c, x, r.y + h - 30, "ENTER edit path    B browse    A apply    ESC close", T.color.ink_muted, T.type.caption, .Regular)
 }
 
 @(private)

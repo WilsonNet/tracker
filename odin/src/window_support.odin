@@ -32,3 +32,12 @@ ui_add_recent :: proc(a: ^ui.App, path, store: string) {
 	ui.app_add_recent(a, path)
 	ui_persist_recent(a, store)
 }
+
+// Writes settings.json after a folder or accessibility change. Persistence
+// failure is reported once per change, not retried every frame.
+ui_persist_settings :: proc(a: ^ui.App, store: string) {
+	if !settings_save(store, ui.app_save_dir(a), a.high_contrast, a.reduced_motion) {
+		ui.status_buf_set(a, "cannot save settings")
+	}
+	a.settings_dirty = false
+}

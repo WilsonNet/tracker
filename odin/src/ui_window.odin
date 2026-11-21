@@ -53,15 +53,57 @@ run_ui_window :: proc(args: []string) -> bool {
 	defer vapp.shutdown(&va)
 	va.clear_color = vui.oklch(0.07, 0, 0)
 
+	// Machine settings apply only to an implicit session. An explicit
+	// `--session` (tests, sandboxes, throwaway takes) stays isolated from the
+	// user's saved folder and accessibility choices.
+	settings_store := settings_config_path()
+	defer delete(settings_store)
+	settings: Settings_Doc
+	defer settings_destroy(&settings)
+	settings_loaded: bool
+	_, session_given := flag_value(args, "--session")
+	engine_args := args
+	augmented: [dynamic]string
+	defer delete(augmented)
+	if !session_given {
+		settings, settings_loaded = settings_load(settings_store)
+		if settings.save_dir != "" {
+			normalized, valid := normalize_save_dir(settings.save_dir)
+			if valid {
+				delete(settings.save_dir)
+				settings.save_dir = normalized
+			} else {
+				delete(settings.save_dir)
+				settings.save_dir = ""
+			}
+		}
+		if settings.save_dir != "" {
+			append(&augmented, ..args)
+			append(&augmented, "--session", settings.save_dir)
+			engine_args = augmented[:]
+		}
+	}
+
 	e: Engine
-	if !engine_init(&e, args) {
+	if !engine_init(&e, engine_args) {
 		return false
 	}
 	defer engine_destroy(&e)
+	// An explicit session is a sandbox: keep settings beside the takes instead
+	// of touching the user's real XDG config. Its own file may carry the
+	// accessibility switches, but the explicit folder still wins.
+	if session_given {
+		delete(settings_store)
+		// aprintf, not tprintf: the store string lives for the whole run.
+		settings_store = fmt.aprintf("%s/settings.json", e.session_dir)
+		settings, settings_loaded = settings_load(settings_store)
+	}
 
 	a: ui.App
 	ui.app_init(&a, width, height)
 	defer ui.app_destroy(&a)
+	ui.app_set_save_dir(&a, e.session_dir)
+	ui.app_set_settings_path(&a, e.session_dir)
 
 	ws := Window_State{&a}
 	va.user_data = &ws
@@ -91,6 +133,8 @@ run_ui_window :: proc(args: []string) -> bool {
 		if engine_open_project(&a, &e, open_path) {
 			ui_sync_takes(&a, &e)
 			ui_add_recent(&a, open_path, recent_store)
+			ui.app_set_save_dir(&a, e.session_dir)
+			ui.app_mark_settings_dirty(&a)
 		}
 	} else if os.exists(e.project_path) {
 		if project_load_with_takes(&a, e.session_dir, e.project_path, e.takes[:]) {
@@ -105,6 +149,12 @@ run_ui_window :: proc(args: []string) -> bool {
 		_ = engine_load_tracks(&e, &a)
 		ui_sync_takes(&a, &e)
 		ui.status_buf_set(&a, "ready")
+	}
+	// Machine accessibility choices win over a project's copied flags once the
+	// user has a settings file; without one, keep the project's saved values.
+	if settings_loaded {
+		a.high_contrast = settings.high_contrast
+		a.reduced_motion = settings.reduced_motion
 	}
 	engine_set_latency_ms(&e, a.latency_ms)
 
@@ -133,7 +183,11 @@ run_ui_window :: proc(args: []string) -> bool {
 		vapp.end_frame(&va)
 		// clicks in the tree emit commands; run them before the next idle wait
 		window_run_commands(&a, &e, recent_store)
-		if ui.view_busy(&a) || len(a.commands) > a.cmd_read {
+		dirty_settings := a.settings_dirty
+		if dirty_settings {
+			ui_persist_settings(&a, settings_store)
+		}
+		if ui.view_busy(&a) || len(a.commands) > a.cmd_read || dirty_settings || a.settings_path_edit {
 			vapp.request_redraw(&va)
 		}
 	}
@@ -236,6 +290,43 @@ window_synthetic_keys :: proc(a: ^ui.App, ctx: ^vui.Context) {
 			ui.app_key(a, p.t, ' ' if p.t == .Space else 0, shift)
 		}
 	}
+}
+
+@(private)
+window_apply_save_dir :: proc(a: ^ui.App, e: ^Engine, dir: string, recent_store: string) -> bool {
+	if dir == "" {
+		ui.status_buf_set(a, "choose a project folder first")
+		ui.toast(a, "choose a project folder first")
+		return false
+	}
+	normalized, valid := normalize_save_dir(dir)
+	if !valid {
+		ui.status_buf_set(a, "project folder must be an absolute path")
+		ui.toast(a, "use an absolute path, e.g. ~/Music/Tracker")
+		return false
+	}
+	defer delete(normalized)
+	target := normalized
+	if target == e.session_dir {
+		ui.app_set_save_dir(a, e.session_dir)
+		ui.app_set_settings_path(a, e.session_dir)
+		ui.app_mark_settings_dirty(a)
+		ui.status_buf_set(a, "project folder unchanged")
+		ui.toast(a, "already using this folder")
+		return true
+	}
+	if !engine_apply_save_dir(a, e, target) {
+		msg := ui.app_status(a)
+		ui.toast(a, msg if msg != "" else "cannot change project folder")
+		return false
+	}
+	ui.app_set_save_dir(a, e.session_dir)
+	ui.app_set_settings_path(a, e.session_dir)
+	ui.app_mark_settings_dirty(a)
+	ui_add_recent(a, e.project_path, recent_store)
+	ui.status_buf_set(a, fmt.tprintf("saving to %s", e.session_dir))
+	ui.toast(a, "project folder updated")
+	return true
 }
 
 @(private)
@@ -346,6 +437,8 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string) {
 				if engine_open_project(a, e, path) {
 					ui_sync_takes(a, e)
 					ui_add_recent(a, path, recent_store)
+					ui.app_set_save_dir(a, e.session_dir)
+					ui.app_mark_settings_dirty(a)
 				}
 				delete(path)
 			} else {
@@ -356,16 +449,37 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string) {
 			if picked {
 				if engine_save_as_to(a, e, path) {
 					ui_add_recent(a, path, recent_store)
+					ui.app_set_save_dir(a, e.session_dir)
+					ui.app_mark_settings_dirty(a)
 				}
 				delete(path)
 			} else {
 				ui.status_buf_set(a, "save-as picker cancelled")
 			}
+		case .Settings:
+			// The mode transition is pure App state; nothing to do here.
+		case .Choose_Save_Dir:
+			path, picked := pick_save_dir()
+			if picked {
+				_ = window_apply_save_dir(a, e, path, recent_store)
+				delete(path)
+			} else {
+				ui.status_buf_set(a, "folder picker cancelled")
+			}
+		case .Apply_Save_Dir:
+			_ = window_apply_save_dir(a, e, ui.app_settings_path(a), recent_store)
+		case .Reset_Save_Dir:
+			dir := default_session_dir()
+			defer delete(dir)
+			ui.app_set_settings_path(a, dir)
+			_ = window_apply_save_dir(a, e, dir, recent_store)
 		case .Open_Recent:
 			path := ui.app_recent_target(a)
 			if path != "" && engine_open_project(a, e, path) {
 				ui_sync_takes(a, e)
 				ui_add_recent(a, path, recent_store)
+				ui.app_set_save_dir(a, e.session_dir)
+				ui.app_mark_settings_dirty(a)
 			}
 		case:
 		}
