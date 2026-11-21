@@ -25,7 +25,9 @@ coefficient and the native window is rebuilt and running immediately.
 
 Linux, a C toolchain (Odin shells out to `clang`, `cc` and `ld`; `ar` is
 needed only when building the miniaudio archive), Odin `dev-2026-11a` or
-newer, and development files for SDL2, JACK and zlib. ALSA or PipeWire is
+newer, the sibling [vinland-ui](https://github.com/WilsonNet/vinland-ui) checkout
+(`../../vinland-ui` from `odin/`, override with `VINLAND=`), and development files
+for SDL3, JACK, zlib, Cairo and Pango. ALSA or PipeWire is
 needed at runtime. `make check` also needs `python3`; `sox` and `ffprobe` are
 optional format checks. Project open/save-as dialogs use `zenity` (falling back
 to `kdialog`); `--open FILE` and the recent-projects list work without them.
@@ -33,14 +35,14 @@ to `kdialog`); `--open FILE` and the recent-projects list work without them.
 Arch:
 
 ```sh
-sudo pacman -S --needed base-devel clang sdl2-compat zlib alsa-lib pipewire-jack python
+sudo pacman -S --needed base-devel clang sdl3 cairo pango zlib alsa-lib pipewire-jack python
 # optional: sox ffmpeg
 ```
 
 Debian/Ubuntu:
 
 ```sh
-sudo apt install build-essential clang libsdl2-dev libjack-jackd2-dev \
+sudo apt install build-essential clang libsdl3-dev libcairo2-dev libpango1.0-dev libjack-jackd2-dev \
   zlib1g-dev libasound2-dev python3
 # optional: sox ffmpeg
 ```
@@ -52,9 +54,11 @@ development package is needed; the build still invokes the system
 ## Quick start
 
 ```sh
-# 0. System libraries (Arch: cairo pango sdl2 jack; Debian/Ubuntu:
-#    libcairo2-dev libpango1.0-dev libsdl2-dev libjack-jackd2-dev)
-#    Cairo/Pango draw the shell; SDL2 owns the window; JACK is optional.
+# 0. System libraries (Arch: sdl3 cairo pango jack; Debian/Ubuntu:
+#    libsdl3-dev libcairo2-dev libpango1.0-dev libjack-jackd2-dev)
+#    vinland-ui (SDL3 + Vulkan, OpenGL fallback) draws the window; Cairo/Pango
+#    only render the headless ui-shot/ui-test harness. JACK is optional.
+#    git clone https://github.com/WilsonNet/vinland-ui ../../vinland-ui
 
 # 1. Toolchain (once)
 curl -sL -o /tmp/odin.tar.gz \
@@ -298,7 +302,7 @@ A real 2-second take was recorded through the native window with xdotool:
 odin/
   src/
     main.odin          CLI entry
-    ui_window.odin     SDL2 window + input mapping
+    ui_window.odin     vinland-ui window (SDL3/Vulkan) + key mapping + engine commands
     ui_harness.odin    scripted native UI test runner
     ui_cmd.odin        ui-shot
     engine.odin        ring-buffer capture, playback, bounce, overdub
@@ -326,8 +330,33 @@ Correspondence with the Rust reference:
 | `audio/device.rs`, `engine.rs` capture | `capture.odin` + `engine.odin` |
 | `audio/jack.rs` | `jack_capture.odin` |
 | `hound` WAV writer | `wav.odin` |
-| React UI | `src/ui/` (Cairo vector canvas + Pango text) |
+| React UI | `src/ui/view.odin` (vinland-ui element tree; window) and `src/ui/draw.odin` (Cairo, headless harness) |
 | Playwright | `ui_harness.odin` |
+
+## Window UI (vinland-ui)
+
+The window is built with [vinland-ui](https://github.com/WilsonNet/vinland-ui):
+`src/ui/view.odin` turns the `App` model into a Tailwind-styled element tree that
+follows the original React design (DESIGN.md: JetBrains Mono, amber signal,
+flat 1px panels; tokens from `src/styles/tokens.css` in oklch). Knobs, meters and
+the FX graphs (EQ response, compressor transfer, reverb envelope, delay taps,
+width scope, limiter) are drawn with vinland's vector canvas primitives
+(`draw_line`, `draw_arc`, `draw_area`). Rendering is SDL3 GPU (Vulkan) with an
+OpenGL 3.3 fallback (`VUI_BACKEND=gl`), at the display's real pixel density.
+The loop idles when nothing changes and redraws at vsync while audio runs.
+
+Keyboard goes straight to `ui.app_key`, so every Vim binding matches the
+harness and the unit tests. Agents can drive the window with `vui-ctl`:
+
+```sh
+VUI_PORT=7421 ./bin/tracker-odin ui --demo &
+vui-ctl --port 7421 screenshot tracker.png
+vui-ctl --port 7421 type x          # open the FX rack
+vui-ctl --port 7421 click-text MST
+```
+
+The Cairo/Pango renderer below remains for `ui-shot` / `ui-test` (headless,
+pixel-stable regression tests).
 
 ## Rendering notes (crispness)
 

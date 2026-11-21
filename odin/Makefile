@@ -1,8 +1,9 @@
 ODIN       ?= odin
+VINLAND    ?= $(abspath ../../vinland-ui)
 ODIN_BIN   := $(shell command -v $(ODIN))
 ODIN_ROOT  ?= $(dir $(shell readlink -f $(ODIN_BIN)))
 STB_LIB    := $(ODIN_ROOT)vendor/stb/lib/stb_truetype.a
-LINK_FLAGS := -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lSDL2 -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0"
+LINK_FLAGS := -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0"
 BIN        := bin/tracker-odin
 
 PREFIX     ?= $(HOME)/.local
@@ -26,17 +27,17 @@ stb: $(STB_LIB)
 
 build: stb
 	@mkdir -p bin
-	"$(ODIN)" build src -out:$(BIN) $(LINK_FLAGS)
+	"$(ODIN)" build src -out:$(BIN) -collection:vinland=$(VINLAND) $(LINK_FLAGS)
 
 test-dsp:
 	"$(ODIN)" test src/dsp
 
 # Project/WAV tests live in the root `src` package.
 test-core: stb
-	"$(ODIN)" test src $(LINK_FLAGS)
+	"$(ODIN)" test src -collection:vinland=$(VINLAND) $(LINK_FLAGS)
 
 test-ui: stb
-	"$(ODIN)" test src/ui $(LINK_FLAGS)
+	"$(ODIN)" test src/ui -collection:vinland=$(VINLAND) $(LINK_FLAGS)
 
 test: test-dsp test-core test-ui
 

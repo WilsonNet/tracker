@@ -22,7 +22,8 @@ for arg in "$@"; do
 	esac
 done
 
-LINK='-extra-linker-flags:-lm -ldl -lpthread -ljack -lz -lSDL2 -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0'
+VINLAND="${VINLAND:-$(cd "$(dirname "$0")/../../.." && pwd)/vinland-ui}"
+LINK='-extra-linker-flags:-lm -ldl -lpthread -ljack -lz -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0'
 
 command -v "$ODIN" >/dev/null 2>&1 || {
 	echo "odin not found; install it and/or set ODIN=/path/to/odin" >&2
@@ -41,12 +42,12 @@ expect_fail() {
 
 echo "== unit tests =="
 "$ODIN" test src/dsp
-"$ODIN" test src "$LINK"
-"$ODIN" test src/ui "$LINK"
+"$ODIN" test src -collection:vinland="$VINLAND" "$LINK"
+"$ODIN" test src/ui -collection:vinland="$VINLAND" "$LINK"
 
 echo "== build =="
 mkdir -p bin
-"$ODIN" build src -out:bin/tracker-odin "$LINK"
+"$ODIN" build src -out:bin/tracker-odin -collection:vinland="$VINLAND" "$LINK"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/tracker-odin-check.XXXXXX") || {
 	echo "FAIL: cannot create a temporary directory" >&2

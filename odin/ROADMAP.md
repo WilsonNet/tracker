@@ -41,7 +41,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | item | status | evidence |
 |---|---|---|
-| SDL2 window, software canvas | done | X11/Xvfb + Hyprland |
+| vinland-ui window (SDL3, Vulkan/GL), original React design | done | Hyprland, `vui-ctl` screenshots |
+| SDL2 window, software canvas | replaced | superseded by vinland-ui |
 | 4 track strips, master, meters, GR | done | 220-action tour |
 | Reference density + design-token layers | done | `theme.odin`, geometry tests at 900/1180/1920 |
 | Window-responsive type/control zoom | done | `ui_zoom_for_window`, 1.0–1.8x, 57 UI tests |
