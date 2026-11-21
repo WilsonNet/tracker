@@ -13,6 +13,9 @@ import ui "ui"
 SUPPORTED_UI_SCALES := [?]f32{1.0, 1.25, 1.5, 2.0, 3.0}
 
 ui_scale_from_flags :: proc(args: []string, name: string, fallback: f32 = 1.0) -> (f32, bool) {
+	if !validate_numbers(args, []string{name}, nil) {
+		return fallback, false
+	}
 	s := flag_f32(args, name, fallback)
 	for v in SUPPORTED_UI_SCALES {
 		if abs(s - v) < 0.001 {
@@ -25,8 +28,8 @@ ui_scale_from_flags :: proc(args: []string, name: string, fallback: f32 = 1.0) -
 
 run_ui_shot :: proc(args: []string) -> bool {
 	if !validate_flags(args, []string{"--out", "--width", "--height", "--scale"}, []string{
-		"--playing", "--recording", "--three", "--fx", "--master", "--palette", "--io", "--bounce",
-	}) {
+		"--playing", "--recording", "--three", "--fx", "--master", "--palette", "--io", "--bounce", "--click",
+	}) || !validate_numbers(args, nil, []string{"--width", "--height"}) {
 		return false
 	}
 	out := flag_string(args, "--out", "/tmp/tracker-odin-ui.png")
@@ -36,8 +39,7 @@ run_ui_shot :: proc(args: []string) -> bool {
 	if !scale_ok {
 		return false
 	}
-	if width < MIN_CLI_DIM || width > MAX_CLI_DIM || height < MIN_CLI_DIM || height > MAX_CLI_DIM {
-		fmt.eprintfln("--width/--height must be between %d and %d", MIN_CLI_DIM, MAX_CLI_DIM)
+	if !cli_window_size_ok(width, height) {
 		return false
 	}
 	if !ensure_parent_dir(out) {

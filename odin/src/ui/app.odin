@@ -1202,8 +1202,8 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 	switch kind {
 	case .Play:
 		if a.transport == .Recording {
-			toast(a, "stop recording before play")
-			status_buf_set(a, "stop recording before play")
+			toast(a, "recording: press R to stop the take")
+			status_buf_set(a, "recording: press R to stop the take")
 			return
 		}
 		a.transport = .Playing
@@ -1455,8 +1455,8 @@ app_toggle_record :: proc(a: ^App) {
 
 app_toggle_play :: proc(a: ^App) {
 	if a.transport == .Recording {
-		status_buf_set(a, "stop recording before play")
-		toast(a, "stop recording before play")
+		status_buf_set(a, "recording: press R to stop the take")
+		toast(a, "recording: press R to stop the take")
 		return
 	}
 	if a.transport == .Playing {

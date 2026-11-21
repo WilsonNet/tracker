@@ -79,7 +79,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 212 unit tests
+make test         # 219 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -103,7 +103,7 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | 212 unit tests: 70 DSP, 85 core/engine/project, 57 UI |
+| `test` | 219 unit tests: 70 DSP, 92 core/engine/project, 57 UI |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
@@ -257,7 +257,14 @@ targets are unchanged); `ui-shot --scale N` does the same for a single frame.
 ./bin/tracker-odin ui-test --script tests/ui/full-tour.json --out /tmp/ui
 ```
 
-`render` accepts a directory of `track1.wav`…`track16.wav` or one WAV.
+`render` accepts a directory of `track1.wav`…`track16.wav` or one WAV; tracks
+at another rate are resampled to the first track's rate. Every reader (`info`,
+`render`, `bounce`) accepts RIFF, RF64 and BW64 containers with 32/64-bit float
+or 8/16/24/32-bit integer PCM. Numeric options must parse (`--seconds abc` is an
+error, not a silent default). `ui`, `ui-shot` and `ui-test` sizes must be at
+least the 900x620 layout minimum. `comp --track` is 0-based (0..3); `comp`
+never creates a session, `--list` prints each take's length in project frames,
+and a region that does not fit its take is rejected.
 `bounce` reads `project.json` (if present), loads the session tracks (active
 takes or comp regions), resamples mixed-rate files to the project rate, renders
 through the full chain and writes stereo 32-bit float (RF64 automatically for
@@ -268,7 +275,7 @@ removes them.
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 85 core/engine/project + 56 UI = 211 tests
+make test        # 70 DSP + 92 core/engine/project + 57 UI = 219 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui

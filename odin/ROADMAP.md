@@ -70,7 +70,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **212** (70 DSP, 85 core/engine/project, 57 UI) |
+| unit tests | **219** (70 DSP, 92 core/engine/project, 57 UI) |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |
 | hardware capture | 96,000 frames / 2.000 s |

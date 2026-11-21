@@ -10,14 +10,14 @@ intentional limits are in `ROADMAP.md`.
 |---|---|---|
 | clean build | `make clean && make build` | ≈0.8 s |
 | DSP | `odin test src/dsp` | **70 passed** |
-| engine / project / WAV / RF64 / takes / CLI | `odin test src` | **85 passed** |
+| engine / project / WAV / RF64 / takes / CLI | `odin test src` | **92 passed** |
 | UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **57 passed** |
 | vector renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
 | charts | level history + 5 FX response graphs | 17 screenshots inspected |
 | static checks | `odin check src -no-entry-point -vet` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
-Total: **212 unit tests**.
+Total: **219 unit tests**.
 
 ## Native UI harness
 
@@ -43,6 +43,11 @@ Total: **212 unit tests**.
 | long loopback | 480,000 frames / **10.000 s** |
 | JACK CLI | 24,000 frames / 0.500 s |
 | JACK GUI (`ui --jack`) | 57,344 frames / 1.195 s |
+| Scarlett 4i4 (6-in, "Surround 5.1"), 2026-11-21 | inputs 1/2 at half gain, nothing plugged; per-input levels match `pw-record` 1:1 reference |
+| ↳ miniaudio CLI 2 ch / 6 ch, 20 s | in1 −63.3 dBFS RMS (60 Hz hum), in2 −94.0, in3/4 digital silence, in5/6 −101.9; 960,000 frames exact |
+| ↳ JACK CLI 2 ch / 6 ch, 20 s | in1 −60.9, in2 −93.8, same per-input pattern; binds the default device's JACK client |
+| ↳ native UI (hidden, sandboxed GL) miniaudio / JACK | track1 −58.7 / −61.2, track2 −94.0 / −94.0 |
+| ↳ dropouts | no zero runs or low-level blocks after the first 1,024 frames (PipeWire start-up hole) |
 | live monitor + latency + 2 takes | duplex monitor, track1-take1 + canonical, T1/2 |
 | comp region | 2 takes, region [0, 48000) → 1.000 s comp bounce |
 | bounce | stereo float, limiter ceiling held |

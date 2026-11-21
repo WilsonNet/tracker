@@ -491,7 +491,19 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	if e.backend == .Jack {
 		// 0 asks the JACK session to adopt the server rate rather than reject
 		// the project rate; the UI is updated with the actual rate below.
-		if !jack_session_start(&e.jack, requested, 0, nil, 0) {
+		// Bind to the selected device's JACK client so track input N is that
+		// device's input N; without a match keep the first physical ports.
+		jack_ports := jack_port_names()
+		defer {
+			for p in jack_ports {
+				delete(p)
+			}
+			delete(jack_ports)
+		}
+		device_ports := jack_ports_for_device(jack_ports, ui.app_device(a))
+		defer delete(device_ports)
+		chosen := device_ports if len(device_ports) >= requested else nil
+		if !jack_session_start(&e.jack, requested, 0, chosen, 0) {
 			ui.status_buf_set(a, jack_session_detail(&e.jack))
 			return false
 		}
@@ -553,10 +565,13 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	}
 	e.device_index = idx
 
-	// If the device rejects the widest requested input, fall back in steps
-	// instead of failing the take outright. `ma_device_init` zeroes the device
-	// on entry, so retrying into the same struct is safe.
-	attempts := [5]int{requested, 8, 4, 2, 1}
+	// Open the device at its native width first so hardware inputs arrive
+	// unmixed and in order (track input N = interface input N); see
+	// `capture_config_unmixed`. If that is rejected, fall back to explicit
+	// widths instead of failing the take outright. `ma_device_init` zeroes the
+	// device on entry, so retrying into the same struct is safe.
+	attempts_buf, attempt_count := capture_open_attempts(requested)
+	attempts := attempts_buf[:attempt_count]
 	opened := false
 	monitoring := false
 
@@ -576,10 +591,7 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 			cfg.pUserData = &e.rec
 			cfg.periodSizeInFrames = 1024
 			for attempt in attempts {
-				if attempt > requested {
-					continue
-				}
-				cfg.capture.channels = u32(attempt)
+				capture_config_unmixed(&cfg, attempt)
 				if ma.device_init(&e.rec.ctx, &cfg, &e.rec.device) == .SUCCESS {
 					opened = true
 					monitoring = true
@@ -602,10 +614,7 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		cfg.pUserData = &e.rec
 		cfg.periodSizeInFrames = 1024
 		for attempt in attempts {
-			if attempt > requested {
-				continue
-			}
-			cfg.capture.channels = u32(attempt)
+			capture_config_unmixed(&cfg, attempt)
 			if ma.device_init(&e.rec.ctx, &cfg, &e.rec.device) == .SUCCESS {
 				opened = true
 				break

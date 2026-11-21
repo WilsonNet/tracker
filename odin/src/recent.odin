@@ -68,11 +68,9 @@ recent_save :: proc(path: string, projects: []string) -> bool {
 		return false
 	}
 	defer delete(data)
-	dir := recent_config_dir()
-	defer delete(dir)
-	if !ensure_dir(dir) {
-		return false
-	}
+	// write_file_atomic creates `path`'s own parent. Creating the default
+	// config directory here instead made a save to any other path (tests, a
+	// custom store) touch the user's ~/.config/tracker.
 	return write_file_atomic(path, data)
 }
 

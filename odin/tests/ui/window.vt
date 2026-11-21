@@ -1,0 +1,113 @@
+# Tracker window end-to-end suite (vinland-ui vui-test runner; headless + sandboxed).
+#   /path/to/vinland-ui/build/vui-test odin/tests/ui/window.vt
+app ../../bin/tracker-odin ui --session {test}/session
+size 1180x760
+scale 1
+baselines baselines
+threshold 0.003
+
+test "main screen"
+  expect-text "Track 1"
+  expect-text "Track 4"
+  expect-text ARM 4
+  expect-text NORMAL
+  expect-frame-ms 40
+  screenshot main
+
+test "arm, solo, mute toggle"
+  click ARM
+  expect-class ARM bg-rec
+  click SOLO
+  expect-class SOLO bg-cue
+  click MUTE
+  expect-class MUTE bg-ink-muted
+  click ARM
+  expect-no-class ARM bg-rec
+  screenshot toggles
+
+test "input pills select channel"
+  click 2
+  expect-class 2 bg-sig
+  expect-class "Track 1" border-line-sig
+
+test "record requires an armed track"
+  click REC
+  expect-text "arm a track first"
+  click ARM
+  click REC
+  expect-text "REC"
+  wait 10
+  click STOP
+  expect-text "NORMAL"
+
+test "fx rack via keyboard and tabs"
+  type x
+  expect-text "TRACK 1"
+  expect-text EQ
+  expect-text COMP
+  expect-text SEND
+  screenshot fx-track
+  click MST
+  expect-text MASTER
+  expect-text REVERB
+  expect-text LIMITER
+  screenshot fx-master
+  key escape
+  wait 3
+
+test "fx power toggle"
+  type x
+  click ON
+  expect-text BYP
+  click BYP
+  wait 2
+
+test "knob drag changes value"
+  type x
+  expect-exact "+0.0" 3
+  drag-text LOW 0 -60
+  expect-exact "+0.0" 2
+  screenshot knob-dragged
+
+test "bpm stepper"
+  expect-text 120
+  click +
+  expect-text 121
+  click −
+  click −
+  expect-text 119
+
+test "command palette"
+  type :
+  expect-text Commands
+  type sav
+  expect-text "save project"
+  screenshot palette
+  key escape
+  expect-no-text Commands
+
+test "io overlay"
+  click I/O
+  expect-text "Input devices"
+  expect-text RESCAN
+  screenshot io
+  key escape
+  expect-no-text "Input devices"
+
+test "rhythm toggle"
+  click RHYTHM
+  expect-text "BPM · 4/4"
+  click RHYTHM
+  expect-no-text "BPM · 4/4"
+
+test "undo after mute"
+  click MUTE
+  expect-class MUTE bg-ink-muted
+  click UNDO
+  expect-no-class MUTE bg-ink-muted
+
+test "minimum window size"
+  resize 900 620
+  expect-text "Track 4"
+  expect-text RHYTHM
+  screenshot min-size

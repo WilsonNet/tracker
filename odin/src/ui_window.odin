@@ -113,6 +113,9 @@ run_ui_window :: proc(args: []string) -> bool {
 	last := time.now()
 	for vapp.next_frame(&va) {
 		window_synthetic_keys(&a, &ctx)
+		// key events are consumed by window_on_event, so vinland's input.mods
+		// never sees Shift; poll it for fine knob drags and wheel steps
+		ui.app_set_shift(&a, sdl.GetModState() & {.LSHIFT, .RSHIFT} != {})
 
 		now := time.now()
 		dt := f32(time.duration_seconds(time.since(last)))
@@ -143,6 +146,12 @@ run_ui_window :: proc(args: []string) -> bool {
 window_on_event :: proc(va: ^vapp.App, ev: ^sdl.Event) -> bool {
 	ws := (^Window_State)(va.user_data)
 	#partial switch ev.type {
+	case .KEY_DOWN, .KEY_UP:
+		// consuming the key hides it from vinland, including its modifier
+		// state; keep input.mods current so Shift+wheel pans scroll areas
+		window_sync_mods(va, ev.key.mod)
+	}
+	#partial switch ev.type {
 	case .KEY_DOWN:
 		vapp.request_redraw(va)
 		if ev.key.repeat {
@@ -151,7 +160,7 @@ window_on_event :: proc(va: ^vapp.App, ev: ^sdl.Event) -> bool {
 		key, ch, shift := map_key(ev.key.key, ev.key.mod)
 		ui.app_set_shift(ws.a, shift)
 		if key != .Char || ch != 0 {
-			ui.app_key(ws.a, key, ch, shift)
+			window_key(ws.a, key, ch, shift)
 		}
 		return true
 	case .KEY_UP:
@@ -159,8 +168,47 @@ window_on_event :: proc(va: ^vapp.App, ev: ^sdl.Event) -> bool {
 			ui.app_set_shift(ws.a, false)
 		}
 		return true
+	case .TEXT_INPUT:
+		// keys already reached app_key above; if anything turns SDL text
+		// input on, the same keystroke must not run twice via input.text
+		return true
 	}
 	return false
+}
+
+@(private)
+window_sync_mods :: proc(va: ^vapp.App, m: sdl.Keymod) {
+	mods: vui.Mods
+	if m & {.LSHIFT, .RSHIFT} != {} {
+		mods += {.Shift}
+	}
+	if m & {.LCTRL, .RCTRL} != {} {
+		mods += {.Ctrl}
+	}
+	if m & {.LALT, .RALT} != {} {
+		mods += {.Alt}
+	}
+	if m & {.LGUI, .RGUI} != {} {
+		mods += {.Super}
+	}
+	va.input.mods = mods
+}
+
+// Vim h/l adjust the focused FX rack control (the status line advertises
+// "h/l: adjust"); H/L are the fine variants, like Shift+arrows.
+@(private)
+window_key :: proc(a: ^ui.App, key: ui.Key, ch: u8, shift: bool) {
+	if key == .Char && a.mode == .Fx {
+		switch ch {
+		case 'h', 'H':
+			ui.app_key(a, .Left, 0, ch == 'H')
+			return
+		case 'l', 'L':
+			ui.app_key(a, .Right, 0, ch == 'L')
+			return
+		}
+	}
+	ui.app_key(a, key, ch, shift)
 }
 
 // vui-ctl `type` / `key` arrive as vinland synthetic input.
@@ -169,7 +217,13 @@ window_synthetic_keys :: proc(a: ^ui.App, ctx: ^vui.Context) {
 	in_ := &ctx.input
 	for r in in_.text {
 		if r < 128 {
-			ui.app_key(a, .Char, u8(r), r >= 'A' && r <= 'Z')
+			if r == ' ' {
+				// SDL reports Space as a key, never as a Char; mirror that so
+				// `vui-ctl type " "` toggles play like the real keyboard
+				window_key(a, .Space, ' ', false)
+			} else {
+				window_key(a, .Char, u8(r), r >= 'A' && r <= 'Z')
+			}
 		}
 	}
 	shift := .Shift in in_.mods

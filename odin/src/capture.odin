@@ -17,7 +17,12 @@ import ma "vendor:miniaudio"
 
 Capture_State :: struct {
 	buffer:   []f32,
+	// Channels kept per frame in `buffer`.
 	channels: int,
+	// Channels per frame delivered by the device. 0 means equal to `channels`;
+	// larger values mean the device was opened at its native width and only
+	// the first `channels` hardware inputs are kept.
+	src_channels: int,
 	capacity: int,
 	written:  int,
 	lock:     sync.Mutex,
@@ -54,14 +59,88 @@ capture_callback :: proc "c" (device: ^ma.device, output, input: rawptr, frame_c
 	remaining := state.capacity - state.written
 	n := min(frames, remaining)
 	if n > 0 {
-		base := state.written * state.channels
-		count := n * state.channels
-		for i in 0 ..< count {
-			state.buffer[base + i] = src[i]
-		}
+		capture_copy_frames(state.buffer[state.written * state.channels:], src, n, state.src_channels, state.channels)
 		state.written += n
 	}
 	sync.mutex_unlock(&state.lock)
+}
+
+// Copies `frames` interleaved frames of `src_channels` into `dst`, keeping
+// only the first `keep` channels (hardware inputs 1..keep). `src_channels`
+// of 0 (or <= keep) means the source is already `keep` wide.
+capture_copy_frames :: proc "contextless" (dst: []f32, src: [^]f32, frames, src_channels, keep: int) {
+	if keep <= 0 || frames <= 0 {
+		return
+	}
+	stride := src_channels if src_channels > keep else keep
+	if stride == keep {
+		count := min(frames * keep, len(dst))
+		for i in 0 ..< count {
+			dst[i] = src[i]
+		}
+		return
+	}
+	n := min(frames, len(dst) / keep)
+	for f in 0 ..< n {
+		for c in 0 ..< keep {
+			dst[f * keep + c] = src[f * stride + c]
+		}
+	}
+}
+
+// PA_CHANNEL_MAP_AUX (pulse/channelmap.h). miniaudio's PulseAudio backend
+// otherwise asks for an AIFF/standard speaker map, and PulseAudio/PipeWire
+// then *remix* the source into it: on a 6-input interface exposed as
+// "Analog Surround 5.1" (FL FR RL RR FC LFE), a 2-channel stream gets inputs
+// 3-6 folded into tracks 1/2, and a 6-channel stream comes back reordered.
+// AUX positions carry no speaker meaning, so the server copies channels 1:1
+// in hardware order.
+PULSE_CHANNEL_MAP_AUX :: i32(2)
+
+// Capture channel counts to try, in order. 0 opens the device at its native
+// width with the client map copied from the device map, so miniaudio's own
+// converter is a passthrough and no backend can remix inputs; the caller then
+// keeps the first `requested` channels. Explicit widths are the fallback for
+// backends that reject a native open.
+capture_open_attempts :: proc(requested: int) -> (attempts: [7]int, count: int) {
+	candidates := [7]int{0, requested, 16, 8, 4, 2, 1}
+	for c, i in candidates {
+		if i > 0 && (c > requested || c <= 0) {
+			continue
+		}
+		dup := false
+		for j in 0 ..< count {
+			if attempts[j] == c {
+				dup = true
+			}
+		}
+		if !dup {
+			attempts[count] = c
+			count += 1
+		}
+	}
+	return
+}
+
+// PulseAudio stream map for a capture open of `channels` (0 = native width).
+// AUX is safe for the native open (miniaudio copies the device map to the
+// client, so its converter is a passthrough) and for 1-2 channels (miniaudio
+// reports MONO/FL-FR for those regardless of the stream map). For explicit
+// widths above 2 miniaudio would see AUX positions against a speaker client
+// map and output silence, so those keep PulseAudio's default map.
+capture_pulse_channel_map :: proc(channels: int) -> i32 {
+	if channels <= 2 {
+		return PULSE_CHANNEL_MAP_AUX
+	}
+	return 0 // PA_CHANNEL_MAP_DEFAULT (AIFF)
+}
+
+// Configures a capture (or duplex) config so hardware inputs arrive unmixed
+// and in device order. `channels` is one entry of `capture_open_attempts`.
+capture_config_unmixed :: proc(cfg: ^ma.device_config, channels: int) {
+	cfg.capture.channels = u32(max(channels, 0))
+	cfg.capture.channelMap = nil
+	cfg.pulse.channelMap = capture_pulse_channel_map(channels)
 }
 
 capture_device_name :: proc(info: ^ma.device_info) -> string {
@@ -217,18 +296,13 @@ capture_record :: proc(seconds: f32, channels: int, rate: u32, device_index: int
 	cfg.pUserData = &state
 	cfg.periodSizeInFrames = 1024
 
-	// Some backends reject wide requests even though they can capture fewer
-	// channels. Retry down the list instead of failing the whole take.
+	// Open at the native width first (no remixing anywhere), then fall back
+	// down the list for backends that reject it.
 	device: ma.device
 	opened := false
-	last := 0
-	attempts := [6]int{channels, 16, 8, 4, 2, 1}
-	for attempt in attempts {
-		if attempt > channels || attempt == last {
-			continue
-		}
-		last = attempt
-		cfg.capture.channels = u32(attempt)
+	attempts, attempt_count := capture_open_attempts(channels)
+	for attempt in attempts[:attempt_count] {
+		capture_config_unmixed(&cfg, attempt)
 		if ma.device_init(&ctx, &cfg, &device) == .SUCCESS {
 			opened = true
 			break
@@ -241,13 +315,14 @@ capture_record :: proc(seconds: f32, channels: int, rate: u32, device_index: int
 	defer ma.device_uninit(&device)
 
 	actual_rate := device.sampleRate
-	actual_channels := int(device.capture.channels)
-	if actual_rate == 0 || actual_channels <= 0 {
+	device_channels := int(device.capture.channels)
+	if actual_rate == 0 || device_channels <= 0 {
 		fmt.eprintln("capture device reported an invalid format")
 		return {}, false
 	}
+	actual_channels := min(channels, device_channels)
 	if actual_channels != channels {
-		fmt.eprintfln("device opened %d channel(s), requested %d", actual_channels, channels)
+		fmt.eprintfln("device has %d input channel(s), requested %d", device_channels, channels)
 	}
 	if actual_rate != rate {
 		fmt.eprintfln("device runs at %d Hz, requested %d Hz", actual_rate, rate)
@@ -261,6 +336,7 @@ capture_record :: proc(seconds: f32, channels: int, rate: u32, device_index: int
 	// rate that were actually accepted. The callback cannot run until
 	// `device_start`, below.
 	state.channels = actual_channels
+	state.src_channels = device_channels
 	state.capacity = target_frames
 	state.buffer = make([]f32, target_frames * actual_channels)
 

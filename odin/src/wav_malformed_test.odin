@@ -193,7 +193,8 @@ wav_rejects_inconsistent_headers :: proc(t: ^testing.T) {
 	wav_expect_reject(t, path, wav_fixture(1, 1, 0, 2, 16, payload[:]))
 	wav_expect_reject(t, path, wav_fixture(1, 1, 48_000, 0, 16, payload[:]))
 	wav_expect_reject(t, path, wav_fixture(2, 1, 48_000, 2, 16, payload[:]))
-	wav_expect_reject(t, path, wav_fixture(1, 1, 48_000, 2, 8, payload[:]))
+	// 8-bit unsigned PCM is supported now; 12-bit integer PCM is not.
+	wav_expect_reject(t, path, wav_fixture(1, 1, 48_000, 2, 12, payload[:]))
 	// A fmt chunk smaller than its required 16-byte body must not read into
 	// the following data chunk.
 	wav_expect_reject(t, path, wav_fixture(1, 1, 48_000, 2, 16, payload[:], 15))

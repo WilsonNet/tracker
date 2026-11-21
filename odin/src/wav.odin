@@ -1,6 +1,7 @@
 // WAV read/write. 32-bit IEEE float is the working format, mirroring the
 // Rust engine's 32-bit float philosophy. The reader also accepts the integer
-// PCM formats ffmpeg/sox commonly produce, so the CLI can ingest references.
+// PCM formats ffmpeg/sox commonly produce (8/16/24/32-bit integer, 64-bit
+// float), so the CLI can ingest references.
 
 package main
 
@@ -133,7 +134,8 @@ wav_parse :: proc(data: []byte) -> (wav: Wav, ok: bool) {
 	switch {
 	case tag_eq(data[0:], "RIFF"):
 		return wav_parse_riff(data)
-	case tag_eq(data[0:], "RF64"):
+	case tag_eq(data[0:], "RF64"), tag_eq(data[0:], "BW64"):
+		// BW64 (ITU-R BS.2088) uses the RF64 ds64 layout under another tag.
 		return wav_parse_rf64(data)
 	case:
 		return {}, false
@@ -225,6 +227,10 @@ wav_decode :: proc(
 	switch {
 	case format == 3 && bits == 32:
 		bytes_per_sample = 4
+	case format == 3 && bits == 64:
+		bytes_per_sample = 8
+	case format == 1 && bits == 8:
+		bytes_per_sample = 1
 	case format == 1 && bits == 16:
 		bytes_per_sample = 2
 	case format == 1 && bits == 24:
@@ -259,6 +265,22 @@ wav_decode :: proc(
 			for c in 0 ..< int(wav.channels) {
 				v, _ := endian.get_f32(data[frame + c * 4:], .Little)
 				wav.samples[f * int(wav.channels) + c] = v
+			}
+		}
+	case format == 3 && bits == 64:
+		for f in 0 ..< frames {
+			frame := data_off + f * stride
+			for c in 0 ..< int(wav.channels) {
+				v, _ := endian.get_f64(data[frame + c * 8:], .Little)
+				wav.samples[f * int(wav.channels) + c] = f32(v)
+			}
+		}
+	case format == 1 && bits == 8:
+		// 8-bit WAV PCM is unsigned with a 128 midpoint.
+		for f in 0 ..< frames {
+			frame := data_off + f * stride
+			for c in 0 ..< int(wav.channels) {
+				wav.samples[f * int(wav.channels) + c] = (f32(data[frame + c]) - 128.0) / 128.0
 			}
 		}
 	case format == 1 && bits == 16:

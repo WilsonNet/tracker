@@ -37,6 +37,12 @@ View :: struct {
 	ic_left:       vui.Icon,
 	ic_right:      vui.Icon,
 	high_contrast: bool,
+	fine:          bool, // Shift held: fine knob drag / wheel
+	tight:         bool, // FX rack open in a short window: compact strips + rack
+	knob_wheel:    bool, // a rack knob consumed this frame's wheel
+	focus_rect:    vui.Rect, // module holding the keyboard focus (last frame)
+	last_focus:    int,
+	chain_w:       f32,
 }
 
 @(private = "file")
@@ -113,7 +119,14 @@ view_frame :: proc(a: ^App, v: ^View) {
 	app_layout(a)
 	a.mouse_x = ctx.input.mouse.x
 	a.mouse_y = ctx.input.mouse.y
-	a.shift_down = .Shift in ctx.input.mods
+	// The window consumes SDL key events before vinland sees them, so
+	// ctx.input.mods never carries a physical Shift; ui_window keeps
+	// a.shift_down current. Synthetic (vui-ctl) modifiers arrive via mods.
+	v.fine = a.shift_down || .Shift in ctx.input.mods
+	// With the 266px rack open, windows shorter than ~700px (down to the
+	// 620px minimum) cannot fit a full strip: the take row slid under the
+	// rack. Drop the level history and shorten the rack visuals instead.
+	v.tight = a.mode == .Fx && ctx.viewport.y < TIGHT_HEIGHT
 	view_drag_update(a, v)
 	if .Left in ctx.input.released {
 		v.drag.kind = .None
@@ -182,7 +195,8 @@ view_drag_update :: proc(a: ^App, v: ^View) {
 		}
 	case .Knob:
 		lo, hi, lg := knob_spec(d.target.module, d.target.param)
-		speed: f32 = 3000 if a.shift_down else 300
+		// Knob.tsx: 170 px for the full range, shift = 0.12x
+		speed: f32 = 170 / 0.12 if v.fine else 170
 		n := clamp(d.norm - dy / speed, 0, 1)
 		app_set_knob(a, d.target, norm_to_value(n, lo, hi, lg))
 	case .None:
@@ -212,8 +226,16 @@ wheel_here :: proc() -> f32 {
 	if !vui.hovered() {
 		return 0
 	}
-	return -vui.ctx_get().input.wheel.y
+	// vinland reports wheel travel in pixels (48 per notch, negative = up);
+	// callers step per notch like Knob.tsx's onWheel
+	return -vui.ctx_get().input.wheel.y / WHEEL_NOTCH
 }
+
+@(private = "file")
+WHEEL_NOTCH :: 48
+
+@(private = "file")
+TIGHT_HEIGHT :: 700
 
 // ---------------------------------------------------------------------------
 // Transport bar
@@ -242,15 +264,15 @@ status_mode :: proc(a: ^App) -> (string, string) {
 }
 
 @(private = "file")
-TBTN :: "flex items-center gap-1.5 rounded-[2px] px-3 py-1 text-[12px] font-semibold tracking-[0.04em] transition-colors duration-150 focus-visible:ring-1 focus-visible:ring-sig"
+TBTN :: "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[2px] px-3 py-1 text-[12px] font-semibold tracking-[0.04em] transition-colors duration-150 focus-visible:ring-1 focus-visible:ring-sig"
 
 @(private = "file")
 view_transport :: proc(a: ^App, v: ^View) {
 	if vui.div("flex shrink-0 items-center gap-6 border-b border-line bg-panel px-4 py-2") {
 		mode, mcls := status_mode(a)
-		vui.text(mode, vui.cx("rounded-[2px] px-2 py-1 text-[12px] font-semibold leading-none tracking-[0.04em]", mcls))
+		vui.text(mode, vui.cx("shrink-0 whitespace-nowrap rounded-[2px] px-2 py-1 text-[12px] font-semibold leading-none tracking-[0.04em]", mcls))
 
-		if vui.div("flex items-center gap-1") {
+		if vui.div("flex shrink-0 items-center gap-1") {
 			rec := a.transport == .Recording
 			if vui.button_box(vui.cx(TBTN, rec ? "animate-pulse bg-rec text-ink" : "text-rec hover:bg-rec-bg")) {
 				vui.el("size-2 rounded-full bg-rec" if !rec else "size-2 rounded-full bg-ink")
@@ -280,25 +302,33 @@ view_transport :: proc(a: ^App, v: ^View) {
 			}
 		}
 
-		vui.text(timecode(a.frames, a.sample_rate), "ml-auto text-[13px] tabular-nums tracking-[0.02em] text-ink")
+		vui.text(timecode(a.frames, a.sample_rate), "ml-auto shrink-0 whitespace-nowrap text-[13px] tabular-nums tracking-[0.02em] text-ink")
 
-		if vui.div("ml-4 flex items-center gap-2") {
+		if vui.div("ml-4 flex shrink-0 items-center gap-2") {
 			vui.text("BPM", "text-[12px] font-semibold tracking-[0.04em] text-ink-dim")
 			if vui.div("flex h-7 items-center rounded-[2px] border border-line bg-canvas hover:border-sig-dim") {
 				if w := wheel_here(); w != 0 {
 					app_execute(a, .Bpm_Up if w > 0 else .Bpm_Down)
 				}
-				if vui.button("−", "h-full px-1.5 text-[12px] text-ink-muted hover:text-sig") {
-					app_execute(a, .Bpm_Down)
+				// button_box + flex centring: a bare text button pins its glyph
+				// to the top of the h-full box
+				if vui.button_box("flex h-full items-center px-1.5 text-[13px] text-ink-muted hover:text-sig") {
+					vui.text("−")
+					if vui.clicked() {
+						app_execute(a, .Bpm_Down)
+					}
 				}
 				vui.text(fmt.tprintf("%d", a.bpm), "w-9 text-center text-[13px] tabular-nums text-ink")
-				if vui.button("+", "h-full px-1.5 text-[12px] text-ink-muted hover:text-sig") {
-					app_execute(a, .Bpm_Up)
+				if vui.button_box("flex h-full items-center px-1.5 text-[13px] text-ink-muted hover:text-sig") {
+					vui.text("+")
+					if vui.clicked() {
+						app_execute(a, .Bpm_Up)
+					}
 				}
 			}
 		}
 
-		if vui.div("ml-3 flex items-center gap-1") {
+		if vui.div("ml-3 flex min-w-0 items-center gap-1") {
 			mon := a.monitor
 			if vui.button_box(vui.cx(TBTN, "border", mon ? "border-line-sig bg-sig-bg text-sig" : "border-line text-ink-dim hover:border-sig-dim hover:bg-panel-hover hover:text-ink")) {
 				vui.el("size-1.5 rounded-full bg-sig shadow-[0_0_6px_var(--color-sig)]" if mon else "size-1.5 rounded-full bg-ink-muted")
@@ -308,11 +338,14 @@ view_transport :: proc(a: ^App, v: ^View) {
 				}
 			}
 			io := a.mode == .Io
-			if vui.button_box(vui.cx(TBTN, "max-w-[240px] border", io ? "border-line-sig bg-sig-bg text-sig" : "border-line text-ink-dim hover:border-ink-muted hover:bg-panel-hover hover:text-ink")) {
+			// the only transport item allowed to shrink: at the 900px minimum
+			// with a long mode chip (COMMAND) the device name truncates
+			// instead of the "I/O" label wrapping and growing the bar
+			if vui.button_box(vui.cx(TBTN, "min-w-0 max-w-[240px] shrink border", io ? "border-line-sig bg-sig-bg text-sig" : "border-line text-ink-dim hover:border-ink-muted hover:bg-panel-hover hover:text-ink")) {
 				vui.text("I/O")
 				dev := app_device(a)
 				if dev != "" {
-					vui.text(dev, vui.cx("ml-0.5 max-w-[140px] truncate border-l pl-1.5 text-[11px] font-normal tracking-normal", io ? "border-line-sig text-sig" : "border-line text-ink-muted"))
+					vui.text(dev, vui.cx("ml-0.5 min-w-0 max-w-[140px] shrink truncate border-l pl-1.5 text-[11px] font-normal tracking-normal", io ? "border-line-sig text-sig" : "border-line text-ink-muted"))
 				}
 				if vui.clicked() {
 					app_execute(a, .Io)
@@ -513,9 +546,11 @@ view_track :: proc(a: ^App, v: ^View, i: int) {
 
 		// footer: level history, takes
 		if vui.div("mt-auto flex flex-col gap-2") {
-			hist := new(History_Draw, context.temp_allocator)
-			hist^ = {a, i}
-			vui.canvas("h-8 w-full", history_draw, hist)
+			if !v.tight {
+				hist := new(History_Draw, context.temp_allocator)
+				hist^ = {a, i}
+				vui.canvas("h-8 w-full", history_draw, hist)
+			}
 			if vui.div("flex items-center gap-1.5 text-[10px] tracking-[0.06em] text-ink-muted") {
 				vui.text("TAKE")
 				if a.take_count[i] > 0 {
@@ -525,7 +560,9 @@ view_track :: proc(a: ^App, v: ^View, i: int) {
 							app_execute(a, .Take_Prev, i)
 						}
 					}
-					vui.text(fmt.tprintf("%d/%d", a.take_active[i] + 1, a.take_count[i]), "tabular-nums text-ink-dim")
+					// take ids are 1-based; 0 means the comp / no take is active
+					act := a.take_active[i]
+					vui.text(fmt.tprintf("%d/%d", act, a.take_count[i]) if act > 0 else fmt.tprintf("C/%d", a.take_count[i]), "tabular-nums text-ink-dim")
 					if vui.button_box("rounded-[2px] p-0.5 text-ink-muted hover:bg-panel-raised hover:text-sig") {
 						vui.icon(v.ic_right, "size-3")
 						if vui.clicked() {
@@ -674,7 +711,7 @@ view_fx :: proc(a: ^App, v: ^View) {
 		knob_total += c
 	}
 
-	if vui.div("flex h-[266px] shrink-0 flex-col border-t border-line bg-panel") {
+	if vui.div(vui.cx("flex shrink-0 flex-col border-t border-line bg-panel", v.tight ? "h-[242px]" : "h-[266px]")) {
 		// head
 		if vui.div("flex min-h-8 items-center gap-3 border-b border-line-subtle px-3 py-[5px]") {
 			vui.text("FX", "text-[12px] font-bold tracking-[0.09em] text-sig")
@@ -711,22 +748,55 @@ view_fx :: proc(a: ^App, v: ^View) {
 		if vui.div("flex min-h-0 flex-1 items-stretch gap-2 overflow-x-auto px-3 py-2") {
 			k := 0
 			tg := knob_total
+			v.knob_wheel = false
+			v.focus_rect = {}
 			for m, mi in modules {
 				vui.push_id(int(m))
 				fx_module(a, v, m, mi, counts[mi], &k, &tg)
 				vui.pop_id()
 			}
+			fx_chain_scroll(a, v)
 		}
 		// foot
 		if vui.div("flex items-center justify-between gap-3 px-3 pb-[5px] text-[10px] tracking-[0.05em] text-ink-muted") {
 			vui.text(fx_summary(a), "text-ink-dim")
-			if focus := app_fx_focus_name(a); focus != "" && focus != "none" {
+			if focus := fx_focus_label(a); focus != "" {
 				vui.text(focus, "text-sig")
 			} else {
 				vui.text("PLAY MIX TO AUDITION · X CLOSES" if master else "B BOUNCES · X CLOSES", "whitespace-nowrap")
 			}
 		}
 	}
+}
+
+// The master chain (5 modules) overflows narrow windows. FxRack.tsx had
+// scroll arrows; here a plain wheel over the chain (not over a knob) pans it,
+// and keyboard focus (Tab) brings its module into view.
+@(private = "file")
+fx_chain_scroll :: proc(a: ^App, v: ^View) {
+	st := vui.current().state
+	if st == nil || st.scroll_max.x <= 0 {
+		v.last_focus = a.fx_focus
+		v.chain_w = 0
+		return
+	}
+	chain := vui.prev_rect()
+	if w := wheel_here(); w != 0 && !v.knob_wheel {
+		st.scroll_target.x = clamp(st.scroll_target.x - w * WHEEL_NOTCH, 0, st.scroll_max.x)
+	}
+	// follow the focus when it moves or the window is resized
+	if (a.fx_focus != v.last_focus || chain.w != v.chain_w) && v.focus_rect.w > 0 {
+		PAD :: 12
+		fr := v.focus_rect
+		if fr.x < chain.x {
+			st.scroll_target.x -= chain.x - fr.x + PAD
+		} else if fr.x + fr.w > chain.x + chain.w {
+			st.scroll_target.x += fr.x + fr.w - (chain.x + chain.w) + PAD
+		}
+		st.scroll_target.x = clamp(st.scroll_target.x, 0, st.scroll_max.x)
+	}
+	v.last_focus = a.fx_focus
+	v.chain_w = chain.w
 }
 
 @(private = "file")
@@ -762,6 +832,10 @@ fx_module :: proc(a: ^App, v: ^View, m: Fx_Module, mi, count: int, k, tg: ^int) 
 		cls = vui.cx(cls, "min-w-[256px]")
 	}
 	if vui.div(vui.cx(cls, enabled ? "border-line" : "border-line-subtle")) {
+		k0, tg0 := k^, tg^
+		defer if f := a.fx_focus; (f >= k0 && f < k^) || (f >= tg0 && f < tg^) {
+			v.focus_rect = vui.prev_rect()
+		}
 		// head
 		if vui.div("flex min-h-4 items-center gap-2") {
 			vui.text(fmt.tprintf("%02d", mi + 1), "text-[9px] tabular-nums tracking-[0.04em] text-ink-muted")
@@ -791,7 +865,7 @@ fx_module :: proc(a: ^App, v: ^View, m: Fx_Module, mi, count: int, k, tg: ^int) 
 		// visual
 		vis := new(Fx_Draw, context.temp_allocator)
 		vis^ = {a, m, enabled}
-		vui.canvas("h-14 w-full shrink-0" if enabled else "h-14 w-full shrink-0 opacity-40", fx_visual_draw, vis)
+		vui.canvas(vui.cx("w-full shrink-0", v.tight ? "h-8" : "h-14", enabled ? "" : "opacity-40"), fx_visual_draw, vis)
 		// knobs
 		if vui.div("mt-auto flex items-start justify-between gap-0.5") {
 			for p in 0 ..< count {
@@ -800,13 +874,14 @@ fx_module :: proc(a: ^App, v: ^View, m: Fx_Module, mi, count: int, k, tg: ^int) 
 				val := app_knob_value(a, t)
 				norm := value_to_norm(val, lo, hi, lg)
 				vui.push_id(p)
-				io := knob_ui(v, param_label(m, p), knob_value_text(m, p, val, true), norm, enabled, count >= 5 && a.fx_channel >= MAX_TRACKS, a.fx_focus == k^, .Knob)
+				io := knob_ui(v, param_label(m, p), fx_value_text(m, p, val), norm, enabled, count >= 5 && a.fx_channel >= MAX_TRACKS, a.fx_focus == k^, .Knob)
 				vui.pop_id()
 				if io.start {
 					drag_begin(v, .Knob, 0, t, norm)
 				}
 				if io.wheel != 0 {
-					fine: f32 = 0.2 if a.shift_down else 1
+					v.knob_wheel = true
+					fine: f32 = 0.2 if v.fine else 1
 					app_set_knob(a, t, norm_to_value(clamp(norm + io.wheel * 0.015 * fine, 0, 1), lo, hi, lg))
 					app_history_commit(a)
 				}
@@ -833,6 +908,65 @@ fx_module :: proc(a: ^App, v: ^View, m: Fx_Module, mi, count: int, k, tg: ^int) 
 	}
 }
 
+// Knob readouts follow the React modules (lib/fx.ts fmtPct etc.): unit-less
+// 0..1 amounts read as percentages, decay as RT60 seconds; the rest reuse the
+// compact harness formatter so five knobs still fit a 214px module.
+@(private = "file")
+fx_value_text :: proc(m: Fx_Module, p: int, v: f32) -> string {
+	pct :: proc(v: f32) -> string {
+		return fmt.tprintf("%.0f%%", v * 100)
+	}
+	#partial switch m {
+	case .SEND:
+		return pct(v)
+	case .REVERB:
+		switch p {
+		case 0, 2, 4:
+			return pct(v)
+		case 1:
+			return fmt.tprintf("%.1fs", 0.3 + v * 4.7) // same curve as the RT60 readout
+		}
+	case .DELAY:
+		if p >= 1 {
+			return pct(v)
+		}
+	case .WIDTH:
+		if p == 0 {
+			return pct(v)
+		}
+	}
+	// dB readouts: a value that rounds to zero must not print as "-0.0"
+	db := (m == .EQ && p != 2 && p != 3) || (m == .COMP && (p == 0 || p == 4)) || (m == .LIMITER && p == 0)
+	if db && abs(v) < 0.05 {
+		return knob_value_text(m, p, 0, true)
+	}
+	return knob_value_text(m, p, v, true)
+}
+
+// Footer readout for the keyboard-focused control (the model's ids such as
+// "knob.eq.low" are for the test harness, not for people).
+@(private = "file")
+fx_focus_label :: proc(a: ^App) -> string {
+	l := &a.layout
+	f := a.fx_focus
+	if f < 0 {
+		return ""
+	}
+	if f < l.knob_count {
+		t := l.knob_target[f]
+		return fmt.tprintf("%s · %s %s", module_title(t.module), param_label(t.module, t.param), fx_value_text(t.module, t.param, app_knob_value(a, t)))
+	}
+	i := f - l.knob_count
+	if i < l.toggle_count {
+		t := l.toggle_target[i]
+		if t.param == 1 {
+			return fmt.tprintf("DELAY · PING-PONG %s · ENTER TOGGLES", "ON" if app_toggle_value(a, t) else "OFF")
+		}
+		return fmt.tprintf("%s · %s · ENTER TOGGLES", module_title(t.module), "ON" if bypass_state(a, t.module) else "BYPASSED")
+	}
+	return ""
+}
+
 @(private = "file")
 fx_gr :: proc(a: ^App, m: Fx_Module) -> f32 {
 	if a.fx_channel >= MAX_TRACKS {
@@ -848,7 +982,8 @@ fx_readout :: proc(a: ^App, m: Fx_Module) -> (string, string) {
 		eq := a.tracks[clamp(a.fx_channel, 0, MAX_TRACKS - 1)].eq
 		return fmt.tprintf("MID %s · Q %.2f", knob_value_text(.EQ, 2, eq.mid_hz), eq.mid_q), "3-BAND"
 	case .COMP:
-		return "GR", fmt.tprintf("%.1f dB", fx_gr(a, m))
+		gr := fx_gr(a, m)
+		return "GR", fmt.tprintf("%.1f dB", gr if gr < -0.05 else 0)
 	case .SEND:
 		t := a.tracks[clamp(a.fx_channel, 0, MAX_TRACKS - 1)]
 		return fmt.tprintf("REV %.0f%% · DLY %.0f%%", t.send_reverb * 100, t.send_delay * 100), "POST-FADER"
@@ -1048,8 +1183,10 @@ view_bounce_row :: proc(a: ^App, v: ^View) {
 		}
 		// master meter
 		if vui.div("ml-auto flex items-center gap-2") {
-			vui.text("MST", "text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
-			if vui.div("h-1.5 w-40 overflow-hidden rounded-[1px] bg-panel-raised") {
+			// Tab / j/k reach the master as the fifth selectable strip
+			mst_sel := a.selected >= MAX_TRACKS
+			vui.text("MST", vui.cx("text-[10px] font-semibold tracking-[0.06em]", mst_sel ? "text-sig" : "text-ink-muted"))
+			if vui.div(vui.cx("h-1.5 w-40 overflow-hidden rounded-[1px] bg-panel-raised", mst_sel ? "ring-1 ring-sig-dim" : "")) {
 				vui.el("h-full bg-rec" if a.master.peak_db > -0.5 else "h-full bg-sig")
 				vui.last_style().width = vui.pct(db_norm(a.master.peak_db) * 100)
 			}
@@ -1110,7 +1247,8 @@ view_rhythm :: proc(a: ^App) {
 		if vui.div("ml-auto flex items-center gap-1") {
 			lat := fmt.tprintf("LAT %.0f ms", a.latency_ms)
 			vui.text(lat, "text-[11px] tabular-nums text-ink-muted")
-			if vui.button("REDO", "ml-3 rounded-[2px] border border-line px-2 py-0.5 text-[10px] font-semibold tracking-[0.06em] text-ink-muted hover:text-ink", {} if app_can_redo(a) else {.Disabled}) {
+			can_redo := app_can_redo(a)
+			if vui.button("REDO", vui.cx("ml-3 rounded-[2px] border px-2 py-0.5 text-[10px] font-semibold tracking-[0.06em]", can_redo ? "border-line text-ink-dim hover:bg-panel-hover hover:text-ink" : "border-line-subtle text-ink-muted/60"), {} if can_redo else {.Disabled}) {
 				app_execute(a, .Redo)
 			}
 			if vui.button(":", "rounded-[2px] border border-line px-2 py-0.5 text-[11px] font-bold text-sig hover:bg-sig-bg") {
@@ -1136,7 +1274,10 @@ PANEL :: "flex w-[560px] max-w-[90%] flex-col gap-2 rounded-[4px] border border-
 
 @(private = "file")
 close_on_backdrop :: proc(a: ^App) {
-	if vui.clicked() {
+	// vinland bubbles clicks to every ancestor, so a click on a panel button
+	// (JACK, RESCAN, LAT ±) also reports clicked() here. Only the backdrop
+	// itself -- the topmost hit under the pointer -- dismisses the overlay.
+	if vui.clicked() && vui.ctx_get().hover_id == vui.current_id() {
 		a.mode = .Normal
 		bump_revision(a)
 	}

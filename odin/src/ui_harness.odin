@@ -133,9 +133,6 @@ run_ui_test :: proc(args: []string) -> bool {
 		return false
 	}
 	out_dir := flag_string(args, "--out", "/tmp/tracker-ui-test")
-	if !ensure_dir(out_dir) {
-		return false
-	}
 
 	data, err := os.read_entire_file(script_path, context.allocator)
 	if err != nil {
@@ -164,8 +161,13 @@ run_ui_test :: proc(args: []string) -> bool {
 	}
 	width := script.width if script.width > 0 else 1180
 	height := script.height if script.height > 0 else 760
-	if width < MIN_CLI_DIM || width > MAX_CLI_DIM || height < MIN_CLI_DIM || height > MAX_CLI_DIM {
-		fmt.eprintfln("script size must be between %d and %d", MIN_CLI_DIM, MAX_CLI_DIM)
+	if width < MIN_CLI_WIDTH || width > MAX_CLI_DIM || height < MIN_CLI_HEIGHT || height > MAX_CLI_DIM {
+		fmt.eprintfln("script width must be %d..%d and height %d..%d", MIN_CLI_WIDTH, MAX_CLI_DIM, MIN_CLI_HEIGHT, MAX_CLI_DIM)
+		return false
+	}
+	// Create the output directory only once the script is known to be runnable,
+	// so a missing or malformed script leaves nothing behind.
+	if !ensure_dir(out_dir) {
 		return false
 	}
 
@@ -322,9 +324,9 @@ run_ui_test :: proc(args: []string) -> bool {
 		case "resize":
 			w := action.width if action.width > 0 else a.width
 			h := action.height if action.height > 0 else a.height
-			if w < MIN_CLI_DIM || w > MAX_CLI_DIM || h < MIN_CLI_DIM || h > MAX_CLI_DIM {
+			if w < MIN_CLI_WIDTH || w > MAX_CLI_DIM || h < MIN_CLI_HEIGHT || h > MAX_CLI_DIM {
 				ok = false
-				detail = fmt.tprintf("resize %dx%d is outside %d..%d", w, h, MIN_CLI_DIM, MAX_CLI_DIM)
+				detail = fmt.tprintf("resize %dx%d is outside %dx%d..%dx%d", w, h, MIN_CLI_WIDTH, MIN_CLI_HEIGHT, MAX_CLI_DIM, MAX_CLI_DIM)
 			} else {
 				zoom_now := ui.ui_zoom_for_window(w, h)
 				vw, vh := ui.ui_virtual_size(w, h)
@@ -349,8 +351,9 @@ run_ui_test :: proc(args: []string) -> bool {
 		}
 	}
 
+	report_name := script.name if script.name != "" else script_path
 	report := Harness_Report {
-		name = script.name,
+		name = report_name,
 		passed = passed,
 		failed = failed,
 		results = results[:],
@@ -366,6 +369,6 @@ run_ui_test :: proc(args: []string) -> bool {
 		return false
 	}
 
-	fmt.printfln("%s: %d passed, %d failed  (%s)", script.name, passed, failed, out_dir)
+	fmt.printfln("%s: %d passed, %d failed  (%s)", report_name, passed, failed, out_dir)
 	return failed == 0
 }

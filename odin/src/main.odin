@@ -21,14 +21,17 @@ VERSION :: "1.0.0"
 MAX_CLI_SECONDS :: 3_600.0
 MAX_CLI_CHANNELS :: 32
 MAX_CLI_RATE :: 192_000
-MIN_CLI_DIM :: 600
+// The window, ui-shot and ui-test share the layout's minimum frame; below it
+// the header and the fourth strip are clipped.
+MIN_CLI_WIDTH :: ui.UI_MIN_WIDTH
+MIN_CLI_HEIGHT :: ui.UI_MIN_HEIGHT
 MAX_CLI_DIM :: 4_096
 MAX_CLI_TONE_SAMPLES :: 64_000_000
 
 main :: proc() {
 	args := os.args
 	if len(args) < 2 {
-		usage()
+		usage(os.stderr)
 		os.exit(1)
 	}
 
@@ -60,13 +63,13 @@ main :: proc() {
 			ok = run_selftest()
 		}
 	case "ui":
-		if !validate_flags(args[2:], []string{"--session", "--width", "--height", "--ui-scale", "--open", "--latency-ms"}, []string{"--demo", "--jack", "--a11y-log"}) {
+		if !validate_flags(args[2:], []string{"--session", "--width", "--height", "--ui-scale", "--open", "--latency-ms", "--control-port"}, []string{"--demo", "--jack", "--a11y-log"}) ||
+		   !validate_numbers(args[2:], []string{"--ui-scale", "--latency-ms"}, []string{"--width", "--height", "--control-port"}) {
 			ok = false
 		} else {
 			w := flag_int(args[2:], "--width", 1180)
 			h := flag_int(args[2:], "--height", 760)
-			if w < MIN_CLI_DIM || w > MAX_CLI_DIM || h < MIN_CLI_DIM || h > MAX_CLI_DIM {
-				fmt.eprintfln("--width/--height must be between %d and %d", MIN_CLI_DIM, MAX_CLI_DIM)
+			if !cli_window_size_ok(w, h) {
 				ok = false
 			} else if session, has_session := flag_value(args[2:], "--session"); has_session && !ensure_dir(session) {
 				ok = false
@@ -88,7 +91,7 @@ main :: proc() {
 		usage()
 	case:
 		fmt.eprintfln("unknown command: %s", args[1])
-		usage()
+		fmt.eprintln("run `tracker-odin help` for usage")
 		ok = false
 	}
 
@@ -97,12 +100,12 @@ main :: proc() {
 	}
 }
 
-usage :: proc() {
-	fmt.println(`tracker-odin - native multitrack recorder core
+usage :: proc(f: ^os.File = os.stdout) {
+	fmt.fprintln(f, `tracker-odin - native multitrack recorder core
 
 usage:
   tracker-odin devices
-  tracker-odin record --seconds 5 --out DIR [--channels 2] [--device INDEX] [--rate 48000]
+  tracker-odin record --seconds 5 --out DIR [--channels 2] [--device INDEX] [--rate 48000] [--jack]
   tracker-odin tone   --out FILE [--seconds 3] [--freq 440] [--amp 0.5] [--channels 1]
   tracker-odin render --in DIR_OR_FILE --out FILE [chain options]
   tracker-odin bounce --session DIR [--out FILE]
@@ -112,9 +115,12 @@ usage:
   tracker-odin comp --session DIR --track N --clear
   tracker-odin info   FILE.wav
   tracker-odin selftest
-  tracker-odin ui [--ui-scale 1|1.25|1.5|2|3] [--demo] [--open FILE]
-                  [--jack] [--a11y-log] [--latency-ms N]
-  tracker-odin ui-shot --out FILE [--scale 1|1.25|1.5|2|3] [--fx|--palette|--io|--bounce|--playing|--recording]
+  tracker-odin ui [--session DIR] [--ui-scale 1|1.25|1.5|2|3] [--demo] [--open FILE]
+                  [--jack] [--a11y-log] [--latency-ms N] [--width W --height H]
+                  [--control-port PORT]
+  tracker-odin ui-shot --out FILE [--scale 1|1.25|1.5|2|3] [--width W --height H]
+                  [--fx [--master]|--palette|--io|--bounce] [--playing|--recording]
+                  [--three] [--click]
   tracker-odin ui-test --script FILE.json --out DIR [--scale 1|1.25|1.5|2|3]
   tracker-odin version
 
@@ -195,6 +201,45 @@ validate_flags :: proc(args: []string, values, switches: []string) -> bool {
 			}
 			i += 2
 		}
+	}
+	return true
+}
+
+// Rejects present-but-malformed numeric options (non-numeric, NaN, Inf)
+// before a command acts on them. flag_f32/flag_int fall back to a default for
+// a bad value, which is right for project data but wrong for a command line:
+// `tone --seconds abc` must not silently write a 3 s file.
+@(private)
+validate_numbers :: proc(args: []string, floats, ints: []string) -> bool {
+	for name in floats {
+		value, present := flag_value(args, name)
+		if !present {
+			continue
+		}
+		parsed, pok := strconv.parse_f32(value)
+		if !pok || !f32_is_finite(parsed) {
+			fmt.eprintfln("%s needs a finite number, got %q", name, value)
+			return false
+		}
+	}
+	for name in ints {
+		value, present := flag_value(args, name)
+		if !present {
+			continue
+		}
+		if _, pok := strconv.parse_int(value, 10); !pok {
+			fmt.eprintfln("%s needs an integer, got %q", name, value)
+			return false
+		}
+	}
+	return true
+}
+
+@(private)
+cli_window_size_ok :: proc(w, h: int) -> bool {
+	if w < MIN_CLI_WIDTH || w > MAX_CLI_DIM || h < MIN_CLI_HEIGHT || h > MAX_CLI_DIM {
+		fmt.eprintfln("--width must be %d..%d and --height %d..%d", MIN_CLI_WIDTH, MAX_CLI_DIM, MIN_CLI_HEIGHT, MAX_CLI_DIM)
+		return false
 	}
 	return true
 }
@@ -291,39 +336,49 @@ ensure_dir :: proc(path: string) -> bool {
 
 @(private)
 run_tone :: proc(args: []string) -> bool {
-	if !validate_flags(args, []string{"--out", "--seconds", "--freq", "--amp", "--channels", "--rate"}, nil) {
+	if !validate_flags(args, []string{"--out", "--seconds", "--freq", "--amp", "--channels", "--rate"}, nil) ||
+	   !validate_numbers(args, []string{"--seconds", "--freq", "--amp"}, []string{"--channels", "--rate"}) {
 		return false
 	}
 	out := flag_string(args, "--out", "tone.wav")
 	seconds := flag_f32(args, "--seconds", 3.0)
 	freq := flag_f32(args, "--freq", 440.0)
-	amp := clamp(flag_f32(args, "--amp", 0.5), 0.0, 1.0)
+	amp := flag_f32(args, "--amp", 0.5)
 	channels := flag_int(args, "--channels", 1)
-	rate := u32(flag_int(args, "--rate", 48_000))
+	rate_arg := flag_int(args, "--rate", 48_000)
 
 	if seconds <= 0.0 || seconds > MAX_CLI_SECONDS {
 		fmt.eprintfln("--seconds must be positive and at most %.0f", MAX_CLI_SECONDS)
+		return false
+	}
+	if amp < 0.0 || amp > 1.0 {
+		fmt.eprintln("--amp must be between 0 and 1")
 		return false
 	}
 	if channels < 1 || channels > MAX_CLI_CHANNELS {
 		fmt.eprintfln("--channels must be between 1 and %d", MAX_CLI_CHANNELS)
 		return false
 	}
-	if rate < PROJECT_SAMPLE_RATE_MIN || rate > MAX_CLI_RATE {
+	// Range-check before narrowing: u32(-1) or u32(2^32 + 48000) would wrap.
+	if rate_arg < int(PROJECT_SAMPLE_RATE_MIN) || rate_arg > MAX_CLI_RATE {
 		fmt.eprintfln("--rate must be between %d and %d", PROJECT_SAMPLE_RATE_MIN, MAX_CLI_RATE)
 		return false
 	}
+	rate := u32(rate_arg)
 	if freq < 0 || freq > f32(rate) * 0.5 {
-		fmt.eprintfln("--freq must be between 0 and half the sample rate")
+		fmt.eprintln("--freq must be between 0 and half the sample rate")
+		return false
+	}
+	frames := int(seconds * f32(rate))
+	if frames <= 0 {
+		fmt.eprintln("requested tone is shorter than one sample")
+		return false
+	}
+	if frames * channels > MAX_CLI_TONE_SAMPLES {
+		fmt.eprintln("requested tone is too large to synthesize")
 		return false
 	}
 	if !ensure_parent_dir(out) {
-		return false
-	}
-
-	frames := int(seconds * f32(rate))
-	if frames <= 0 || frames * channels > MAX_CLI_TONE_SAMPLES {
-		fmt.eprintln("requested tone is too large to synthesize")
 		return false
 	}
 	buf := make([]f32, frames * channels)
@@ -353,13 +408,14 @@ run_tone :: proc(args: []string) -> bool {
 
 @(private)
 run_record :: proc(args: []string) -> bool {
-	if !validate_flags(args, []string{"--out", "--seconds", "--channels", "--rate", "--device"}, []string{"--jack"}) {
+	if !validate_flags(args, []string{"--out", "--seconds", "--channels", "--rate", "--device"}, []string{"--jack"}) ||
+	   !validate_numbers(args, []string{"--seconds"}, []string{"--channels", "--rate", "--device"}) {
 		return false
 	}
 	out := flag_string(args, "--out", "session")
 	seconds := flag_f32(args, "--seconds", 5.0)
 	channels := flag_int(args, "--channels", 2)
-	rate := u32(flag_int(args, "--rate", 48_000))
+	rate_arg := flag_int(args, "--rate", 48_000)
 	device := flag_int(args, "--device", -1)
 	use_jack := has_flag(args, "--jack")
 
@@ -371,10 +427,11 @@ run_record :: proc(args: []string) -> bool {
 		fmt.eprintfln("--channels must be between 1 and %d", MAX_CLI_CHANNELS)
 		return false
 	}
-	if rate < PROJECT_SAMPLE_RATE_MIN || rate > MAX_CLI_RATE {
+	if rate_arg < int(PROJECT_SAMPLE_RATE_MIN) || rate_arg > MAX_CLI_RATE {
 		fmt.eprintfln("--rate must be between %d and %d", PROJECT_SAMPLE_RATE_MIN, MAX_CLI_RATE)
 		return false
 	}
+	rate := u32(rate_arg)
 	if !ensure_dir(out) {
 		return false
 	}
@@ -394,7 +451,39 @@ run_record :: proc(args: []string) -> bool {
 			}
 			delete(ports)
 		}
-		result, ok = jack_record(seconds, channels, rate, ports)
+		// Record from the chosen (or default) capture device's JACK client so
+		// track N is that device's input N, not whichever device the graph
+		// lists first. Fall back to every port only without a device match.
+		names, default_index := capture_device_list()
+		defer {
+			for n in names {
+				delete(n)
+			}
+			delete(names)
+		}
+		index := device if device >= 0 else default_index
+		if device >= len(names) {
+			fmt.eprintfln("device index %d out of range (0..%d)", device, len(names) - 1)
+			return false
+		}
+		selected: []string
+		if index >= 0 && index < len(names) {
+			selected = jack_ports_for_device(ports[:], names[index])
+		}
+		defer delete(selected)
+		if selected != nil {
+			fmt.printfln("JACK source: %s (%d port(s))", names[index], len(selected))
+			if len(selected) < channels {
+				fmt.eprintfln("device has %d JACK port(s), requested %d; extra tracks stay silent", len(selected), channels)
+			}
+			result, ok = jack_record(seconds, channels, rate, selected)
+		} else {
+			if device >= 0 {
+				fmt.eprintfln("device %q has no JACK ports", names[index])
+				return false
+			}
+			result, ok = jack_record(seconds, channels, rate, ports)
+		}
 	} else {
 		result, ok = capture_record(seconds, channels, rate, device)
 	}
@@ -445,7 +534,11 @@ run_render :: proc(args: []string) -> bool {
 		"--in", "--out", "--ceiling", "--level", "--pan",
 		"--eq-low", "--eq-mid", "--eq-high", "--eq-mid-hz", "--eq-mid-q",
 		"--comp-threshold", "--comp-ratio", "--comp-attack", "--comp-release",
-	}, []string{"--flat", "--no-limiter", "--no-comp"}) {
+	}, []string{"--flat", "--no-limiter", "--no-comp"}) || !validate_numbers(args, []string{
+		"--ceiling", "--level", "--pan",
+		"--eq-low", "--eq-mid", "--eq-high", "--eq-mid-hz", "--eq-mid-q",
+		"--comp-threshold", "--comp-ratio", "--comp-attack", "--comp-release",
+	}, nil) {
 		return false
 	}
 	in_spec, has_in := flag_value(args, "--in")
@@ -454,10 +547,6 @@ run_render :: proc(args: []string) -> bool {
 		fmt.eprintln("render needs --in DIR_OR_FILE and --out FILE")
 		return false
 	}
-	if !ensure_parent_dir(out) {
-		return false
-	}
-
 	paths := collect_track_paths(in_spec)
 	defer {
 		for path in paths {
@@ -487,23 +576,21 @@ run_render :: proc(args: []string) -> bool {
 		}
 		if i == 0 {
 			rate = wav.sample_rate
-		} else if wav.sample_rate != rate {
-			fmt.eprintfln("%s is %d Hz, expected %d Hz", path, wav.sample_rate, rate)
-			wav_destroy(&wav)
-			return false
 		}
 
-		mono := make([]f32, wav.frames)
-		channels := int(wav.channels)
-		for frame in 0 ..< wav.frames {
-			sum: f32 = 0.0
-			for ch in 0 ..< channels {
-				sum += wav.samples[frame * channels + ch]
-			}
-			mono[frame] = sum / f32(channels)
+		mono := mono_from_wav(&wav)
+		if wav.sample_rate != rate && len(mono) > 0 {
+			// Same policy as `bounce`: later tracks follow the first track's rate.
+			fmt.printfln("resampling %s from %d Hz to %d Hz", path, wav.sample_rate, rate)
+			converted := dsp.resample(mono, wav.sample_rate, rate)
+			delete(mono)
+			mono = converted
 		}
 		tracks[i] = mono
 		wav_destroy(&wav)
+	}
+	if !ensure_parent_dir(out) {
+		return false
 	}
 
 	flat := has_flag(args, "--flat")
@@ -603,7 +690,13 @@ run_selftest :: proc() -> bool {
 		return false
 	}
 
-	path := "/tmp/tracker-odin-selftest.wav"
+	tmp_dir, tmp_err := os.temp_directory(context.allocator)
+	if tmp_err != nil {
+		fmt.eprintln("FAIL: no temporary directory")
+		return false
+	}
+	defer delete(tmp_dir)
+	path := fmt.tprintf("%s/tracker-odin-selftest.wav", tmp_dir)
 	if !wav_write(path, rate, 2, out.samples) {
 		fmt.eprintln("FAIL: cannot write selftest WAV")
 		return false
@@ -681,9 +774,35 @@ run_bounce :: proc(args: []string) -> bool {
 	return true
 }
 
+// Each take's length in project frames (after resampling to `project_rate`),
+// or 0 when the file is missing or unreadable. The caller owns the slice.
+@(private)
+comp_take_lengths :: proc(dir: string, list: ^Take_List, project_rate: u32) -> []Take_Length {
+	lengths := make([]Take_Length, len(list.takes))
+	for take, i in list.takes {
+		lengths[i].take_id = take.id
+		if !project_file_is_local(take.file) {
+			continue
+		}
+		wav, ok := wav_read(fmt.tprintf("%s/%s", dir, take.file))
+		if !ok {
+			continue
+		}
+		frames := wav.frames
+		if wav.sample_rate != project_rate && wav.sample_rate > 0 && project_rate > 0 {
+			// Matches dsp.resample's output length: ceil(frames * dst / src).
+			frames = (frames * int(project_rate) + int(wav.sample_rate) - 1) / int(wav.sample_rate)
+		}
+		lengths[i].frames = frames
+		wav_destroy(&wav)
+	}
+	return lengths
+}
+
 @(private)
 run_comp :: proc(args: []string) -> bool {
-	if !validate_flags(args, []string{"--session", "--track", "--take", "--start", "--end", "--select"}, []string{"--clear", "--list"}) {
+	if !validate_flags(args, []string{"--session", "--track", "--take", "--start", "--end", "--select"}, []string{"--clear", "--list"}) ||
+	   !validate_numbers(args, nil, []string{"--track", "--take", "--start", "--end", "--select"}) {
 		return false
 	}
 	session, has_session := flag_value(args, "--session")
@@ -691,7 +810,31 @@ run_comp :: proc(args: []string) -> bool {
 		fmt.eprintln("comp needs --session DIR")
 		return false
 	}
-	track := clamp(flag_int(args, "--track", 0), 0, MAX_ENGINE_TRACKS - 1)
+	// comp edits an existing session; it must not create one as a side effect.
+	if !os.is_directory(session) {
+		fmt.eprintfln("session %s does not exist", session)
+		return false
+	}
+	track := flag_int(args, "--track", 0)
+	if track < 0 || track >= MAX_ENGINE_TRACKS {
+		fmt.eprintfln("--track must be between 0 and %d", MAX_ENGINE_TRACKS - 1)
+		return false
+	}
+	_, has_select := flag_value(args, "--select")
+	_, has_take := flag_value(args, "--take")
+	_, has_start := flag_value(args, "--start")
+	_, has_end := flag_value(args, "--end")
+	has_region := has_take || has_start || has_end
+	mutates := has_select || has_region || has_flag(args, "--clear")
+	if has_flag(args, "--list") && mutates {
+		fmt.eprintln("--list cannot be combined with --select, --clear or --take/--start/--end")
+		return false
+	}
+	if has_region && (!has_start || !has_end) {
+		fmt.eprintln("a comp region needs both --start and --end")
+		return false
+	}
+
 	e: Engine
 	if !engine_init(&e, []string{"--session", session}) {
 		return false
@@ -706,32 +849,43 @@ run_comp :: proc(args: []string) -> bool {
 			fmt.eprintln("cannot load project")
 			return false
 		}
+		e.sample_rate = a.sample_rate
 	} else {
 		_ = engine_load_tracks(&e, &a)
 	}
 	list := &e.takes[track]
 	if len(list.takes) == 0 {
-		fmt.eprintln("no takes on that track")
+		fmt.eprintfln("no takes on track %d (--track %d)", track + 1, track)
 		return false
 	}
+	lengths := comp_take_lengths(e.session_dir, list, e.sample_rate)
+	defer delete(lengths)
 
 	if has_flag(args, "--list") {
 		fmt.printfln("track %d: %d take(s), active %d", track + 1, len(list.takes), list.active)
-		for take in list.takes {
+		for take, i in list.takes {
 			marker := "*" if take.id == list.active else " "
-			fmt.printfln("  %s %d  %s  %s  %d frames", marker, take.id, take.name, take.file, 0)
+			if lengths[i].frames > 0 {
+				fmt.printfln("  %s %d  %s  %s  %d frames", marker, take.id, take.name, take.file, lengths[i].frames)
+			} else {
+				fmt.printfln("  %s %d  %s  %s  (missing or unreadable)", marker, take.id, take.name, take.file)
+			}
 		}
 		for region in list.comp {
 			fmt.printfln("  comp: take %d  [%d, %d)", region.take_id, region.start_frame, region.end_frame)
+		}
+		if ok, bad := comp_validate(list, lengths); !ok {
+			fmt.printfln("  warning: comp region %d does not fit its take; bounce uses the active take", bad)
 		}
 		return true
 	}
 
 	changed := false
-	if _, has_select := flag_value(args, "--select"); has_select {
+	if has_select {
 		id := flag_int(args, "--select", 0)
-		if !take_list_select(list, id) {
-			fmt.eprintln("unknown take id")
+		// take_list_select treats 0 as "no active take"; the CLI only selects real takes.
+		if id == TAKE_ID_NONE || !take_list_select(list, id) {
+			fmt.eprintfln("unknown take id %d", id)
 			return false
 		}
 		changed = true
@@ -740,7 +894,7 @@ run_comp :: proc(args: []string) -> bool {
 		comp_clear(list)
 		changed = true
 	}
-	if has_flag(args, "--take") || has_flag(args, "--start") || has_flag(args, "--end") {
+	if has_region {
 		take_id := flag_int(args, "--take", list.active)
 		start := flag_int(args, "--start", 0)
 		end := flag_int(args, "--end", 0)
@@ -749,7 +903,16 @@ run_comp :: proc(args: []string) -> bool {
 			return false
 		}
 		if !comp_add_region(list, take_id, start, end) {
-			fmt.eprintln("invalid region (unknown take, overlap, or unsorted)")
+			fmt.eprintln("invalid region (unknown take, negative start, or overlap)")
+			return false
+		}
+		if ok, _ := comp_validate(list, lengths); !ok {
+			for entry in lengths {
+				if entry.take_id == take_id {
+					fmt.eprintfln("region [%d, %d) does not fit take %d (%d frames)", start, end, take_id, entry.frames)
+					break
+				}
+			}
 			return false
 		}
 		changed = true

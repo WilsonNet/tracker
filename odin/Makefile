@@ -13,7 +13,9 @@ SCRIPT     ?= tests/ui/full-tour.json
 SHOT       ?= /tmp/tracker-odin-ui.png
 UI_OUT     ?= /tmp/tracker-ui-test
 
-.PHONY: all build stb test test-dsp test-core test-ui check clean run devices selftest ui ui-shot ui-test bounce install uninstall
+E2E_OUT    ?= /tmp/tracker-e2e
+
+.PHONY: e2e all build stb test test-dsp test-core test-ui check clean run devices selftest ui ui-shot ui-test bounce install uninstall
 
 all: build
 
@@ -56,6 +58,10 @@ ui-shot: build
 
 ui-test: build
 	./$(BIN) ui-test --script "$(SCRIPT)" --out "$(UI_OUT)"
+
+# Window end-to-end suite (vinland-ui vui-test; headless + sandboxed software rendering)
+e2e: build
+	$(VINLAND)/build/vui-test --out $(E2E_OUT) tests/ui/window.vt
 
 devices: build
 	./$(BIN) devices

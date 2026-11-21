@@ -492,7 +492,7 @@ ui_play_and_arm_refused_while_recording :: proc(t: ^testing.T) {
 	start_frames := a.frames
 	app_key(&a, .Space)
 	testing.expect(t, a.transport == .Recording, "Space must not switch to Playing mid-take")
-	testing.expect(t, app_status(&a) == "stop recording before play", "missing refusal status")
+	testing.expect(t, app_status(&a) == "recording: press R to stop the take", "missing refusal status")
 	app_tick(&a, 0.1)
 	testing.expectf(t, a.frames > start_frames, "take should keep rolling")
 

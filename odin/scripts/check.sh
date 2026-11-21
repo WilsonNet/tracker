@@ -136,6 +136,29 @@ expect_fail "tone accepted a missing option value" ./bin/tracker-odin tone --out
 expect_fail "tone accepted a negative duration" ./bin/tracker-odin tone --out "$tmp/x.wav" --seconds -1
 expect_fail "bounce accepted an unknown option" ./bin/tracker-odin bounce --session "$tmp/session" --bogus
 expect_fail "bounce returned success with no tracks" ./bin/tracker-odin bounce --session "$tmp/empty-session" --out "$tmp/empty.wav"
+expect_fail "tone accepted a non-numeric duration" ./bin/tracker-odin tone --out "$tmp/x.wav" --seconds abc
+expect_fail "tone accepted an out-of-range amplitude" ./bin/tracker-odin tone --out "$tmp/x.wav" --amp 2
+expect_fail "render accepted a non-numeric level" ./bin/tracker-odin render --in "$tmp" --out "$tmp/x.wav" --level loud
+expect_fail "ui-shot accepted a frame below the layout minimum" ./bin/tracker-odin ui-shot --out "$tmp/x.png" --width 600 --height 600
+[ ! -f "$tmp/x.wav" ] || { echo "FAIL: a rejected command still wrote output" >&2; exit 1; }
+
+echo "== takes and comp regions =="
+mkdir -p "$tmp/comp"
+./bin/tracker-odin tone --out "$tmp/comp/track1-take1.wav" --seconds 2 --freq 220 >/dev/null
+./bin/tracker-odin tone --out "$tmp/comp/track1-take2.wav" --seconds 1 --freq 880 --rate 44100 >/dev/null
+./bin/tracker-odin comp --session "$tmp/comp" --track 0 --list
+expect_fail "comp accepted a region past the end of its take" \
+	./bin/tracker-odin comp --session "$tmp/comp" --track 0 --take 2 --start 0 --end 96000
+expect_fail "comp accepted an out-of-range track" ./bin/tracker-odin comp --session "$tmp/comp" --track 7 --list
+expect_fail "comp created a missing session" ./bin/tracker-odin comp --session "$tmp/no-such-session" --track 0 --list
+[ ! -d "$tmp/no-such-session" ] || { echo "FAIL: comp created a session directory" >&2; exit 1; }
+./bin/tracker-odin comp --session "$tmp/comp" --track 0 --take 2 --start 0 --end 48000
+./bin/tracker-odin comp --session "$tmp/comp" --track 0 --take 1 --start 48000 --end 96000
+./bin/tracker-odin bounce --session "$tmp/comp" --out "$tmp/comp/mix.wav"
+./bin/tracker-odin info "$tmp/comp/mix.wav" | grep -q "96000 frames" || {
+	echo "FAIL: comp bounce is not 2 s" >&2
+	exit 1
+}
 
 echo "== engine bounce from a session directory =="
 mkdir -p "$tmp/session"
