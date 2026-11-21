@@ -349,6 +349,9 @@ App :: struct {
 	bounce_progress: f32,
 	bounce_active:   bool,
 	demo:         bool,
+	// True while the arm preview capture is feeding live input levels, so the
+	// window keeps redrawing the meters without waiting for an event.
+	input_live:   bool,
 
 	mouse_x, mouse_y: f32,
 	mouse_down:   bool,
@@ -1494,7 +1497,10 @@ app_tick :: proc(a: ^App, dt: f32) {
 	if a.demo {
 		for i in 0 ..< MAX_TRACKS {
 			t := &a.tracks[i]
-			active := a.transport != .Stopped && (t.has_audio || (a.transport == .Recording && t.armed))
+			// Arming alone is enough to show a live input trace in demo mode,
+			// mirroring the capture preview in the real engine.
+			armed_idle := t.armed && a.transport == .Stopped
+			active := armed_idle || (a.transport != .Stopped && (t.has_audio || (a.transport == .Recording && t.armed)))
 			if active {
 				base := -19.0 - f32(i) * 1.7
 				osc := math.sin(a.time * 3.1 + f32(i) * 0.9) * 5.5 +

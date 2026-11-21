@@ -80,7 +80,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 219 unit tests
+make test         # 226 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -104,7 +104,7 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | 219 unit tests: 70 DSP, 92 core/engine/project, 57 UI |
+| `test` | 226 unit tests: 70 DSP, 99 core/engine/project, 57 UI |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
@@ -122,7 +122,9 @@ directory is in `XDG_DATA_DIRS`.
 ```
 
 - **Tracks:** 4 strips with input selector, arm/solo/mute, pan, fader, peak/RMS
-  meter and compressor gain-reduction meter.
+  meter and compressor gain-reduction meter. Arming a track opens a
+  capture-only preview, so its input meter and history graph are live before
+  REC (the miniaudio/PipeWire path; JACK meters during the take).
 - **Transport:** REC / PLAY / STOP / BOUNCE, timecode, armed count, BPM
   stepper, metronome click, live input **MON**itoring, latency trim and a
   PipeWire/cooperative-JACK backend switch.
@@ -276,7 +278,7 @@ removes them.
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 92 core/engine/project + 57 UI = 219 tests
+make test        # 70 DSP + 99 core/engine/project + 57 UI = 226 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui

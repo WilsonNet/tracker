@@ -111,6 +111,12 @@ or close the tab.
   `info`, `screenshot`, `tree`, `click-text`, `type`, `key`, `resize`, `dark`,
   `scroll`, `quit`.
 - Always read the PNG back and check `info.unknown_classes` and `frame_ms`.
+- Arming a track opens a capture-only input preview: the window stays busy
+  (meter and history graph redraw) while armed and releases the input device
+  when disarmed. A rising `frame` count is expected then; unarm before judging
+  idle CPU.
+- Arm preview is miniaudio/PipeWire only. With `--jack` the input graph starts
+  with the take; do not report it as a hang.
 - `make e2e` runs `tests/ui/window.vt` headless and sandboxed through
   `vinland-ui/build/vui-test`; inspect `/tmp/tracker-e2e/report.html`.
 - Hardware recording evidence belongs in `odin/VERIFICATION.md`; the loopback

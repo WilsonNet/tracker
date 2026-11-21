@@ -31,6 +31,14 @@ Every prompt that produces a feature, component, or change must result in a **wo
 
 One-shot means: prompt in, working feature out.
 
+## Feature Closeout
+
+After implementing any feature, behavior change, or bug fix, load the
+`.opencode/skills/feature-closeout` skill and follow it before saying the work is
+done. It proves the surface and records durable lessons in `AGENTS.md`,
+`odin/README.md`, `odin/ROADMAP.md`, `odin/VERIFICATION.md`, and the relevant
+skills. Update stale counts, paths and claims in the same change.
+
 ## Research Rule
 
 Before implementing any complex or unfamiliar feature, do an online search first. This includes audio device APIs, file formats, HiDPI/text rendering, persistence schemas, platform integration, and new UI patterns. Prefer official specifications and documentation (RF64/EBU, JACK, SDL3, Odin core/vendor, XDG), then prior art from comparable tools. Check the installed Odin sources for exact signatures, and record the sources that materially shaped the implementation in the relevant README/roadmap entry.
@@ -42,6 +50,10 @@ Before implementing any complex or unfamiliar feature, do an online search first
 - `odin/README.md` documents the build, test, CLI and verification loop.
 - `odin/VERIFICATION.md` is the test/measurement matrix; add new hardware or end-to-end evidence there.
 - Keep `odin check src -no-entry-point -vet` clean when touching package-level code.
+- `proc "c"` audio callbacks have no Odin context: helpers they call must be
+  `proc "contextless"`, and they must not allocate (see `recorder_push` and
+  `preview_push`). Slicing or calling a contextful proc from a callback fails to
+  compile with "context has not been defined".
 
 ## vinland-ui (native UI)
 
@@ -75,7 +87,7 @@ design tokens, layout rules that differ from the web, and the screenshot/e2e loo
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — 219 unit tests (DSP + core/engine/project + UI)
+- `make test` — 226 unit tests (DSP + core/engine/project + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
@@ -116,7 +128,7 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 70 DSP + 92 core/engine/project/WAV + 57 UI tests.
+- `make test` — 70 DSP + 99 core/engine/project/WAV + 57 UI tests.
 - `make e2e` — 14 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, palette, I/O, rhythm, undo, minimum size, fine drag).
 - The Cairo/Pango harness (`ui-test`, `ui-shot`) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.
@@ -124,7 +136,7 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Audio Engine
 
-- **Capture** — miniaudio/ALSA and cooperative JACK (PipeWire). Each track records one selectable input channel; WAVs are true mono. Device hotplug falls back and can be rescanned.
+- **Capture** — miniaudio/ALSA and cooperative JACK (PipeWire). Arming a track while stopped opens a capture-only preview that feeds the input meter and history graph before REC; no take file is written. Each track records one selectable input channel; WAVs are true mono. Device hotplug falls back and can be rescanned.
 - **Engine** — lock-free capture ring drained by a writer thread, preview/overdub playback, duplex live monitoring, metronome (40–240 BPM), manual latency trim, mixed-rate resampling to the project rate.
 - **Track chain** — 3-band EQ (low shelf 110 Hz → mid bell → high shelf 7.5 kHz) → compressor → fader/pan, with post-fader sends into the shared reverb and delay buses.
 - **Master chain** — compressor → FDN reverb → ping-pong delay → mid/side widener (mono-safe below the bass crossover) → lookahead limiter with a soft-clip ceiling.
@@ -136,5 +148,6 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 - `odin/README.md` — build, make targets, CLI, harness, limitations
 - `odin/ROADMAP.md` — completion record and intentional limits
 - `odin/VERIFICATION.md` — test/measurement matrix and sources
+- `.opencode/skills/feature-closeout` — mandatory end-of-feature validation and docs update
 - `docs/RESEARCH.md`, `docs/fx-research.md` — product and effects research
 - `PRODUCT.md`, `DESIGN.md` — product strategy and visual system

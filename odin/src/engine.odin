@@ -73,6 +73,25 @@ Playback :: struct {
 	interrupt:     u64,
 }
 
+// Input preview while at least one track is armed and the transport is idle.
+// It opens a capture-only device and publishes per-channel peaks, so the
+// input history graph is live before REC. No ring, writer or take file.
+Preview :: struct {
+	active:        bool,
+	device_open:   bool,
+	ctx_open:      bool,
+	ctx:           ma.context_type,
+	device:        ma.device,
+	channels:      int,
+	rate:          u32,
+	peak:          [32]f32,
+	interrupt:     u64,
+	stop_expected: u64,
+	device_index:  int,
+	failed:        bool,
+	signature:     u64,
+}
+
 Capture_Backend :: enum u8 {
 	Miniaudio,
 	Jack,
@@ -93,6 +112,7 @@ Engine :: struct {
 	loaded:       [MAX_ENGINE_TRACKS][]f32,
 	loaded_rate:  [MAX_ENGINE_TRACKS]u32,
 	rec:          Recorder,
+	preview:      Preview,
 	play:         Playback,
 	backend:      Capture_Backend,
 	jack:         Jack_Session,
@@ -164,6 +184,7 @@ engine_init :: proc(e: ^Engine, args: []string) -> bool {
 }
 
 engine_destroy :: proc(e: ^Engine) {
+	engine_preview_stop(e)
 	engine_stop_playback(e)
 	jack_session_destroy(&e.jack)
 	engine_takes_clear(e)
@@ -187,6 +208,11 @@ engine_destroy :: proc(e: ^Engine) {
 engine_set_backend :: proc(e: ^Engine, backend: Capture_Backend) -> bool {
 	if e.rec.active || jack_session_is_running(&e.jack) {
 		return false
+	}
+	if e.preview.active {
+		engine_preview_stop(e)
+		e.preview.failed = false
+		e.preview.signature = 0
 	}
 	e.backend = backend
 	return true
@@ -458,10 +484,281 @@ recorder_release :: proc(e: ^Engine, close_raw: bool, free_ring: bool) {
 	}
 }
 
+// ---------------------------------------------------------------- preview
+
+// Decayed block peaks from an interleaved capture block. Kept separate from
+// the callback so the meter envelope can be tested without a device.
+@(private)
+preview_push :: proc "contextless" (p: ^Preview, src: []f32, frames: int) {
+	if p == nil || p.channels <= 0 || frames <= 0 {
+		return
+	}
+	peak_channels := min(p.channels, len(p.peak))
+	peaks: [32]f32
+	for c in 0 ..< peak_channels {
+		peaks[c] = sync.atomic_load(&p.peak[c])
+	}
+	for f in 0 ..< frames {
+		base := f * p.channels
+		for c in 0 ..< peak_channels {
+			idx := base + c
+			if idx >= len(src) {
+				continue
+			}
+			peaks[c] = max(peaks[c], abs(src[idx]))
+		}
+	}
+	for c in 0 ..< peak_channels {
+		// One decay per callback (~21 ms at 48 kHz / 1024 frames), not per
+		// sample, so the 20 Hz UI graph sees a usable envelope.
+		sync.atomic_store(&p.peak[c], peaks[c] * 0.94)
+	}
+}
+
+@(private)
+preview_callback :: proc "c" (device: ^ma.device, output, input: rawptr, frame_count: u32) {
+	if device == nil || input == nil || frame_count == 0 {
+		return
+	}
+	p := cast(^Preview)device.pUserData
+	if p == nil || p.channels <= 0 {
+		return
+	}
+	src := cast([^]f32)input
+	preview_push(p, src[:int(frame_count) * p.channels], int(frame_count))
+}
+
+@(private)
+preview_notification :: proc "c" (n: ^ma.device_notification) {
+	if n == nil || n.pDevice == nil {
+		return
+	}
+	p := cast(^Preview)n.pDevice.pUserData
+	if p == nil {
+		return
+	}
+	#partial switch n.type {
+	case .stopped, .interruption_began:
+		if sync.atomic_load(&p.stop_expected) == 0 {
+			sync.atomic_store(&p.interrupt, 1)
+		}
+	case .started:
+		sync.atomic_store(&p.interrupt, 0)
+	case:
+	}
+}
+
+@(private)
+preview_release :: proc(p: ^Preview) {
+	if p.device_open {
+		sync.atomic_store(&p.stop_expected, 1)
+		_ = ma.device_stop(&p.device)
+		ma.device_uninit(&p.device)
+		p.device_open = false
+	}
+	if p.ctx_open {
+		ma.context_uninit(&p.ctx)
+		p.ctx_open = false
+	}
+	p.active = false
+	p.channels = 0
+	p.rate = 0
+	p.interrupt = 0
+	p.stop_expected = 0
+	p.device_index = -1
+	for i in 0 ..< len(p.peak) {
+		sync.atomic_store(&p.peak[i], 0)
+	}
+}
+
+engine_preview_stop :: proc(e: ^Engine) {
+	if e.preview.active || e.preview.device_open || e.preview.ctx_open {
+		preview_release(&e.preview)
+	}
+}
+
+// True when a stopped transport has at least one armed track on a backend we
+// can preview. JACK keeps its own session; its meters start with the take.
+@(private)
+preview_wanted :: proc(e: ^Engine, a: ^ui.App) -> bool {
+	if a == nil || a.demo || e.backend != .Miniaudio {
+		return false
+	}
+	if e.rec.active || e.play.active || a.transport != .Stopped {
+		return false
+	}
+	for t in a.tracks {
+		if t.armed {
+			return true
+		}
+	}
+	return false
+}
+
+// Cheap identity of the preview inputs, used to retry a failed open only when
+// the arm state, channel mapping or selected device changes.
+@(private)
+preview_signature :: proc(e: ^Engine, a: ^ui.App) -> u64 {
+	sig := u64(0xcbf29ce484222325)
+	sig = (sig ~ u64(e.device_index + 1)) * 0x100000001b3
+	sig = (sig ~ u64(a.jack_backend)) * 0x100000001b3
+	for t in a.tracks {
+		sig = (sig ~ u64(t.armed)) * 0x100000001b3
+		sig = (sig ~ u64(t.input)) * 0x100000001b3
+	}
+	return sig
+}
+
+@(private)
+engine_preview_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
+	if e.preview.active || e.rec.active || a == nil || e.backend != .Miniaudio {
+		return false
+	}
+	p := &e.preview
+	p.ctx = {}
+	if ma.context_init(nil, 0, nil, &p.ctx) != .SUCCESS {
+		return false
+	}
+	p.ctx_open = true
+
+	infos: [^]ma.device_info
+	count: u32
+	if ma.context_get_devices(&p.ctx, nil, nil, &infos, &count) != .SUCCESS || count == 0 {
+		preview_release(p)
+		return false
+	}
+
+	names := make([]string, int(count))
+	default_index := 0
+	for i in 0 ..< int(count) {
+		names[i] = capture_device_name(&infos[i])
+		if infos[i].isDefault {
+			default_index = i
+		}
+	}
+	defer {
+		for n in names {
+			delete(n)
+		}
+		delete(names)
+	}
+	idx := engine_resolve_device_index(e.device_index, ui.app_device(a), names, default_index)
+	if idx < 0 {
+		preview_release(p)
+		return false
+	}
+	e.device_index = idx
+
+	requested := 1
+	for t in a.tracks {
+		if t.armed {
+			requested = max(requested, t.input)
+		}
+	}
+	requested = clamp(requested, 1, 8)
+	attempts_buf, attempt_count := capture_open_attempts(requested)
+	attempts := attempts_buf[:attempt_count]
+
+	cfg := ma.device_config_init(.capture)
+	cfg.sampleRate = e.sample_rate if e.sample_rate != 0 else 48_000
+	cfg.capture.format = .f32
+	cfg.capture.pDeviceID = &infos[idx].id
+	cfg.dataCallback = preview_callback
+	cfg.notificationCallback = preview_notification
+	cfg.pUserData = p
+	cfg.periodSizeInFrames = 1024
+	opened := false
+	for attempt in attempts {
+		capture_config_unmixed(&cfg, attempt)
+		if ma.device_init(&p.ctx, &cfg, &p.device) == .SUCCESS {
+			opened = true
+			break
+		}
+	}
+	if !opened {
+		preview_release(p)
+		return false
+	}
+	p.device_open = true
+	p.channels = int(p.device.capture.channels)
+	p.rate = p.device.sampleRate
+	if p.channels <= 0 || p.rate == 0 {
+		preview_release(p)
+		return false
+	}
+	p.stop_expected = 0
+	p.interrupt = 0
+	for i in 0 ..< len(p.peak) {
+		sync.atomic_store(&p.peak[i], 0)
+	}
+	if ma.device_start(&p.device) != .SUCCESS {
+		preview_release(p)
+		return false
+	}
+	p.active = true
+	p.device_index = idx
+	return true
+}
+
+// Keeps the preview stream in step with arm/transport/device changes. Called
+// once per frame before the meter mapping.
+engine_preview_sync :: proc(e: ^Engine, a: ^ui.App) {
+	if a == nil {
+		engine_preview_stop(e)
+		return
+	}
+	if e.preview.active && sync.atomic_load(&e.preview.interrupt) != 0 {
+		engine_preview_stop(e)
+		e.preview.failed = true
+		e.preview.signature = preview_signature(e, a)
+		a.input_live = false
+		ui.status_buf_set(a, "input meter device lost")
+	}
+	if e.preview.active && e.preview.device_index != e.device_index {
+		engine_preview_stop(e)
+		e.preview.failed = false
+		e.preview.signature = 0
+	}
+	if !preview_wanted(e, a) {
+		if e.preview.active {
+			engine_preview_stop(e)
+		}
+		e.preview.failed = false
+		e.preview.signature = 0
+		a.input_live = false
+		return
+	}
+	if e.preview.active {
+		e.preview.signature = preview_signature(e, a)
+		a.input_live = true
+		return
+	}
+	sig := preview_signature(e, a)
+	if e.preview.failed && e.preview.signature == sig {
+		a.input_live = false
+		return
+	}
+	if engine_preview_start(e, a) {
+		e.preview.failed = false
+		// Start can reconcile a stale device selection.
+		e.preview.signature = preview_signature(e, a)
+		a.input_live = true
+	} else {
+		e.preview.failed = true
+		e.preview.signature = preview_signature(e, a)
+		a.input_live = false
+		ui.status_buf_set(a, "input meter unavailable")
+	}
+}
+
 engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	if e.rec.active || a == nil {
 		return false
 	}
+	// Release the arm preview before taking the device for a real take.
+	engine_preview_stop(e)
+	e.preview.failed = false
+	e.preview.signature = 0
 
 	// Snapshot the arm/input state before touching hardware: the take must
 	// represent what was armed when REC was pressed, not what the UI shows
@@ -1193,6 +1490,7 @@ engine_update :: proc(e: ^Engine, a: ^ui.App) {
 		}
 		return
 	}
+	engine_preview_sync(e, a)
 	if e.rec.active {
 		if e.play.active {
 			e.play.click_enabled = a.metronome
@@ -1251,6 +1549,34 @@ engine_update :: proc(e: ^Engine, a: ^ui.App) {
 			a.master.peak_db = dsp.lin_to_db(peak)
 			a.master.rms_db = a.master.peak_db - 6
 		}
+		return
+	}
+
+	// Arm preview: show the live input on every armed track. Unarmed tracks
+	// keep decaying, so the history graph clears when an arm is released.
+	if e.preview.active {
+		for i in 0 ..< MAX_ENGINE_TRACKS {
+			a.tracks[i].peak_db += (-60 - a.tracks[i].peak_db) * 0.12
+			a.tracks[i].rms_db += (-60 - a.tracks[i].rms_db) * 0.12
+			a.tracks[i].gr_db += (0 - a.tracks[i].gr_db) * 0.2
+		}
+		for i in 0 ..< MAX_ENGINE_TRACKS {
+			t := &a.tracks[i]
+			if !t.armed {
+				continue
+			}
+			ch := recorder_input_channel(t.input, e.preview.channels)
+			if ch >= 0 && ch < len(e.preview.peak) {
+				t.peak_db = dsp.lin_to_db(sync.atomic_load(&e.preview.peak[ch]))
+				t.rms_db = t.peak_db - 7
+			}
+		}
+		peak: f32 = -60
+		for t in a.tracks {
+			peak = max(peak, t.peak_db)
+		}
+		a.master.peak_db = peak
+		a.master.rms_db = peak - 6
 		return
 	}
 

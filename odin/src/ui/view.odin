@@ -167,7 +167,7 @@ view_frame :: proc(a: ^App, v: ^View) {
 
 // Busy = the window should keep rendering (meters, clock, toast, pulse).
 view_busy :: proc(a: ^App) -> bool {
-	return a.transport != .Stopped || a.monitor || a.bounce_active || a.toast_time > 0 || a.mode == .Palette || a.mode == .Recent || a.demo
+	return a.transport != .Stopped || a.monitor || a.bounce_active || a.toast_time > 0 || a.mode == .Palette || a.mode == .Recent || a.demo || a.input_live
 }
 
 @(private = "file")

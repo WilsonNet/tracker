@@ -45,6 +45,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | vinland-ui window (SDL3, Vulkan/GL), DESIGN.md palette | done | Hyprland, `vui-ctl` screenshots |
 | SDL2 window, software canvas | replaced | superseded by vinland-ui |
 | 4 track strips, master, meters, GR | done | 220-action tour |
+| Arm preview: live input meter + history before REC | done | `vui-ctl` screenshots, preview tests |
 | Reference density + design-token layers | done | `theme.odin`, geometry tests at 900/1180/1920 |
 | Window-responsive type/control zoom | done | `ui_zoom_for_window`, 1.0–1.8x, 57 UI tests |
 | Cairo/Pango vector shell + charts | done | AA paths, Inter, level history, FX graphs |
@@ -71,7 +72,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **219** (70 DSP, 92 core/engine/project, 57 UI) |
+| unit tests | **226** (70 DSP, 99 core/engine/project, 57 UI) |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |
 | hardware capture | 96,000 frames / 2.000 s |

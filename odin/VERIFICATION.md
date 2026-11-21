@@ -10,14 +10,14 @@ intentional limits are in `ROADMAP.md`.
 |---|---|---|
 | clean build | `make clean && make build` | ≈0.8 s |
 | DSP | `odin test src/dsp` | **70 passed** |
-| engine / project / WAV / RF64 / takes / CLI | `odin test src` | **92 passed** |
+| engine / project / WAV / RF64 / takes / CLI | `odin test src` | **99 passed** |
 | UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **57 passed** |
 | vector renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
 | charts | level history + 5 FX response graphs | 17 screenshots inspected |
 | static checks | `odin check src -no-entry-point -vet` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
-Total: **219 unit tests**.
+Total: **226 unit tests**.
 
 ## Native UI harness
 
@@ -38,6 +38,7 @@ Total: **219 unit tests**.
 | check | result |
 |---|---|
 | miniaudio capture (default source) | 96,000 frames / 2.000 s |
+| arm preview (no take, transport stopped) | armed track 1 shows live input meter/history; unarm decays and idles |
 | native UI capture (loopback tone) | 100,352 frames, **−6.02 dBFS** |
 | loopback known tone | **−6.02 dBFS**, RMS −9.13, exact 2.000 s |
 | long loopback | 480,000 frames / **10.000 s** |
