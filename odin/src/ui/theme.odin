@@ -1,8 +1,8 @@
 // Design tokens — the single source of truth for the native UI.
 //
-// Values mirror the React frontend's src/styles/tokens.css (OKLCH there,
-// sRGB hex here because the software canvas rasterises in sRGB). When the
-// palette changes, change it here first and update tokens.css to match.
+// The palette is canonical here (sRGB hex, because the software canvas
+// rasterises in sRGB); the retired React frontend used the same OKLCH values.
+// When the palette changes, change it here first.
 //
 // Layers, from raw to applied:
 //

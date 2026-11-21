@@ -1,7 +1,8 @@
 # Odin port — completion record
 
-All phases are implemented in this tree. The Tauri/React application at the
-repository root remains the behavioral reference and is untouched.
+All phases are implemented in this tree. The Tauri/React application was the
+behavioral reference and was removed after the port completed; it remains in
+git history.
 
 Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 `./scripts/check.sh --hardware --jack --loopback`.
@@ -41,7 +42,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | item | status | evidence |
 |---|---|---|
-| vinland-ui window (SDL3, Vulkan/GL), original React design | done | Hyprland, `vui-ctl` screenshots |
+| vinland-ui window (SDL3, Vulkan/GL), DESIGN.md palette | done | Hyprland, `vui-ctl` screenshots |
 | SDL2 window, software canvas | replaced | superseded by vinland-ui |
 | 4 track strips, master, meters, GR | done | 220-action tour |
 | Reference density + design-token layers | done | `theme.odin`, geometry tests at 900/1180/1920 |

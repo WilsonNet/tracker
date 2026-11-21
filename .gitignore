@@ -1,16 +1,22 @@
-# Dependencies
-node_modules/
-.pnpm-store/
-
 # Build output
+odin/bin/
 dist/
 build/
-src-tauri/target/
 
-# Env
-.env
-.env.local
-.env.*.local
+# Session audio
+*.wav
+*.raw
+
+# Screenshots and harness output generated from the repo root
+/*.png
+/ui/
+/report.json
+*.bin
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
 
 # IDE
 .vscode/
@@ -22,18 +28,3 @@ src-tauri/target/
 # OS
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
-npm-debug.log*
-
-# Playwright
-.playwright-mcp/
-.playwright-report/
-test-results/
-
-# Tauri (generated artifacts only)
-src-tauri/gen/
-## Build artifacts
-tsconfig.tsbuildinfo
-*.tsbuildinfo

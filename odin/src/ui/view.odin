@@ -1,6 +1,6 @@
-// Window UI built with vinland-ui. It follows the original Tauri/React design
-// (DESIGN.md, src/components): a dark instrument panel, JetBrains Mono, one
-// amber signal colour, flat 1px-bordered surfaces. The App model, commands and
+// Window UI built with vinland-ui. It follows DESIGN.md: a dark instrument
+// panel, JetBrains Mono, one amber signal colour, flat 1px-bordered surfaces.
+// The App model, commands and
 // keyboard handling are shared with the headless Cairo harness; this file only
 // turns App state into an element tree and routes pointer input back into it.
 
@@ -908,9 +908,9 @@ fx_module :: proc(a: ^App, v: ^View, m: Fx_Module, mi, count: int, k, tg: ^int) 
 	}
 }
 
-// Knob readouts follow the React modules (lib/fx.ts fmtPct etc.): unit-less
-// 0..1 amounts read as percentages, decay as RT60 seconds; the rest reuse the
-// compact harness formatter so five knobs still fit a 214px module.
+// Knob readouts keep the established formats: unit-less 0..1 amounts read as
+// percentages, decay as RT60 seconds; the rest reuse the compact harness
+// formatter so five knobs still fit a 214px module.
 @(private = "file")
 fx_value_text :: proc(m: Fx_Module, p: int, v: f32) -> string {
 	pct :: proc(v: f32) -> string {

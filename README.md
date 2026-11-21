@@ -2,111 +2,83 @@
 
 A minimal multitrack audio recorder for the desktop. No timeline, no grid — just arm, level, record, listen.
 
-Built with **Tauri** (Rust + React/TypeScript) with a keyboard-first, Vim-native interface inspired by the Zoom R4 MultiTrak.
+Native [Odin](https://odin-lang.org/) application, drawn with the sibling
+[vinland-ui](https://github.com/WilsonNet/vinland-ui) toolkit (SDL3 + Vulkan, OpenGL
+fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
 
-> **Native port: complete.** `odin/` is a full native Odin rewrite — SDL2
-> window, live capture/monitoring, overdub, takes/comping, FX chain, RF64,
-> bounce, native dialogs/recent projects, undo/redo, JACK GUI, HiDPI and a
-> headless click/screenshot harness. The Tauri app below remains the reference.
-> See [`odin/README.md`](odin/README.md) and [`odin/ROADMAP.md`](odin/ROADMAP.md).
-
-![Tracker screenshot](docs/screenshot-app.png)
+![Tracker with the FX rack open](docs/screenshot-app.png)
 
 ## Features
 
-- **4-track recording** with 32-bit float WAV output
-- **Keyboard-first** — Vim keybindings: `j`/`k` navigation, `J`/`K` volume, `1`-`4` arm, `Space` play, `R` record
-- **Dedicated bounce track** — mix tracks down to free up space for overdubs
-- **Live level metering** — real-time RMS/peak display from any ALSA/PipeWire input device
-- **Per-track controls** — arm, solo, mute, pan, volume fader, and a native effects chain
-- **Native effects** — 3-band EQ and compressor per track, shared reverb/delay sends, master widener and lookahead limiter
-- **Audio playback** — audition the full mix through the effects rack, or bounce to a stereo WAV
-- **Command palette** — Vim-style `:` mode for actions without dedicated bindings
-- **Dark instrument-panel aesthetic** — amber signal glow, near-black interface, mono-forward typography
+- **4-track recording** with true mono 32-bit float WAVs and RF64/BW64 support
+- **Multi-take recording and comping** — stable take files, active-take cycling, comp regions
+- **Overdub** — hear the existing mix while recording the next part
+- **Native effects** — 3-band EQ and compressor per track, shared FDN reverb and
+  ping-pong delay sends, master compressor, widener and lookahead limiter
+- **Bounce** — render the full chain to a stereo float mixdown, with reverb tails
+- **Live metering** — peak/RMS per track plus compressor gain reduction
+- **Keyboard-first** — Vim navigation, `1`–`4` arm, `Space` play/stop, `R` record,
+  `x` FX rack, `:` command palette
+- **Project persistence** — atomic `project.json`, recent projects, undo/redo,
+  native open/save dialogs
+- **HiDPI and responsive density** — crisp type at 1×–3×, whole-panel zoom for larger windows
+- **Linux audio** — PipeWire/ALSA capture and cooperative JACK capture (`--jack`)
 
-## Quick Start
+## Quick start
 
-```bash
-# Prerequisites: Rust toolchain + Node.js 18+
-npm install
+The app lives in [`odin/`](odin/). You need Odin `dev-2026-11a` or newer, the
+sibling vinland-ui checkout, and the system libraries listed in
+[`odin/README.md`](odin/README.md#dependencies).
 
-# UI-only development (fast iteration, no audio backend)
-npm run dev
+```sh
+# vinland-ui must be checked out next to this repo
+git clone https://github.com/WilsonNet/vinland-ui ../vinland-ui
 
-# Full desktop app with audio engine
-npm run tauri dev
+cd odin
+make build        # -> bin/tracker-odin
+make test         # 219 unit tests
+make check        # tests + native UI tour + offline bounce
+
+./bin/tracker-odin ui              # real window
+./bin/tracker-odin ui --demo       # synthetic meters, no audio hardware
 ```
 
-### Device Setup (Linux/PipeWire)
+Sessions default to `~/.local/share/tracker/session`; pass `--session DIR` to
+use another directory. `make install` installs the binary, icons and desktop
+entry under `~/.local`.
 
-1. Run `npm run tauri dev`
-2. Hover the right edge of the window → sidebar slides out
-3. Select your audio input device from the **Device** dropdown
-4. Click **● CAPTURE** — Track 1's meter shows live input
-5. Arm a track (press `1`), then press `R` to record
-6. Press `Space` to stop, then click **▶ PLAY** to hear the mix
+## Verification
 
-### Effects
-
-Press `x` (or click `FX` on a track) to open the rack. `[` / `]` cycle between
-tracks and the master bus, `Escape` closes it.
-
-- **Track:** EQ → compressor → fader/pan. `REV` and `DLY` send post-fader into
-  the shared buses.
-- **Master:** compressor → reverb → delay → widener → limiter.
-- Every knob: drag, scroll, or focus and use the arrow keys (`Shift` = fine,
-  double-click = reset). EQ nodes can be dragged directly on the curve.
-- `PLAY` renders the current settings and plays them, so you hear edits without
-  bouncing. Gain-reduction meters animate with the render.
-
-All effects are hand-written Rust DSP — no VSTs, no plugin host.
-
-## E2E Tests
-
-```bash
-# Browser-only mode (26 tests, ~45s, no Tauri needed)
-npm run test:e2e
-
-# Rust DSP + engine tests
-cd src-tauri && cargo test --lib
-
-# Full desktop mode (requires tauri dev with e2e-testing, window visible)
-npm run test:e2e:tauri
+```sh
+cd odin
+make test          # DSP + engine/project/WAV + UI unit tests
+make e2e           # headless vinland-ui suite (tests/ui/window.vt)
+make check         # unit + 220-action UI tour + offline bounce + format checks
 ```
 
-## Architecture
+`make check` needs `python3`; `ffprobe` and `sox` checks run when installed.
+Hardware, loopback and JACK checks: `./scripts/check.sh --hardware --jack --loopback`.
+
+## Layout
 
 ```
-┌──────────────────────────────────────────────────┐
-│  React UI (TypeScript)                           │
-│  ─ Track strips, transport, meters               │
-│  ─ Command palette, Vim keybindings              │
-└────────────────┬────────────────────────────────┘
-                 │ Tauri IPC (invoke + events)
-                 ▼
-┌──────────────────────────────────────────────────┐
-│  Rust Backend (Tauri + cpal + ringbuf)           │
-│  ─ Real-time audio capture via cpal 0.18         │
-│  ─ Lock-free ring buffers for sample transfer    │
-│  ─ 32-bit float WAV recording via hound          │
-│  ─ Per-sample level computation (RMS/peak)       │
-│  ─ Bounce track mixdown                          │
-└──────────────────────────────────────────────────┘
+odin/          the native application (source, DSP, UI, tests, docs)
+docs/          product research and design references
+PRODUCT.md     product strategy
+DESIGN.md      visual design system
 ```
 
-## Tech Stack
+- [`odin/README.md`](odin/README.md) — build, CLI, make targets, native UI, verification
+- [`odin/ROADMAP.md`](odin/ROADMAP.md) — completion record and intentional limits
+- [`odin/VERIFICATION.md`](odin/VERIFICATION.md) — test and measurement matrix
+- [`docs/RESEARCH.md`](docs/RESEARCH.md) — Zoom R4 MultiTrak analysis
+- [`docs/fx-research.md`](docs/fx-research.md) — effects architecture research
 
-- **Desktop framework**: [Tauri v2](https://v2.tauri.app/)
-- **Frontend**: React 18 + TypeScript + Vite
-- **Audio**: [cpal 0.18](https://github.com/RustAudio/cpal) (Linux ALSA/PipeWire backend)
-- **Lock-free buffers**: [ringbuf](https://github.com/agerasev/ringbuf)
-- **WAV**: [hound](https://github.com/ruuda/hound)
-- **E2E testing**: [Playwright](https://playwright.dev/) + [tauri-playwright](https://github.com/srsholmes/tauri-playwright)
-- **Audio backend**: real-time safe, SCHED_FIFO priority, no allocations in audio callback
+## History
 
-## Design
-
-See [PRODUCT.md](./PRODUCT.md) and [DESIGN.md](./DESIGN.md) for the full product strategy and visual design system.
+The original Tauri (Rust) + React implementation was the behavioral reference
+during the native port. It was removed once the port was complete and remains
+in git history.
 
 ## License
 

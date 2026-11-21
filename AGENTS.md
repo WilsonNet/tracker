@@ -4,109 +4,136 @@
 
 This project has a PRODUCT.md and DESIGN.md at the repo root. Read both before making UI decisions.
 
-- **Product**: A minimal multitrack audio recorder for desktop. Tauri (Rust + React). Keyboard-first, Vim-native. No timeline, no grid — just arm, level, record, listen.
+- **Product**: A minimal multitrack audio recorder for desktop. Native Odin. Keyboard-first, Vim-native. No timeline, no grid — just arm, level, record, listen.
 - **Design**: Dark instrument-panel aesthetic, committed orange/honey primary (hue 57°), mono-forward typography, flat surfaces, responsive motion tied to audio state.
+- **Reference**: `docs/RESEARCH.md` analyzes the Zoom R4 MultiTrak (track system, overdub model, 32-bit float philosophy, hardware workflow). Read it before changing recording workflows. `docs/fx-research.md` covers the effects architecture.
 
 ## Architecture
 
-- **UI**: React (TypeScript) — components, state, layout. Design lives here.
-- **Non-UI / Backend**: Rust via Tauri — audio engine, file I/O, device management, project persistence, keyboard input capture, plugin system. Push as much logic to the Rust layer as possible. The React layer is a thin UI shell over a Rust core. When in doubt, implement a feature in Rust and expose it to the frontend via Tauri commands.
+The app is a single native binary in `odin/src/` — no webview, no IPC.
+
+- **UI**: `src/ui/` — `view.odin` renders the `App` model as a vinland-ui element tree; `theme.odin` is the single source of design tokens; `draw.odin`/`canvas.odin` paint the Cairo/Pango headless harness; `app.odin` holds state and key handling.
+- **Window**: `src/ui_window.odin` — SDL3 via vinland-ui, key mapping, engine commands, HiDPI.
+- **Audio**: `engine.odin`, `capture.odin` (miniaudio), `jack_capture.odin` (cooperative PipeWire/JACK), `wav.odin` (float32 WAV/RF64), `project.odin` (JSON persistence).
+- **DSP**: `src/dsp/` — hand-written biquad/EQ, compressor, limiter, FDN reverb, ping-pong delay, widener, resampling, mixdown. No VSTs, no plugin host.
+- **Harness**: `src/ui_harness.odin` runs semantic UI scripts headlessly; `src/ui_cmd.odin` renders single frames.
+
+Push logic into the model/engine and keep `view.odin` a pure render of `App`. New behavior belongs in `app.odin`/`engine.odin` with unit tests, not in the view.
 
 ## Feedback Loop (Critical)
 
-Every prompt that produces a feature, component, or change must result in a **working, testable surface**. Use Playwright MCP to verify:
+Every prompt that produces a feature, component, or change must result in a **working, testable surface**:
 
-1. Build/compile must succeed with no errors.
-2. Launch the Tauri app (or the Vite dev server for UI-only iteration).
-3. Use Playwright browser automation to confirm the feature renders, responds to input, and states work (hover, focus, active, disabled, empty, error, loading).
+1. `cd odin && make build` must succeed with no errors.
+2. Run the relevant tests (`make test`, or `make test-dsp` / `test-core` / `test-ui`).
+3. For any UI change, render it offscreen and **look at the PNG** (see vinland-ui below). Check `vui-ctl info` for `unknown_classes` and frame time, and run `make e2e`.
 4. If something breaks, fix it in the same turn. Never leave a broken surface for the next prompt.
 
-One-shot means: prompt in, working feature out. The feedback loop closes the gap between "wrote code" and "verified it works."
+One-shot means: prompt in, working feature out.
 
 ## Research Rule
 
-Before implementing any complex or unfamiliar feature, do an online search first. This includes audio device APIs, file formats, HiDPI/text rendering, persistence schemas, platform integration, and new UI patterns. Prefer official specifications and documentation (RF64/EBU, JACK, SDL2, Odin core/vendor, XDG), then prior art from comparable tools. Check the installed Odin sources for exact signatures, and record the sources that materially shaped the implementation in the relevant README/roadmap entry.
+Before implementing any complex or unfamiliar feature, do an online search first. This includes audio device APIs, file formats, HiDPI/text rendering, persistence schemas, platform integration, and new UI patterns. Prefer official specifications and documentation (RF64/EBU, JACK, SDL3, Odin core/vendor, XDG), then prior art from comparable tools. Check the installed Odin sources for exact signatures, and record the sources that materially shaped the implementation in the relevant README/roadmap entry.
 
-## Odin Port
-
-The native rewrite lives in `odin/`; the original Tauri/React app stays in place as the behavioral reference. Do not delete or "clean up" the reference implementation while the port is in progress.
+## Odin
 
 - **Read the Odin documentation before writing Odin.** Prefer, in order: the installed compiler sources and examples under `~/.local/opt/odin` (`core/`, `vendor/`, `examples/`), the language overview at <https://odin-lang.org/docs/overview/>, and the package docs at <https://pkg.odin-lang.org/>. Use Context7 (`context7` MCP) when it has Odin coverage. Check exact signatures in the installed core/vendor sources before calling an API — do not guess.
-- `odin/ROADMAP.md` is the port status board: update the done/missing lists in the same change that moves a subsystem.
-- `odin/README.md` documents the build, test, and CLI feedback loop.
-- `odin/VERIFICATION.md` is the current test/measurement matrix; update it with any new hardware or end-to-end evidence.
+- `odin/ROADMAP.md` is the status board: update it in the same change that moves a subsystem.
+- `odin/README.md` documents the build, test, CLI and verification loop.
+- `odin/VERIFICATION.md` is the test/measurement matrix; add new hardware or end-to-end evidence there.
+- Keep `odin check src -no-entry-point -vet` clean when touching package-level code.
 
-## Build Tracking
+## vinland-ui (native UI)
 
-`docs/tasks/audio-engine.md` tracks the audio engine implementation as a phased build plan with real-time status. Read it before starting any Rust audio work to understand what's done and what's next.
+The window is drawn by the sibling [vinland-ui](https://github.com/WilsonNet/vinland-ui)
+checkout at `../../vinland-ui` (override with `VINLAND=`); the Makefile passes it
+as `-collection:vinland`. `odin/src/ui/view.odin` turns the app model into a
+Tailwind-classed element tree; knobs, meters and FX graphs use vinland's canvas
+primitives (`draw_line`, `draw_arc`, `draw_area`).
 
-## Reference Research
+The upstream skill is symlinked at `.opencode/skills/vinland-ui` (`.claude/skills`
+points at the same directory). **Load it before writing or changing any `vui`
+code** — it covers the element API, the utility subset that actually renders,
+design tokens, layout rules that differ from the web, and the screenshot/e2e loop.
 
-`docs/RESEARCH.md` contains a deep analysis of the Zoom R4 MultiTrak — the hardware reference for this product. Read it before building any recording workflow features. It documents the track system (4 tracks + bounce track), the overdub-based composition model, 32-bit float recording philosophy, hardware controls layout, effects architecture, and the key workflow principles that define this product category.
+- Build with `cd odin && make build`; rerun `./build.sh` in the vinland-ui checkout
+  when its API changes. All UI edits must leave the build green.
+- **Never run the app on the real GPU or the user's desktop for verification.** Use
+  `VUI_HIDDEN=1` offscreen, drive it with `vui-ctl` (`--port`/`VUI_PORT`,
+  `screenshot`, `tree`, `click-text`, `type`, `key`, `resize`, `dark`, `quit`),
+  and read the PNG back. `VUI_HIDDEN_GPU` is only for a benchmark wrapped in
+  `vinland-ui/tools/gpu-guard.sh`.
+- After every class change check `vui-ctl info` → `unknown_classes`: an unknown
+  token renders nothing.
+- Keep `make e2e` passing (`odin/tests/ui/window.vt`, run headless and sandboxed by
+  `vinland-ui/build/vui-test`); inspect its report and baselines, not just the exit code.
+- Parsed but **not drawn**: `blur-*`, `backdrop-*`, `mix-blend-*`, masks, `float`,
+  `columns`, scroll-snap, 3D transforms, tables. Build those effects another way.
 
 ## Commands
 
-- `npm run tauri dev` — full Tauri app with Rust backend (audio engine, device capture)
-- `npm run dev` — Vite dev server (UI-only, faster iteration, no Tauri IPC)
-- `cargo build` (from src-tauri/) — compile Rust backend
-- `npm run typecheck` — TypeScript type check
-- `npm run build` — full Vite production build
-- `cargo test` (from src-tauri/) — Rust unit tests
-- `npm run test:e2e` — browser-only E2E tests (fast, no Tauri needed)
-- `npm run test:e2e:tauri` — full desktop E2E tests (requires `npm run tauri dev` with e2e-testing feature)
+All from `odin/`:
 
-### Running the Tauri app (herdr)
+- `make build` — compile `bin/tracker-odin`
+- `make test` — 219 unit tests (DSP + core/engine/project + UI)
+- `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
+- `make check` — unit tests + 220-action UI tour + offline bounce + format checks
+- `make ui` (`make run`) — build and open the native window
+- `make ui-shot SHOT=/tmp/ui.png` — render one frame
+- `make ui-test SCRIPT=... UI_OUT=...` — run a harness script
+- `make devices`, `make selftest`, `make bounce SESSION=...` — CLI helpers
+- `make install` / `make uninstall` — desktop integration under `PREFIX`
+- `./scripts/check.sh --hardware --jack --loopback` — real-device checks
+
+Useful direct invocations:
+
+```sh
+./bin/tracker-odin ui --demo                  # synthetic meters, no hardware
+./bin/tracker-odin ui --open session/project.json --jack
+./bin/tracker-odin ui-shot --out /tmp/ui.png --fx --master --scale 2
+./bin/tracker-odin ui-test --script tests/ui/full-tour.json --out /tmp/ui
+```
+
+### Running the app (herdr)
 
 See the project skill `.opencode/skills/herdr` for the full workflow.
 
-**Never split the pane/tab holding the agent conversation** — it steals width from the user's terminal. Run every dev server in its own tab.
+**Never split the pane/tab holding the agent conversation** — it steals width from the user's terminal. Run the app in its own tab.
 
-The window opens **silently on the Hyprland special workspace `special:tracker`** (window rule with the required ` silent` suffix, no keybind). It never switches the active workspace or steals focus. Because the workspace is hidden, the window is neither composited (screenshots are blank) nor reachable by native mouse injection — verify UI in the Vite dev server with Playwright instead.
+The window class is `tracker`; the user's Hyprland rule opens it silently on
+`special:tracker`. It never switches the active workspace or steals focus.
+Because that workspace is hidden, the window is neither composited nor reachable
+by native pointer injection — verify UI offscreen with `vui-ctl` instead.
 
-1. `herdr tab create --cwd "$PWD" --label "tracker dev"` — note `.result.root_pane.pane_id` and `.result.tab.tab_id` (no `--focus`)
-2. `herdr pane run <pane-id> "npm run tauri -- dev"`
-3. `herdr pane wait-output <pane-id> --match 'Running \`target/debug/tracker\`' --source recent-unwrapped --timeout 300000`
-4. `herdr pane read <pane-id> --source recent-unwrapped --lines 80` — read logs
-5. `herdr tab close <tab-id>` — kills the app and its children
-6. `hyprctl dispatch 'hl.dsp.workspace.toggle_special("tracker")'` — show/hide the app window
+1. `herdr tab create --cwd "$PWD" --label "tracker"` — note `.result.root_pane.pane_id` and `.result.tab.tab_id` (no `--focus`)
+2. `herdr pane run <pane-id> "cd odin && VUI_PORT=7421 ./bin/tracker-odin ui"`
+3. `herdr pane wait-output <pane-id> --match 'vui: control server' --source recent-unwrapped --timeout 120000`
+4. `vui-ctl --port 7421 screenshot /tmp/opencode/tracker.png` — read it back
+5. `herdr pane read <pane-id> --source recent-unwrapped --lines 80` — logs
+6. `herdr tab close <tab-id>` — kills the app and its children
+7. `hyprctl dispatch 'hl.dsp.workspace.toggle_special("tracker")'` — show/hide the app window
 
-Only one Vite can bind port 1420. If `tauri dev` reports the port in use, a previous dev-server tab is still alive.
+## Testing
 
-The `e2e-testing` feature exposes the tauri-playwright socket bridge at `/tmp/tauri-playwright.sock` for driving the real webview (screenshots, clicks, IPC). It requires temporarily adding `"playwright:default"` to `src-tauri/capabilities/default.json`; **remove it afterwards** — plain `cargo build` fails on the unknown permission once the feature is off.
+- `make test` — 70 DSP + 92 core/engine/project/WAV + 57 UI tests.
+- `make e2e` — 14 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, palette, I/O, rhythm, undo, minimum size, fine drag).
+- The Cairo/Pango harness (`ui-test`, `ui-shot`) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
+- `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.
+- Do not claim a UI works without inspecting the generated PNG/report. Hardware recording evidence belongs in `odin/VERIFICATION.md`.
 
-### Native effects rack
+## Audio Engine
 
-All effects are hand-written Rust DSP (`src-tauri/src/audio/fx/`) — no VST, no plugin host, no GPL crates.
+- **Capture** — miniaudio/ALSA and cooperative JACK (PipeWire). Each track records one selectable input channel; WAVs are true mono. Device hotplug falls back and can be rescanned.
+- **Engine** — lock-free capture ring drained by a writer thread, preview/overdub playback, duplex live monitoring, metronome (40–240 BPM), manual latency trim, mixed-rate resampling to the project rate.
+- **Track chain** — 3-band EQ (low shelf 110 Hz → mid bell → high shelf 7.5 kHz) → compressor → fader/pan, with post-fader sends into the shared reverb and delay buses.
+- **Master chain** — compressor → FDN reverb → ping-pong delay → mid/side widener (mono-safe below the bass crossover) → lookahead limiter with a soft-clip ceiling.
+- **Persistence** — atomic `project.json` (takes, active take, comp regions, FX, view and a11y flags), recent projects under `XDG_CONFIG_HOME`, RF64/BW64 reading and writing.
+- Bounce renders the same chain offline to stereo float `bounce.wav`, including reverb tails.
 
-- **Track chain:** 3-band EQ (low shelf 110 Hz → mid bell → high shelf 7.5 kHz) → compressor → fader/pan, plus post-fader sends into the shared reverb and delay buses.
-- **Master chain:** compressor → FDN reverb → ping-pong delay → mid/side widener (mono-safe below the bass crossover) → lookahead limiter with a Hermite soft-clip ceiling.
-- `preview_mix` renders the current mix with FX and plays it (resampled to the device rate); `bounce_tracks` writes a stereo 32-bit float `bounce.wav` through the same chain. Both return 20 Hz gain-reduction timelines that drive the UI meters.
-- The UI is `src/components/FxRack.tsx` + `src/components/fx/*`; shared model/math in `src/lib/fx.ts` (mirrors the Rust defaults and RBJ formulas). `x` toggles the rack, `[`/`]` cycle channels, `Escape` closes it.
+## Docs
 
-### Testing audio with real input device
-1. Launch the app via herdr with `--features e2e-testing` (see above)
-2. Open the sidebar on the right → the device list shows the PipeWire inputs (JACK clients, Ardour-style); the default source is marked with `*`
-3. Each track header has an **IN n** selector for the input channel it records (defaults to 1, 2, 3, 4)
-4. Click **CAPTURE** — live levels appear for every channel; speak/sing into the mic on Input 1 to verify Track 1's meter responds
-
-### E2E Testing (27 tests passing)
-- `cd e2e && npx playwright test --project=browser-only` — 27 tests in ~45s
-- Tests: transport controls, arm/solo/mute, keyboard shortcuts (Space, R, 1-4, `:`), command palette, bounce section, meter rendering, capture/demo mode, the I/O panel, and the FX rack (open/close, tabs, bypass, knob keyboard/drag, sends, live GR meters)
-- Fixtures in `e2e/fixtures.ts` with `createTauriTest` (browser mode with IPC mocks + Tauri mode via socket bridge). Mock handlers are stringified into the page — they must be self-contained, no outer references.
-- `e2e/tests/desktop.spec.ts` is the real-engine test; it's skipped unless the window is visible: `hyprctl dispatch 'hl.dsp.workspace.toggle_special("tracker")'`, then `TRACKER_VISIBLE=1 npm run test:e2e:tauri` (requires the `e2e-testing` feature + `playwright:default`)
-- The bridge's native pointer injection does not reach a hidden or floating window. Drive the real webview through `e2e/js-driver.ts` (`click`, `setSelect`, `press`, `hotkey`) — it dispatches DOM events inside React instead. `e2e/tests/live-record.spec.ts` is the hardware recording check (`TAURI_LIVE=1`).
-- Rust DSP coverage lives in `cargo test --lib` (34 tests): filter responses, compressor curve, reverb decay/decorrelation, delay timing, widener mono-sum, limiter ceiling, full stereo mixdown and WAV write, and the exact UI JSON payload.
-
-### Architecture: Audio Engine (Rust, real-time safe)
-
-- **cpal 0.18** with ALSA backend (compatible with PipeWire on modern Linux)
-- **Capture device selection on Linux** (three tiers):
-  1. **JACK** (`jack` crate, pipewire-jack): device list = PipeWire inputs as JACK clients with per-port capture (`Scarlett ...:capture_FL`); capture connects `tracker:in_N` ports to the selected device's ports. Cooperative — works while Ardour/PipeWire hold the hardware. This is Ardour's model.
-  2. **PipeWire ALSA** fallback: `pactl` sources, captured through the `pipewire` PCM with `PIPEWIRE_NODE` targeting and `BufferSize::Fixed(1024)`.
-  3. **Raw hardware** fallback (pure ALSA): `plughw:CARD=n,DEV=n` cards only, no ALSA plugin pseudo-devices.
-- **Per-track input channel**: each track records one channel (`IN n` in the track header); WAVs are true mono, deinterleaved from the capture stream
-- Three-thread model: React UI / Audio Control Thread / audio RT callback (cpal or JACK)
-- **ringbuf** for lock-free sample transfer (no allocs in audio callback)
-- **crossbeam-channel** for commands to audio control thread
-- `level-update` Tauri events (50ms interval) stream peak/RMS for every channel
-- Device enumeration via `list_audio_devices` Tauri command
+- `odin/README.md` — build, make targets, CLI, harness, limitations
+- `odin/ROADMAP.md` — completion record and intentional limits
+- `odin/VERIFICATION.md` — test/measurement matrix and sources
+- `docs/RESEARCH.md`, `docs/fx-research.md` — product and effects research
+- `PRODUCT.md`, `DESIGN.md` — product strategy and visual system

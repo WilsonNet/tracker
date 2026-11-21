@@ -1,7 +1,8 @@
 # tracker-odin
 
-Native rewrite of Tracker in [Odin](https://odin-lang.org/). The original
-Tauri + React app remains at the repository root as the behavioral reference.
+Native Tracker application in [Odin](https://odin-lang.org/). The original
+Tauri + React app was the behavioral reference during the port; it was removed
+once the port completed and remains in git history.
 
 **Status: complete.** The window, live capture, monitoring, overdub, playback,
 takes/comping, full FX chain, bounce, RF64, project persistence, native dialogs,
@@ -152,8 +153,8 @@ directory is in `XDG_DATA_DIRS`.
 or a density tweak never touches drawing code:
 
 - **Palette constants** — the exact brand values as sRGB (`BG_VALUE`,
-  `AMBER_VALUE`, …), with the OKLCH origin in comments. The values mirror the
-  React reference's `src/styles/tokens.css`; when one changes, change both.
+  `AMBER_VALUE`, …), with the OKLCH origin in comments. These values are
+  canonical; the retired React frontend used the same OKLCH palette.
 - **`Color_Tokens`** — semantic roles (`bg`, `surface`, `ink`, `ink_dim`,
   `line`, `amber`, `red`, `teal`, …). Widgets never read the raw palette.
 - **`Space_Tokens`** — a 1/2/4/6/8/12/16/24 px rhythm used for padding.
@@ -327,7 +328,7 @@ odin/
                        Inter-OFL.txt / NotoSansMono-Regular.ttf
 ```
 
-Correspondence with the Rust reference:
+Correspondence with the retired Rust implementation (git history):
 
 | Rust | Odin |
 |---|---|
@@ -337,15 +338,15 @@ Correspondence with the Rust reference:
 | `audio/device.rs`, `engine.rs` capture | `capture.odin` + `engine.odin` |
 | `audio/jack.rs` | `jack_capture.odin` |
 | `hound` WAV writer | `wav.odin` |
-| React UI | `src/ui/view.odin` (vinland-ui element tree; window) and `src/ui/draw.odin` (Cairo, headless harness) |
+| UI layer | `src/ui/view.odin` (vinland-ui element tree; window) and `src/ui/draw.odin` (Cairo, headless harness) |
 | Playwright | `ui_harness.odin` |
 
 ## Window UI (vinland-ui)
 
 The window is built with [vinland-ui](https://github.com/WilsonNet/vinland-ui):
 `src/ui/view.odin` turns the `App` model into a Tailwind-styled element tree that
-follows the original React design (DESIGN.md: JetBrains Mono, amber signal,
-flat 1px panels; tokens from `src/styles/tokens.css` in oklch). Knobs, meters and
+follows DESIGN.md (JetBrains Mono, amber signal, flat 1px panels; tokens from
+`src/ui/theme.odin` in sRGB). Knobs, meters and
 the FX graphs (EQ response, compressor transfer, reverb envelope, delay taps,
 width scope, limiter) are drawn with vinland's vector canvas primitives
 (`draw_line`, `draw_arc`, `draw_area`). Rendering is SDL3 GPU (Vulkan) with an
