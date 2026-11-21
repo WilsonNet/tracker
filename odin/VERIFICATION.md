@@ -84,7 +84,8 @@ the high-contrast theme changes colour only.
 
 `make install` and `make uninstall` are idempotent. The desktop entry uses
 `Name=Tracker (Odin)`, `StartupWMClass=tracker`, quoted `Exec`, PNG and SVG
-icons. The window class matches the existing silent `special:tracker` rule.
+icons. The window class `tracker` lets an optional compositor rule route dev
+runs to a scratchpad; normal launches open on the active workspace.
 
 ## Sources consulted
 

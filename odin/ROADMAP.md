@@ -56,7 +56,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | Undo/redo | done | 64-entry history, tests |
 | Accessibility: keyboard-first, high contrast, reduced motion | done | tests + `--a11y-log` |
 | HiDPI 1×/1.25×/1.5×/2×/3× | done | stb_truetype runtime + baked atlases |
-| Window class `tracker` / silent Hyprland workspace | done | `hyprctl clients`: `special:tracker` |
+| Window class `tracker` for compositor rules | done | `hyprctl clients`; optional scratchpad rule |
 
 ## Test harness (Playwright replacement)
 

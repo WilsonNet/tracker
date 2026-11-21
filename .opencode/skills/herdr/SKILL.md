@@ -77,12 +77,18 @@ and run again in the same tab).
 
 ## The app window
 
-The window class is `tracker`; the Hyprland rule opens it on a persistent
-**hidden** special workspace (`special:tracker silent`), so a launch never
-switches the user's workspace or steals focus. Do not screenshot it with `grim`
-while hidden — an uncomposited window captures blank. Verify the UI offscreen
-with `VUI_HIDDEN=1` + `vui-ctl`, or against the hidden window via the control
-server (screenshots work through `vui-ctl`).
+The window class is `tracker`. Normal launches open on the active workspace, so
+you can screenshot the real window through `vui-ctl`. The persistent
+`special:tracker` scratchpad and a **commented** `tracker-dev-workspace` rule
+live in `~/.config/hypr/hyprland.lua`; uncomment that rule and `hyprctl reload`
+to make dev runs silent again. Agents should verify offscreen with `VUI_HIDDEN=1`
+rather than relying on the scratchpad.
+
+To move a visible run to the scratchpad manually:
+
+```bash
+hyprctl dispatch 'hl.dsp.window.move({ workspace = "special:tracker", follow = false, window = "class:^(tracker)$" })'
+```
 
 Show/hide it when the user asks:
 

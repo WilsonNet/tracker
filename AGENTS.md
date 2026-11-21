@@ -100,10 +100,11 @@ See the project skill `.opencode/skills/herdr` for the full workflow.
 
 **Never split the pane/tab holding the agent conversation** — it steals width from the user's terminal. Run the app in its own tab.
 
-The window class is `tracker`; the user's Hyprland rule opens it silently on
-`special:tracker`. It never switches the active workspace or steals focus.
-Because that workspace is hidden, the window is neither composited nor reachable
-by native pointer injection — verify UI offscreen with `vui-ctl` instead.
+The window class is `tracker`. Normal launches open on the active workspace, so
+a visible run is fine to inspect with `vui-ctl`. For silent dev runs there is a
+commented `tracker-dev-workspace` rule in `~/.config/hypr/hyprland.lua` that
+routes the class to `special:tracker silent`; uncomment it and run `hyprctl
+reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 1. `herdr tab create --cwd "$PWD" --label "tracker"` — note `.result.root_pane.pane_id` and `.result.tab.tab_id` (no `--focus`)
 2. `herdr pane run <pane-id> "cd odin && VUI_PORT=7421 ./bin/tracker-odin ui"`
@@ -111,7 +112,7 @@ by native pointer injection — verify UI offscreen with `vui-ctl` instead.
 4. `vui-ctl --port 7421 screenshot /tmp/opencode/tracker.png` — read it back
 5. `herdr pane read <pane-id> --source recent-unwrapped --lines 80` — logs
 6. `herdr tab close <tab-id>` — kills the app and its children
-7. `hyprctl dispatch 'hl.dsp.workspace.toggle_special("tracker")'` — show/hide the app window
+7. only if the dev scratchpad rule is enabled: `hyprctl dispatch 'hl.dsp.workspace.toggle_special("tracker")'` to show/hide the window
 
 ## Testing
 
