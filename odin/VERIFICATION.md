@@ -11,13 +11,13 @@ intentional limits are in `ROADMAP.md`.
 | clean build | `make clean && make build` | ≈0.8 s |
 | DSP | `odin test src/dsp` | **70 passed** |
 | engine / project / WAV / RF64 / takes / CLI / settings / cloud | `odin test src` | **124 passed** |
-| UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **61 passed** |
+| UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **63 passed** |
 | vector renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
 | charts | level history + 5 FX response graphs | 17 screenshots inspected |
 | static checks | `odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
-Total: **255 unit tests**.
+Total: **257 unit tests**.
 
 ## Native UI harness
 
@@ -65,6 +65,30 @@ vui-ctl --port 7426 key enter           # apply
 `engine_apply_save_dir` refuses a folder that already contains `project.json`
 or `track1..4.wav`, so the picker and DEFAULT cannot silently overwrite another
 session.
+
+## Clipboard paste and edit mode (2026-11-22)
+
+Verified in the real window with `vui-ctl` and the OS clipboard:
+
+```sh
+printf 'pasted-client.apps.googleusercontent.com' | wl-copy
+vui-ctl --port 7421 type ","
+# select Client ID, press Enter
+vui-ctl --port 7421 key v ctrl
+```
+
+| check | result |
+|---|---|
+| SDL clipboard | returned an empty string on this Wayland session |
+| fallback | `vapp.clipboard_read` read the same text via `wl-paste`; `xclip`/`xsel` are also tried |
+| field insertion | Client ID showed the pasted client id; `unknown_classes: []` |
+| edit mode | selecting a field shows the `EDIT` chip |
+| discard guard | first `Esc` keeps EDIT and says `discard changes?`; second `Esc` cancels |
+| tests | `ui_paste_fills_cloud_and_project_fields`, `ui_paste_fills_palette_and_recent_filters`, `ui_settings_escape_cancels_path_edit` |
+| upstream | vinland-ui `536dce2` adds `clipboard_from_argv`/`clipboard_read` + regression test |
+
+The SDL read path was also fixed to clone the clipboard text **before**
+`SDL_free`; reading after free produced garbage in the field.
 
 ## Google Drive (2026-11-22)
 

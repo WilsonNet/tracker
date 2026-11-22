@@ -20,6 +20,17 @@ The app is a single native binary in `odin/src/` — no webview, no IPC.
 
 Push logic into the model/engine and keep `view.odin` a pure render of `App`. New behavior belongs in `app.odin`/`engine.odin` with unit tests, not in the view.
 
+## Text editing
+
+SDL key events are consumed before vinland sees them, so Tracker owns text
+entry. Clicking a text field enters **EDIT**; `Enter` applies/saves and `Esc`
+asks once before discarding (`Esc` again cancels). Another field cannot steal
+edit mode; finish with Enter/Esc first. `Ctrl+V` and `Shift+Insert`
+read the desktop clipboard through `vapp.clipboard_read` and insert through
+`ui.app_paste_text`; mirror the same path in `window_synthetic_keys` so
+`vui-ctl` behaves like the real keyboard. Never put tokens in argv; clipboard
+helpers use fixed commands.
+
 ## Feedback Loop (Critical)
 
 Every prompt that produces a feature, component, or change must result in a **working, testable surface**:
@@ -99,7 +110,7 @@ cover it.
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — 255 unit tests (DSP + core/engine/project/cloud + UI)
+- `make test` — 257 unit tests (DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
@@ -140,7 +151,7 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 70 DSP + 124 core/engine/project/WAV/settings/cloud + 61 UI tests.
+- `make test` — 70 DSP + 124 core/engine/project/WAV/settings/cloud + 63 UI tests.
 - `make e2e` — 16 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, cloud settings/overlay).
 - The Cairo/Pango harness (`ui-test`, `ui-shot`) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.

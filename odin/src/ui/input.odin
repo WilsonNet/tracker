@@ -782,16 +782,113 @@ settings_move :: proc(a: ^App, delta: int) {
 	bump_revision(a)
 }
 
+// True when typed/pasted text belongs to the app rather than Vim commands.
+app_text_editing :: proc(a: ^App) -> bool {
+	if a == nil {
+		return false
+	}
+	switch a.mode {
+	case .Palette, .Recent:
+		return true
+	case .Settings:
+		return a.settings_path_edit || a.cloud_edit != .None
+	case .Normal, .Fx, .Io, .Bounce, .Cloud:
+		return false
+	}
+	return false
+}
+
+// Single-line paste sanitizer. Paths keep spaces; credentials drop them.
+@(private)
+paste_sanitize :: proc(text: string, strip_spaces: bool) -> string {
+	b := strings.builder_make()
+	defer strings.builder_destroy(&b)
+	trimmed := strings.trim_space(text)
+	for c in transmute([]u8)trimmed {
+		if c == 0 || c < 32 {
+			if (c == '\n' || c == '\r' || c == '\t') && !strip_spaces {
+				strings.write_byte(&b, ' ')
+			}
+			continue
+		}
+		if strip_spaces && c == ' ' {
+			continue
+		}
+		strings.write_byte(&b, c)
+	}
+	return strings.clone(strings.to_string(b))
+}
+
+// Pastes into the active text surface: command palette, recent filter,
+// project folder, or a cloud credential. Only printable bytes are inserted;
+// newlines/tabs are flattened for single-line fields.
+app_paste_text :: proc(a: ^App, text: string) {
+	if a == nil || text == "" {
+		return
+	}
+	switch a.mode {
+	case .Palette:
+		clean := paste_sanitize(text, false)
+		defer delete(clean)
+		for c in transmute([]u8)clean {
+			if a.palette_len >= PALETTE_QUERY_MAX {
+				break
+			}
+			if c >= 32 && c <= 126 {
+				a.palette_buf[a.palette_len] = c
+				a.palette_len += 1
+			}
+		}
+		app_palette_rebuild(a)
+	case .Recent:
+		clean := paste_sanitize(text, false)
+		defer delete(clean)
+		for c in transmute([]u8)clean {
+			if a.recent_query_len >= RECENT_QUERY_MAX {
+				break
+			}
+			if c >= 32 && c <= 126 {
+				a.recent_query_buf[a.recent_query_len] = c
+				a.recent_query_len += 1
+			}
+		}
+		app_recent_rebuild(a)
+	case .Settings:
+		if a.cloud_edit != .None {
+			clean := paste_sanitize(text, a.cloud_edit != .Folder)
+			defer delete(clean)
+			for c in transmute([]u8)clean {
+				app_cloud_append(a, c)
+			}
+		} else if a.settings_path_edit {
+			clean := paste_sanitize(text, false)
+			defer delete(clean)
+			for c in transmute([]u8)clean {
+				settings_path_append(a, c)
+			}
+		}
+	case .Normal, .Fx, .Io, .Bounce, .Cloud:
+	}
+}
+
 @(private)
 app_settings_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
 	if a.cloud_edit != .None {
 		#partial switch key {
 		case .Escape:
-			app_cloud_cancel_edit(a)
+			if a.edit_confirm {
+				app_cloud_cancel_edit(a)
+			} else {
+				a.edit_confirm = true
+				status_buf_set(a, "discard changes? enter apply · esc again cancel")
+				bump_revision(a)
+			}
 		case .Enter:
+			a.edit_confirm = false
 			a.cloud_edit = .None
 			app_execute(a, .Cloud_Save_Credentials)
 		case .Backspace:
+			a.edit_confirm = false
 			switch a.cloud_edit {
 			case .Folder:
 				if a.cloud_folder_len > 0 {
@@ -823,11 +920,19 @@ app_settings_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
 	if a.settings_path_edit {
 		#partial switch key {
 		case .Escape:
-			app_settings_cancel_edit(a)
+			if a.edit_confirm {
+				app_settings_cancel_edit(a)
+			} else {
+				a.edit_confirm = true
+				status_buf_set(a, "discard changes? enter apply · esc again cancel")
+				bump_revision(a)
+			}
 		case .Enter:
+			a.edit_confirm = false
 			a.settings_path_edit = false
 			app_execute(a, .Apply_Save_Dir)
 		case .Backspace:
+			a.edit_confirm = false
 			if a.settings_path_len > 0 {
 				a.settings_path_len -= 1
 				bump_revision(a)

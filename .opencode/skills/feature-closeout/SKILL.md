@@ -165,6 +165,21 @@ message state:
   `project.json`/`settings.json` → toggle contrast → restart → 900×620 →
   idle. Keep the 15-case `make e2e` suite green.
 
+### Clipboard and edit mode (2026-11-22)
+
+- SDL key events are consumed by Tracker, so `vui.text_input` never sees
+  `Ctrl+V`. Handle paste in `window_on_event` (real keys) **and**
+  `window_synthetic_keys` (vui-ctl) through `vapp.clipboard_read` and
+  `ui.app_paste_text`.
+- `SDL_GetClipboardText` can return non-nil but empty on Wayland. vinland-ui
+  now falls back to `wl-paste`, `xclip` and `xsel`; clone SDL's buffer before
+  `SDL_free` or the field fills with freed memory.
+- Text fields enter EDIT on click; `Enter` applies, `Esc` asks once before
+  discarding, second `Esc` cancels. The `EDIT` chip and status hint must match
+  that state.
+- Regression tests: unit tests for cloud/project/palette/recent paste and the
+  two-step escape; upstream `clipboard_from_argv` test.
+
 ### Google Drive transfer (2026-11-22)
 
 - Scope is exactly `drive.file`; do not widen it to full Drive. Storage is a

@@ -218,6 +218,18 @@ window_on_event :: proc(va: ^vapp.App, ev: ^sdl.Event) -> bool {
 		if ev.key.repeat {
 			return true
 		}
+		ctrl_down := .LCTRL in ev.key.mod || .RCTRL in ev.key.mod
+		shift_down := .LSHIFT in ev.key.mod || .RSHIFT in ev.key.mod
+		// SDL key events are consumed before vinland sees them, so the app's
+		// custom text surfaces handle paste themselves.
+		if ui.app_text_editing(ws.a) && (ctrl_down || (shift_down && ev.key.key == sdl.K_INSERT)) {
+			if (ctrl_down && ev.key.key == sdl.K_V) || (shift_down && ev.key.key == sdl.K_INSERT) {
+				window_clipboard_paste(ws.a)
+			}
+			// Swallow the rest of the edit shortcuts so Ctrl+C does not type
+			// a literal "c" into a field.
+			return true
+		}
 		key, ch, shift := map_key(ev.key.key, ev.key.mod)
 		ui.app_set_shift(ws.a, shift)
 		if key != .Char || ch != 0 {
@@ -255,6 +267,15 @@ window_sync_mods :: proc(va: ^vapp.App, m: sdl.Keymod) {
 	va.input.mods = mods
 }
 
+@(private)
+window_clipboard_paste :: proc(a: ^ui.App) {
+	text := vapp.clipboard_read(context.temp_allocator)
+	if text == "" {
+		return
+	}
+	ui.app_paste_text(a, text)
+}
+
 // Vim h/l adjust the focused FX rack control (the status line advertises
 // "h/l: adjust"); H/L are the fine variants, like Shift+arrows.
 @(private)
@@ -276,6 +297,9 @@ window_key :: proc(a: ^ui.App, key: ui.Key, ch: u8, shift: bool) {
 @(private)
 window_synthetic_keys :: proc(a: ^ui.App, ctx: ^vui.Context) {
 	in_ := &ctx.input
+	if .Ctrl in in_.mods && .V in in_.keys_pressed {
+		window_clipboard_paste(a)
+	}
 	for r in in_.text {
 		if r < 128 {
 			if r == ' ' {

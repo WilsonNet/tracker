@@ -49,7 +49,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | 4 track strips, master, meters, GR | done | 220-action tour |
 | Arm preview: live input meter + history before REC | done | `vui-ctl` screenshots, preview tests |
 | Reference density + design-token layers | done | `theme.odin`, geometry tests at 900/1180/1920 |
-| Window-responsive type/control zoom | done | `ui_zoom_for_window`, 1.0–1.8x, 61 UI tests |
+| Window-responsive type/control zoom | done | `ui_zoom_for_window`, 1.0–1.8x, 63 UI tests |
 | Cairo/Pango vector shell + charts | done | AA paths, Inter, level history, FX graphs |
 | Transport, timecode, BPM, click, monitor | done | tour |
 | FX rack (track + master) | done | knobs, bypass, ping-pong, focus |
@@ -74,7 +74,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **255** (70 DSP, 124 core/engine/project/cloud, 61 UI) |
+| unit tests | **257** (70 DSP, 124 core/engine/project/cloud, 63 UI) |
 | UI e2e | 16 headless vinland-ui cases |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |

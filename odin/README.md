@@ -81,7 +81,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 255 unit tests
+make test         # 257 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -110,7 +110,7 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | 255 unit tests: 70 DSP, 124 core/engine/project/cloud, 61 UI |
+| `test` | 257 unit tests: 70 DSP, 124 core/engine/project/cloud, 63 UI |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
 | `e2e` | 16 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
@@ -149,7 +149,9 @@ directory is in `XDG_DATA_DIRS`.
 - **Settings:** `,` or the SET button. Edits the project folder (type, BROWSE…,
   APPLY, DEFAULT), shows the input device/backends, latency and monitoring, and
   toggles high contrast and reduced motion. `j/k` selects a row and `Enter`
-  runs it. The folder and accessibility choices persist in
+  runs it. Clicking a text field enters EDIT; `Enter` applies, `Esc` asks
+  before discarding, and `Ctrl+V` / `Shift+Insert` paste. The folder and
+  accessibility choices persist in
   `~/.config/tracker/settings.json`; changing the folder copies the current
   takes into it and leaves the old folder as a recovery copy. A folder that
   already contains `project.json` or `track1..4.wav` is refused, so applying
@@ -314,7 +316,7 @@ removes them.
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 124 core/engine/project/cloud + 61 UI = 255 tests
+make test        # 70 DSP + 124 core/engine/project/cloud + 63 UI = 257 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui

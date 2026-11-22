@@ -1241,6 +1241,9 @@ view_status :: proc(a: ^App) {
 	if vui.div("flex shrink-0 items-center gap-2 border-t border-line bg-panel px-4 py-1 text-[11px] text-ink-muted") {
 		mode, mcls := status_mode(a)
 		vui.text(mode if a.mode != .Palette else ":", vui.cx("rounded-[2px] px-2 py-px text-[10px] font-bold leading-[1.5] tracking-[0.08em]", mcls))
+		if a.mode == .Settings && (a.settings_path_edit || a.cloud_edit != .None) {
+			vui.text("EDIT", "rounded-[2px] bg-sig px-2 py-px text-[10px] font-bold leading-[1.5] tracking-[0.08em] text-canvas")
+		}
 		vui.text(app_status(a), "flex-1 truncate text-ink-dim")
 		if a.monitor {
 			vui.text("● CAP", "rounded-[2px] bg-sig-bg px-2 py-px text-[10px] font-semibold tracking-[0.05em] text-sig")
@@ -1258,10 +1261,12 @@ view_status :: proc(a: ^App) {
 		case .Io:
 			hint = "click: select  esc: close"
 		case .Settings:
-			if a.cloud_edit != .None {
-				hint = "type: edit credential  enter: save  esc: cancel"
+			if a.edit_confirm {
+				hint = "unsaved: enter apply · esc again discard"
+			} else if a.cloud_edit != .None {
+				hint = "type: edit credential  enter: save  esc: leave…"
 			} else {
-				hint = "type: edit path  enter: apply  esc: cancel" if a.settings_path_edit else "j/k: select  enter: run  b: browse  esc: close"
+				hint = "type: edit path  enter: apply  esc: leave…" if a.settings_path_edit else "j/k: select  enter: run  b: browse  esc: close"
 			}
 		case .Cloud:
 			hint = "enter: restore  u: back up  r: refresh  esc: close"

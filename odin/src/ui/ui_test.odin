@@ -1611,10 +1611,14 @@ ui_settings_escape_cancels_path_edit :: proc(t: ^testing.T) {
 	app_key(&a, .Char, 'x')
 	testing.expect(t, app_settings_path(&a) != app_save_dir(&a), "edit changed path")
 	app_key(&a, .Escape)
-	testing.expect(t, a.mode == .Settings, "first escape keeps settings open")
-	testing.expect(t, app_settings_path(&a) == app_save_dir(&a), "escape restores path")
+	testing.expect(t, a.settings_path_edit && a.edit_confirm, "first escape asks before leaving edit")
+	testing.expect(t, app_settings_path(&a) != app_save_dir(&a), "first escape keeps the candidate")
 	app_key(&a, .Escape)
-	testing.expect(t, a.mode == .Normal, "second escape closes")
+	testing.expect(t, !a.settings_path_edit, "second escape cancels edit")
+	testing.expect(t, app_settings_path(&a) == app_save_dir(&a), "cancel restores path")
+	testing.expect(t, a.mode == .Settings, "cancel keeps settings open")
+	app_key(&a, .Escape)
+	testing.expect(t, a.mode == .Normal, "third escape closes")
 
 	// Closing the overlay while editing must clear the edit flag so the
 	// window stops redrawing the caret.
@@ -1622,7 +1626,9 @@ ui_settings_escape_cancels_path_edit :: proc(t: ^testing.T) {
 	app_key(&a, .Enter)
 	testing.expect(t, a.settings_path_edit, "entered edit")
 	app_settings_close(&a)
-	testing.expect(t, !a.settings_path_edit, "close cancels edit")
+	testing.expect(t, a.settings_path_edit && a.edit_confirm, "close asks before discarding edit")
+	app_settings_close(&a)
+	testing.expect(t, !a.settings_path_edit && a.mode == .Normal, "second close discards edit")
 
 	app_execute(&a, .High_Contrast)
 	testing.expect(t, a.settings_dirty, "a11y change asks for persistence")
@@ -1668,6 +1674,61 @@ ui_cloud_overlay_and_credentials :: proc(t: ^testing.T) {
 	app_key(&a, .Enter)
 	testing.expect(t, a.cloud_edit == .None, "credential edit ends")
 	testing.expect(t, a.last_command == .Cloud_Save_Credentials, "credentials command")
+}
+
+@(test)
+ui_paste_fills_cloud_and_project_fields :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_save_dir(&a, "")
+
+	app_execute(&a, .Settings)
+	app_key(&a, .Enter)
+	app_paste_text(&a, "/tmp/pasted project\n")
+	testing.expect(t, app_settings_path(&a) == "/tmp/pasted project", app_settings_path(&a))
+	app_key(&a, .Enter)
+	testing.expect(t, a.last_command == .Apply_Save_Dir, "path paste applies")
+
+	a.settings_sel = .Cloud_Folder
+	app_key(&a, .Enter)
+	app_paste_text(&a, "  Studio\nBackups  ")
+	testing.expectf(t, app_cloud_folder(&a) == "Studio Backups", "folder %q", app_cloud_folder(&a))
+	app_key(&a, .Enter)
+	testing.expect(t, a.cloud_edit == .None, "folder paste saves")
+
+	a.settings_sel = .Cloud_Client_ID
+	app_key(&a, .Enter)
+	app_paste_text(&a, "  abc-123\n")
+	testing.expectf(t, app_cloud_client_id(&a) == "abc-123", "id %q edit %v", app_cloud_client_id(&a), a.cloud_edit)
+	app_key(&a, .Enter)
+	testing.expect(t, a.last_command == .Cloud_Save_Credentials, "credential paste saves")
+
+	a.settings_sel = .Cloud_Client_Secret
+	app_key(&a, .Enter)
+	app_paste_text(&a, " secret with spaces\n")
+	testing.expectf(t, app_cloud_client_secret(&a) == "secretwithspaces", "secret %q", app_cloud_client_secret(&a))
+
+	// Another field cannot steal insert mode without Enter/Esc.
+	app_cloud_begin_edit(&a, .Client_ID)
+	testing.expect(t, a.cloud_edit == .Client_Secret, "field switch requires confirmation")
+}
+
+@(test)
+ui_paste_fills_palette_and_recent_filters :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	app_key(&a, .Char, ':')
+	app_paste_text(&a, "save\nproject")
+	testing.expect(t, string(a.palette_buf[:a.palette_len]) == "save project", string(a.palette_buf[:a.palette_len]))
+	testing.expect(t, a.palette_count > 0, "palette filtered")
+	app_key(&a, .Escape)
+
+	app_execute(&a, .Recent)
+	app_paste_text(&a, "night\t session")
+	testing.expect(t, string(a.recent_query_buf[:a.recent_query_len]) == "night  session", string(a.recent_query_buf[:a.recent_query_len]))
 }
 
 @(test)

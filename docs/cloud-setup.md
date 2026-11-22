@@ -122,4 +122,6 @@ the Client ID/secret, refresh token, and folder name. It is written with
 - **Two `Tracker` folders**: an unrelated folder with the same name already
   exists. `drive.file` cannot see it, so Tracker creates its own. Rename the
   configured folder or delete the unused one in Drive.
+- **Paste does nothing**: Tracker falls back to `wl-paste`/`xclip` when SDL
+  cannot read the clipboard; ensure one is installed.
 - **No browser opens**: install `xdg-open` (or `gio`) and retry.

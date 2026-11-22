@@ -117,6 +117,9 @@ or close the tab.
   folder and a11y choices persist in `~/.config/tracker/settings.json`.
   Launch with isolated `XDG_DATA_HOME`/`XDG_CONFIG_HOME` when testing settings;
   an explicit `--session` deliberately ignores saved settings.
+- Text fields: click enters EDIT, `Enter` applies, `Esc` asks before
+  discarding. `Ctrl+V`/`Shift+Insert` paste through the vinland clipboard
+  fallback; test with `wl-copy "text"` + `vui-ctl key v ctrl`.
 - Cloud: `g` opens the Drive project list; `u` backs up, `r` refreshes.
   `Settings → CLOUD` holds the Drive folder name and OAuth client ID/secret.
   Tokens are in `cloud.json` (0600). Do not add/remote-delete anything during
