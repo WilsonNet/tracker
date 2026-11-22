@@ -23,7 +23,7 @@ make test-dsp              # DSP only
 make test-core             # engine / project / WAV / CLI
 make test-ui               # UI state, layout, HiDPI, PNG
 make test                  # all unit tests (counts live in README/VERIFICATION)
-make e2e                   # 16 headless vinland-ui window cases
+make e2e                   # 17 headless vinland-ui window cases
 make check                 # tests + 220-action UI tour + offline bounce + format checks
 ```
 

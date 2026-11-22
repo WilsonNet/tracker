@@ -132,7 +132,7 @@ or close the tab.
   idle CPU.
 - Arm preview is miniaudio/PipeWire only. With `--jack` the input graph starts
   with the take; do not report it as a hang.
-- `make e2e` runs the 16 cases in `tests/ui/window.vt` headless and sandboxed
+- `make e2e` runs the 17 cases in `tests/ui/window.vt` headless and sandboxed
   through `vinland-ui/build/vui-test`; inspect `/tmp/tracker-e2e/report.html`.
 - Hardware recording evidence belongs in `odin/VERIFICATION.md`; the loopback
   checks are `cd odin && ./scripts/check.sh --hardware --jack --loopback`.
