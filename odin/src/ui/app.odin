@@ -453,6 +453,7 @@ App :: struct {
 	cloud_edit:           Cloud_Edit,
 	edit_confirm:         bool,
 	edit_select_all:      bool,
+	cloud_dirty:          bool,
 	cloud_projects:       [MAX_CLOUD_PROJECTS]Cloud_Project_View,
 	cloud_project_count:  int,
 	cloud_selected:       int,
@@ -968,25 +969,30 @@ app_settings_open :: proc(a: ^App) {
 }
 
 app_settings_close :: proc(a: ^App) {
-	if (a.settings_path_edit || a.cloud_edit != .None) && !a.edit_confirm {
+	dirty := a.settings_path_edit || a.cloud_edit != .None || a.cloud_dirty ||
+		app_settings_path(a) != app_save_dir(a)
+	if dirty && !a.edit_confirm {
 		a.edit_confirm = true
-		status_buf_set(a, "discard changes? enter apply · esc or close again")
+		if a.settings_path_edit || a.cloud_edit != .None {
+			status_buf_set(a, "discard changes? enter apply · esc or close again")
+		} else {
+			status_buf_set(a, "unsaved changes · esc or close again")
+		}
 		bump_revision(a)
 		return
 	}
 	a.settings_path_edit = false
 	a.cloud_edit = .None
-	settings_path_set(a, app_save_dir(a))
 	a.edit_confirm = false
+	a.edit_select_all = false
+	a.cloud_dirty = false
+	settings_path_set(a, app_save_dir(a))
 	a.mode = .Normal
 	status_buf_set(a, "settings closed")
 	bump_revision(a)
 }
 
 app_settings_begin_edit :: proc(a: ^App) {
-	if a.cloud_edit != .None {
-		return
-	}
 	a.settings_path_edit = true
 	a.cloud_edit = .None
 	a.edit_confirm = false
@@ -1122,11 +1128,6 @@ app_cloud_selected_id :: proc(a: ^App) -> string {
 }
 
 app_cloud_begin_edit :: proc(a: ^App, field: Cloud_Edit) {
-	// Insert mode is explicit: another field cannot steal focus without
-	// Enter (apply) or Esc (cancel).
-	if a.settings_path_edit || (a.cloud_edit != .None && a.cloud_edit != field) {
-		return
-	}
 	a.cloud_edit = field
 	a.settings_path_edit = false
 	a.edit_confirm = false
@@ -1138,6 +1139,12 @@ app_cloud_cancel_edit :: proc(a: ^App) {
 	a.cloud_edit = .None
 	a.edit_confirm = false
 	a.edit_select_all = false
+	a.cloud_dirty = false
+	bump_revision(a)
+}
+
+app_cloud_mark_saved :: proc(a: ^App) {
+	a.cloud_dirty = false
 	bump_revision(a)
 }
 
@@ -1176,6 +1183,7 @@ app_cloud_append :: proc(a: ^App, ch: u8) {
 	buf[length^] = ch
 	length^ += 1
 	a.edit_confirm = false
+	a.cloud_dirty = true
 	bump_revision(a)
 }
 

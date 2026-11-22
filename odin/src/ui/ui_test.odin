@@ -1564,6 +1564,9 @@ ui_settings_edits_and_applies_project_folder :: proc(t: ^testing.T) {
 	app_key(&a, .Enter)
 	testing.expect(t, !a.settings_path_edit, "enter stops editing")
 	testing.expect(t, a.last_command == .Apply_Save_Dir, "apply command emitted")
+	// The window command would move the project folder; mirror that for the
+	// unit test so closing is not blocked by the unsaved-path guard.
+	app_set_save_dir(&a, app_settings_path(&a))
 
 	app_execute(&a, .Settings)
 	testing.expect(t, a.mode == .Normal, "settings closes")
@@ -1709,9 +1712,10 @@ ui_paste_fills_cloud_and_project_fields :: proc(t: ^testing.T) {
 	app_paste_text(&a, " secret with spaces\n")
 	testing.expectf(t, app_cloud_client_secret(&a) == "secretwithspaces", "secret %q", app_cloud_client_secret(&a))
 
-	// Another field cannot steal insert mode without Enter/Esc.
+	// Clicking another input switches and preserves the draft.
 	app_cloud_begin_edit(&a, .Client_ID)
-	testing.expect(t, a.cloud_edit == .Client_Secret, "field switch requires confirmation")
+	testing.expect(t, a.cloud_edit == .Client_ID, "click switches input")
+	testing.expect(t, app_cloud_client_secret(&a) == "secretwithspaces", "secret draft preserved")
 }
 
 @(test)
@@ -1769,6 +1773,57 @@ ui_paste_fills_palette_and_recent_filters :: proc(t: ^testing.T) {
 	app_execute(&a, .Recent)
 	app_paste_text(&a, "night\t session")
 	testing.expect(t, string(a.recent_query_buf[:a.recent_query_len]) == "night  session", string(a.recent_query_buf[:a.recent_query_len]))
+}
+
+@(test)
+ui_input_switch_click_tab_preserves_drafts :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_save_dir(&a, "/tmp/switch-base")
+	app_set_cloud_credentials(&a, "id-1", "secret-1", "Folder-1")
+	app_execute(&a, .Settings)
+
+	// Click path, then click Client ID: path draft survives and edit switches.
+	app_key(&a, .Enter)
+	app_select_all_text(&a)
+	app_paste_text(&a, "/tmp/switch-draft")
+	app_cloud_begin_edit(&a, .Client_ID)
+	testing.expect(t, a.cloud_edit == .Client_ID, "click Client ID")
+	testing.expect(t, !a.settings_path_edit, "path edit stopped")
+	testing.expect(t, app_settings_path(&a) == "/tmp/switch-draft", "path draft preserved")
+	app_paste_text(&a, "-new")
+	testing.expect(t, app_cloud_client_id(&a) == "id-1-new", "id draft")
+	app_cloud_begin_edit(&a, .Client_Secret)
+	testing.expect(t, a.cloud_edit == .Client_Secret, "click secret")
+	testing.expect(t, app_cloud_client_id(&a) == "id-1-new", "id draft survives secret click")
+	app_paste_text(&a, "x")
+	app_cloud_begin_edit(&a, .Folder)
+	testing.expect(t, a.cloud_edit == .Folder, "click folder")
+	testing.expect(t, app_cloud_client_secret(&a) == "secret-1x", "secret draft survives folder click")
+
+	// Tab / Shift+Tab cycle only text inputs and enter edit automatically.
+	app_key(&a, .Enter) // commit folder? Enter saves the form
+	app_settings_begin_edit(&a)
+	testing.expect(t, a.settings_path_edit, "tab starts at path")
+	app_key(&a, .Tab, 0, false)
+	testing.expect(t, a.cloud_edit == .Folder && !a.settings_path_edit, "tab -> folder")
+	app_key(&a, .Tab, 0, false)
+	testing.expect(t, a.cloud_edit == .Client_ID, "tab -> id")
+	app_key(&a, .Tab, 0, false)
+	testing.expect(t, a.cloud_edit == .Client_Secret, "tab -> secret")
+	app_key(&a, .Tab, 0, false)
+	testing.expect(t, a.settings_path_edit, "tab wraps -> path")
+	app_key(&a, .Tab, 0, true)
+	testing.expect(t, a.cloud_edit == .Client_Secret, "shift-tab -> secret")
+
+	// Closing with a switched-away draft asks first, then discards.
+	app_key(&a, .Escape) // ask to discard current edit
+	app_key(&a, .Escape) // cancel edit
+	app_settings_close(&a)
+	testing.expect(t, a.mode == .Settings && a.edit_confirm, "draft close asks")
+	app_settings_close(&a)
+	testing.expect(t, a.mode == .Normal, "second close discards")
 }
 
 @(test)

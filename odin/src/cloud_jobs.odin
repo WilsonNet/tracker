@@ -644,7 +644,7 @@ cloud_sync_ui :: proc(c: ^Cloud, a: ^ui.App, e: ^Engine, recent_store: string) {
 	error_text := string(c.error_buf[:c.error_len])
 	ui.app_set_cloud_status(a, status, error_text, connected)
 	a.cloud_last_sync = c.store.last_sync
-	if a.cloud_edit == .None {
+	if a.cloud_edit == .None && !a.cloud_dirty {
 		ui.app_set_cloud_credentials(a, c.store.client_id, c.store.client_secret, cloud_folder_name(&c.store))
 	}
 	sync.mutex_unlock(&c.mutex)

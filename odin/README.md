@@ -81,7 +81,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 259 unit tests
+make test         # 260 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -110,7 +110,7 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | 259 unit tests: 70 DSP, 124 core/engine/project/cloud, 65 UI |
+| `test` | 260 unit tests: 70 DSP, 124 core/engine/project/cloud, 66 UI |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
 | `e2e` | 16 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
@@ -150,7 +150,8 @@ directory is in `XDG_DATA_DIRS`.
   APPLY, DEFAULT), shows the input device/backends, latency and monitoring, and
   toggles high contrast and reduced motion. `j/k` selects a row and `Enter`
   runs it. Clicking a text field enters EDIT; `Enter` applies, `Esc` asks
-  before discarding, `Ctrl+A` selects all, and `Ctrl+V`/`Shift+Insert` paste.
+  before discarding, `Ctrl+A` selects all, `Ctrl+V`/`Shift+Insert` paste, and
+  `Tab`/`Shift+Tab` switch inputs without losing drafts.
   Client secrets render as `*` even while editing. The folder and
   accessibility choices persist in
   `~/.config/tracker/settings.json`; changing the folder copies the current
@@ -317,7 +318,7 @@ removes them.
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 124 core/engine/project/cloud + 65 UI = 259 tests
+make test        # 70 DSP + 124 core/engine/project/cloud + 66 UI = 260 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui

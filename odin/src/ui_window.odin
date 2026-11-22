@@ -371,12 +371,16 @@ window_cloud_commit :: proc(a: ^ui.App, cloud: ^Cloud) -> bool {
 	if cloud == nil {
 		return false
 	}
-	return cloud_set_client(
+	ok := cloud_set_client(
 		cloud,
 		ui.app_cloud_client_id(a),
 		ui.app_cloud_client_secret(a),
 		ui.app_cloud_folder(a),
 	)
+	if ok {
+		ui.app_cloud_mark_saved(a)
+	}
+	return ok
 }
 
 @(private)
@@ -548,6 +552,7 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 			if cloud == nil || !cloud_set_client(cloud, ui.app_cloud_client_id(a), ui.app_cloud_client_secret(a), ui.app_cloud_folder(a)) {
 				ui.app_cloud_failed(a, "cannot save cloud.json")
 			} else {
+				ui.app_cloud_mark_saved(a)
 				ui.app_cloud_status_set(a, "Google credentials saved", "")
 				ui.status_buf_set(a, "Google credentials saved")
 			}

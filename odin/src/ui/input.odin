@@ -900,8 +900,74 @@ app_paste_text :: proc(a: ^App, text: string) {
 	}
 }
 
+SETTINGS_TEXT_INPUTS := [?]Settings_Item{
+	.Path,
+	.Cloud_Folder,
+	.Cloud_Client_ID,
+	.Cloud_Client_Secret,
+}
+
 @(private)
-app_settings_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
+settings_text_index :: proc(a: ^App) -> int {
+	if a.settings_path_edit {
+		return 0
+	}
+	switch a.cloud_edit {
+	case .Folder:
+		return 1
+	case .Client_ID:
+		return 2
+	case .Client_Secret:
+		return 3
+	case .None:
+	}
+	switch a.settings_sel {
+	case .Cloud_Folder:
+		return 1
+	case .Cloud_Client_ID:
+		return 2
+	case .Cloud_Client_Secret, .Cloud_Connect, .Cloud_Backup, .Cloud_Restore:
+		return 3
+	case .Path, .Browse, .Apply, .Default, .Inputs, .Backend,
+	     .Latency_Down, .Latency_Up, .Monitor, .High_Contrast, .Reduced_Motion:
+		return 0
+	}
+	return 0
+}
+
+@(private)
+settings_focus_text :: proc(a: ^App, index: int) {
+	item := SETTINGS_TEXT_INPUTS[index]
+	a.settings_sel = item
+	switch item {
+	case .Path:
+		app_settings_begin_edit(a)
+	case .Cloud_Folder:
+		app_cloud_begin_edit(a, .Folder)
+	case .Cloud_Client_ID:
+		app_cloud_begin_edit(a, .Client_ID)
+	case .Cloud_Client_Secret:
+		app_cloud_begin_edit(a, .Client_Secret)
+	case .Browse, .Apply, .Default, .Inputs, .Backend,
+	     .Latency_Down, .Latency_Up, .Monitor, .High_Contrast, .Reduced_Motion,
+	     .Cloud_Connect, .Cloud_Backup, .Cloud_Restore:
+	}
+	bump_revision(a)
+}
+
+@(private)
+settings_switch_text :: proc(a: ^App, delta: int) {
+	n := len(SETTINGS_TEXT_INPUTS)
+	index := (settings_text_index(a) + delta + n) % n
+	settings_focus_text(a, index)
+}
+
+@(private)
+app_settings_key :: proc(a: ^App, key: Key, ch: u8, shift: bool) -> bool {
+	if key == .Tab {
+		settings_switch_text(a, -1 if shift else 1)
+		return true
+	}
 	if a.cloud_edit != .None {
 		#partial switch key {
 		case .Escape:
@@ -930,6 +996,7 @@ app_settings_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
 				case .None:
 				}
 				a.edit_select_all = false
+				a.cloud_dirty = true
 				bump_revision(a)
 			} else {
 				switch a.cloud_edit {
@@ -941,6 +1008,7 @@ app_settings_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
 					text_delete_last(a.cloud_client_secret[:], &a.cloud_client_secret_len)
 				case .None:
 				}
+				a.cloud_dirty = true
 				bump_revision(a)
 			}
 		case .Space:
@@ -1462,7 +1530,7 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 		}
 	}
 	if a.mode == .Settings {
-		app_settings_key(a, key, ch)
+		app_settings_key(a, key, ch, shift)
 		return
 	}
 	if a.mode == .Cloud {

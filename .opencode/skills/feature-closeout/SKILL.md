@@ -176,7 +176,8 @@ message state:
   `SDL_free` or the field fills with freed memory.
 - Text fields enter EDIT on click; `Enter` applies, `Esc` asks once before
   discarding, second `Esc` cancels. The `EDIT` chip and status hint must match
-  that state. Another field cannot steal EDIT.
+  that state. Clicking another field or `Tab`/`Shift+Tab` switches inputs and
+  preserves drafts; the form stays in EDIT until save/cancel.
 - `Ctrl+A` is select-all; the next type/paste/backspace replaces the buffer.
   Backspace deletes a whole UTF-8 rune. Credential fields reject spaces and
   secrets render as `*` while editing, not plaintext.
