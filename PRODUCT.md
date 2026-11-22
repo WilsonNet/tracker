@@ -41,4 +41,4 @@ Like a precision instrument: every control has a clear purpose, nothing is ornam
 - Keyboard-first by design serves motor-impaired users
 - Reduced motion support for all animations
 - High contrast modes for studio/low-light environments
-- Screen reader considerations for track state, levels, and transport status
+- A textual accessibility snapshot (`--a11y-log`) exposes track state, levels, transport and mode; there is no AT-SPI tree yet

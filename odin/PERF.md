@@ -1,9 +1,14 @@
-# Performance + memory audit (native Odin port)
+# Performance + memory audit (historical native snapshot)
 
+> **Historical document.** The measurements below were taken at commit
+> `dff9236` and are a conservative baseline, not current verification. Current
+> test counts, commands and behavior live in `README.md` and
+> `VERIFICATION.md`.
+>
 > **Post-audit note:** these numbers were measured at `dff9236`. Before merge,
 > the canvas gained an opaque/alpha bulk-fill fast path, the window resets its
 > temp arena every frame, and the harness owns its result strings. Treat the
-> table as a conservative baseline; the leak numbered 1/2 below are fixed.
+> table as a conservative baseline; leaks 1/2 below are fixed.
 > Post-audit re-run: canvas fill 1180 opaque 3.12 ms (was 6.28), alpha 5.35 ms
 > (was 10.52); 1920 opaque 7.23 ms (was 14.47), alpha 12.36 ms (was 24.62),
 > i.e. ~2.1× faster after the bulk-fill fast path.
@@ -19,14 +24,13 @@ Reproduce:
 cd odin
 export PATH="$HOME/.local/bin:$PATH"
 
-# suites, leak tracking on by default in the Odin test runner
-odin test src/dsp
-odin test src -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lSDL2"
-odin test src/ui -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lSDL2"
+# current suites (leak tracking is on by default in the Odin test runner)
+make test
 
-# benchmark rows + leak assertions (1 thread for stable wall-clock numbers)
+# historical audit benchmark rows; numbers will differ on the current tree
 AUDIT_PERF=1 odin test src -define:ODIN_TEST_THREADS=1 \
-  -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lSDL2"
+  -collection:vinland=../../vinland-ui \
+  -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0"
 ```
 
 `audit_perf_test.odin` also contains three cheap leak tests that always run:
@@ -117,8 +121,8 @@ Per-frame temp-allocator writes (measured with a private temp arena):
    defer above the unmarshal (or unmarshalling into a fresh doc and freeing in
    a `defer` set up first).
 
-4. **Everything else is clean.** All 62 DSP, 9 main and 11 UI tests pass with
-   the runner's memory tracking on, and the audit's tracked scopes report
+4. **Everything else was clean at the audit commit.** All 62 DSP, 9 main and
+   11 UI tests passed with the runner's memory tracking on, and the audit's tracked scopes report
    `live 0 B` for: App (track names + device clones + command queue), Canvas
    pixels, Engine (session strings, loaded tracks), `render_mix` (output +
    meter timelines + reverb/delay/limiter state), WAV write+read, PNG encode,
@@ -158,13 +162,13 @@ Details:
 - `capture_callback` and `jack_process` take a mutex that the UI/main thread
   also takes (`capture.odin:54`, `jack_capture.odin:74`). A mutex in an audio
   callback is a priority-inversion hazard; the JACK file even documents this
-  (`jack_capture.odin:9-12`). Both are CLI-only today, so it is a latent
-  problem, not a shipped one: GUI capture already uses the lock-free ring.
+  (`jack_capture.odin:9-12`). The GUI capture path uses the lock-free ring; the
+  mutex remains a CLI-path concern.
   `jack_process` also writes with a stride of `channels` per sample (line 85)
   instead of copying each port into a contiguous lane.
 - Buffer sizing: both callbacks use `periodSizeInFrames = 1024`
-  (`engine.odin:260,549`) = 21.3 ms at 48 kHz. Fine for recording, too slow
-  for live monitoring (which the app deliberately does not do). The writer
+  (`engine.odin:260,549`) = 21.3 ms at 48 kHz. Fine for recording; live
+  monitoring was added later and should be re-measured for latency. The writer
   polls every 2 ms (`engine.odin:176`) = 500 wakeups/s while recording;
   a condition variable or a 10 ms poll would cut idle wakeups 5×.
 - `engine_render_mix` (`engine.odin:495-513`) is not on an RT thread but runs
@@ -174,7 +178,7 @@ Details:
   loop does not run in between. This is the biggest perceived-performance
   defect after the canvas.
 
-## Top fixes, ranked by impact (none applied — existing files untouched)
+## Top fixes, ranked by impact (status as of the audit)
 
 1. **Bulk canvas fill / clear.** `canvas_fill` (`ui/canvas.odin:109-119`)
    calls `plot` per pixel, and `plot` re-checks the clip and re-blends for

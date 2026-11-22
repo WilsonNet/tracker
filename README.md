@@ -29,7 +29,7 @@ fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
   choices persist in `settings.json`. Text fields have a real caret and
   selection: click/drag/shift-click, double-click a word, triple-click all,
   clipboard and undo, with secrets rendered as `*`
-- **HiDPI and responsive density** — crisp type at 1×–3×, whole-panel zoom for larger windows
+- **HiDPI and responsive density** — crisp type at 1×–3×; the native window uses SDL density and a flexible layout, while the headless harness and `ui-shot` scale the whole virtual frame for larger canvases
 - **Linux audio** — PipeWire/ALSA capture and cooperative JACK capture (`--jack`)
 
 ## Quick start
@@ -45,7 +45,7 @@ git clone https://github.com/WilsonNet/vinland-ui ../vinland-ui
 cd odin
 make build        # -> bin/tracker-odin
 make test         # 264 unit tests
-make check        # tests + native UI tour + offline bounce
+make check        # tests + headless UI tour + offline bounce
 
 ./bin/tracker-odin ui              # real window
 ./bin/tracker-odin ui --demo       # synthetic meters, no audio hardware
@@ -85,11 +85,12 @@ DESIGN.md      visual design system
 - [`docs/RESEARCH.md`](docs/RESEARCH.md) — Zoom R4 MultiTrak analysis
 - [`docs/fx-research.md`](docs/fx-research.md) — effects architecture research
 
-## History
+## Implementation
 
-The original Tauri (Rust) + React implementation was the behavioral reference
-during the native port. It was removed once the port was complete and remains
-in git history.
+Tracker is a single native binary in [`odin/src/`](odin/src): the window is
+SDL3 + Vulkan/OpenGL through vinland-ui, audio capture runs through miniaudio or
+a cooperative JACK client, and the DSP is plain Odin. There is no webview, no
+JavaScript runtime and no IPC boundary.
 
 ## License
 

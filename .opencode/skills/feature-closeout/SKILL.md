@@ -246,8 +246,9 @@ message state:
 
 ### Repo cleanup (2026-11-21)
 
-- After removing the Tauri app, stale references hide in desktop entries,
-  project skills, README commands and doc paths. `git grep` for `src-tauri`,
-  `npm`, `cargo`, `vite` and `tauri` after a removal.
+- After removing a retired frontend or toolchain, stale references hide in
+  desktop entries, project skills, README commands and doc paths. `git grep`
+  for the old framework names, source directories and build commands after a
+  removal.
 - The Odin test counts are part of the docs contract; update every count when
   adding tests.

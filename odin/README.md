@@ -1,8 +1,9 @@
 # tracker-odin
 
-Native Tracker application in [Odin](https://odin-lang.org/). The original
-Tauri + React app was the behavioral reference during the port; it was removed
-once the port completed and remains in git history.
+Native Tracker application in [Odin](https://odin-lang.org/). One
+self-contained binary: SDL3 + Vulkan/OpenGL through vinland-ui, miniaudio or a
+cooperative JACK client, and a hand-written DSP chain. No webview, no
+JavaScript runtime, no IPC boundary.
 
 **Status: complete.** The window, live capture, monitoring, overdub, playback,
 takes/comping, full FX chain, bounce, RF64, project persistence, native dialogs,
@@ -12,15 +13,11 @@ intentional limits.
 
 ## Why Odin
 
-The motivation is iteration speed. Measured on this machine (Ryzen, 16 threads):
+The motivation is iteration speed: a full build of the UI, audio engine, DSP
+and CLI takes **≈0.8 s** on this machine (Ryzen, 16 threads). Change a pixel or
+a DSP coefficient and the native window is rebuilt and running immediately.
 
-| step | time |
-|---|---|
-| full `odin build` (UI + audio + DSP + CLI) | **≈0.8 s** |
-| Tauri/Rust dev rebuild | minutes |
-
-No Node dev server, no webview, no IPC boundary. Change a pixel or a DSP
-coefficient and the native window is rebuilt and running immediately.
+No Node dev server, no webview and no IPC boundary are involved.
 
 ## Dependencies
 
@@ -82,7 +79,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 cd odin
 make build        # -> bin/tracker-odin
 make test         # 264 unit tests
-make check        # unit + native UI tour + offline end-to-end
+make check        # unit + headless UI tour + offline end-to-end
 
 # 4. Run the app
 ./bin/tracker-odin ui
@@ -138,10 +135,10 @@ directory is in `XDG_DATA_DIRS`.
 - **Takes:** multi-take recording (`T1/2` on each strip), active-take cycling,
   whole-take comping from the palette, and arbitrary comp regions through the
   `comp` CLI. Projects keep the legacy `file` plus the full take/comp list.
-- **HiDPI + responsive density:** logical layout at physical pixel density,
-  1×–3×, with runtime stb_truetype glyphs; larger windows scale the whole
-  instrument (type, padding, controls) up to 1.8×, smaller ones keep 1:1 and
-  let the layout compress. `--ui-scale` forces a density for testing.
+- **HiDPI + responsive density:** the window lays out in logical pixels at the
+  compositor's density (1×–3×). The native window expands or compresses the
+  flexible layout; the headless harness scales the whole virtual frame up to
+  1.8×. `--ui-scale` forces a physical density for testing.
 - **FX rack:** `x` or FX. Track tabs `1–4`, `MST`; draggable knobs (vertical
   drag), bypass toggles, ping-pong, response visuals.
 - **I/O panel:** live PipeWire/JACK source list, JACK-backend toggle, latency
@@ -164,8 +161,8 @@ directory is in `XDG_DATA_DIRS`.
   the Drive folder name, OAuth client ID/secret, connect/disconnect, back up
   and restore. `g` opens the cloud-project list; `u` backs up, `r` refreshes.
   Setup and the safety model are in [`../docs/cloud-setup.md`](../docs/cloud-setup.md).
-- **Playwright replacement:** `ui-test` (below) drives the exact same state
-  machine headlessly.
+- **Headless UI harness:** `ui-test` (below) drives the exact same state
+  machine without a browser or window.
 - **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `1–4` arm, `j/k`
   select, `J/K` level, `m` mute, `s` solo, `a` arm, `I` input, `x` FX,
   `c` click, `o` monitor, `y` JACK backend, `t`/`T` next/previous take,
@@ -196,7 +193,7 @@ or a density tweak never touches drawing code:
 
 - **Palette constants** — the exact brand values as sRGB (`BG_VALUE`,
   `AMBER_VALUE`, …), with the OKLCH origin in comments. These values are
-  canonical; the retired React frontend used the same OKLCH palette.
+  canonical.
 - **`Color_Tokens`** — semantic roles (`bg`, `surface`, `ink`, `ink_dim`,
   `line`, `amber`, `red`, `teal`, …). Widgets never read the raw palette.
 - **`Space_Tokens`** — a 1/2/4/6/8/12/16/24 px rhythm used for padding.
@@ -205,9 +202,11 @@ or a density tweak never touches drawing code:
   `canvas_text`.
 - **`Metric_Tokens`** — header/bottom/status heights, margins, gutters, control
   sizes, fader/meter widths. `app_layout` reads these instead of magic numbers.
-- **Responsive density** — `UI_BASE_WIDTH/HEIGHT`, `UI_MAX_ZOOM` and
-  `ui_zoom_for_window()` derive a uniform zoom from the window size; the same
-  scale multiplies the canvas density, so type and controls grow together.
+- **Responsive density (headless)** — `UI_BASE_WIDTH/HEIGHT`, `UI_MAX_ZOOM`
+  and `ui_zoom_for_window()` derive a uniform virtual-frame zoom for
+  `ui-test`/`ui-shot`; the same scale multiplies canvas density, so type and
+  controls grow together. The native window uses SDL density plus the
+  flexible layout instead.
 - **`Tokens` / `ACTIVE_TOKENS`** — the live bundle handed to the renderer;
   `TOKENS_HIGH_CONTRAST` swaps colour only, leaving geometry untouched.
 
@@ -219,7 +218,7 @@ Sessions live in `~/.local/share/tracker/session` by default and contain
 `project.json`, `track1.wav` … `track4.wav`, and `bounce.wav` (plus a
 transient `take.raw` while a take is being captured).
 
-## The Playwright replacement
+## Headless UI harness
 
 `ui-test` drives `ui.App` with semantic targets, keyboard input, numeric
 assertions and deterministic PNG screenshots. It needs no browser, no webview
@@ -269,7 +268,7 @@ Assertion paths: `transport`, `mode`, `selected`, `armed.N`, `muted.N`,
 
 Actions: `click`, `drag` (`dy`), `key`, `type`, `wait` (`frames` or `ms`),
 `screenshot`, `assert` (`equals`, or `min`/`max` + `hasMin`/`hasMax`),
-`resize`. The full tour is **118 actions / 10 screenshots**. A `report.json`
+`resize`. The full tour is **220 actions / 17 screenshots**. A `report.json`
 with every result is written next to the screenshots. `ui-test --scale 1.5|2|3`
 renders the same actions into a physical-size canvas (the logical layout and
 targets are unchanged); `ui-shot --scale N` does the same for a single frame.
@@ -336,7 +335,7 @@ make check       # tests + 220-action UI tour + offline bounce + format checks
 tools are installed; the offline core of the script does not need audio
 hardware.
 
-Coverage includes the ported Rust DSP vectors (biquad, EQ, compressor, limiter,
+Coverage includes the DSP regression vectors (biquad, EQ, compressor, limiter,
 reverb, delay, widener), resampling quality, WAV/RF64 layout/import, project
 round-trip/defaults/takes/comp regions, solo semantics, undo/redo, recent
 projects, HiDPI canvas/text at 1/1.5/2/3×, hotplug/latency/monitor helpers,
@@ -355,35 +354,29 @@ odin/
   src/
     main.odin          CLI entry
     ui_window.odin     vinland-ui window (SDL3/Vulkan) + key mapping + engine commands
-    ui_harness.odin    scripted native UI test runner
+    ui_harness.odin    scripted headless UI test runner
     ui_cmd.odin        ui-shot
     engine.odin        ring-buffer capture, playback, bounce, overdub
     project.odin       project.json + DSP/view mapping
     capture.odin       miniaudio enumeration/capture
     jack_capture.odin  cooperative JACK client
     wav.odin           float32 WAV + PCM import
+    cloud*.odin        Drive store, OAuth, Drive API, background jobs
     dsp/               biquad, EQ, comp, limiter, reverb, delay, widener,
                        resample, render
-    ui/                cairo canvas, Pango text, theme, widgets, app, input,
-                       draw, charts, PNG, tests
+    ui/                view (vinland element tree), theme, app/input,
+                       text_edit, text_field_view, Cairo canvas/widgets,
+                       charts, PNG, tests
   scripts/             check.sh, install-desktop.sh, gen_font.py
-  tests/ui/            full-tour.json
+  tests/ui/            full-tour.json, window.vt, e2e-checklist.md
   assets/              tracker.png / tracker.svg / Inter-*.ttf /
                        Inter-OFL.txt / NotoSansMono-Regular.ttf
+  assets/fonts/        JetBrainsMono-*.ttf (window) / JetBrainsMono-OFL.txt
 ```
 
-Correspondence with the retired Rust implementation (git history):
-
-| Rust | Odin |
-|---|---|
-| `audio/fx/biquad.rs`, `eq.rs`, `compressor.rs`, `limiter.rs` | `dsp/*` |
-| `audio/fx/reverb.rs`, `delay.rs`, `widener.rs` | `dsp/*` |
-| `audio/fx/render.rs` | `dsp/render.odin` |
-| `audio/device.rs`, `engine.rs` capture | `capture.odin` + `engine.odin` |
-| `audio/jack.rs` | `jack_capture.odin` |
-| `hound` WAV writer | `wav.odin` |
-| UI layer | `src/ui/view.odin` (vinland-ui element tree; window) and `src/ui/draw.odin` (Cairo, headless harness) |
-| Playwright | `ui_harness.odin` |
+The native tree is self-contained. Source comments record the original DSP
+algorithm names for provenance, but no legacy frontend or Node toolchain is
+needed to build, test or run it.
 
 ## Window UI (vinland-ui)
 
@@ -420,29 +413,28 @@ density.
 - **Cairo geometry.** Panels, cards, buttons, knobs, faders, meter segments and
   chart fills are real anti-aliased paths with rounded corners, linear
   gradients and soft shadows. The same primitives are tested at 1×/2×/3× and
-  under the responsive zoom.
-- **Pango text.** Inter (Regular / Medium / SemiBold) carries the interface;
-  Noto Sans Mono is reserved for timecode and numeric readouts. Pango provides
+  under the harness responsive zoom.
+- **Pango text (headless harness).** Inter (Regular / Medium / SemiBold) carries
+  labels; Noto Sans Mono is reserved for timecode and numeric readouts. Pango provides
   shaping, kerning, hinting and per-face weights at the exact physical size, so
-  labels stay crisp at fractional densities and responsive zoom.
-- **Bundled fonts.** `assets/Inter-*.ttf` (SIL OFL 1.1) and
-  `assets/NotoSansMono-Regular.ttf` (Apache-2.0) ship with the app.
+  labels stay crisp at fractional densities and harness zoom.
+- **Bundled fonts.** The window embeds `assets/fonts/JetBrainsMono-*.ttf`
+  (SIL OFL 1.1). The Cairo/Pango harness uses `assets/Inter-*.ttf` (SIL OFL
+  1.1) and `assets/NotoSansMono-Regular.ttf` (Apache-2.0).
   `scripts/install-desktop.sh` installs the Inter faces under
   `$PREFIX/share/fonts/tracker` and refreshes fontconfig. Pango falls back to
   the system sans face if they are absent.
-- **HiDPI.** SDL opens the window with `WINDOW_ALLOW_HIGHDPI`; the density is
+- **HiDPI.** SDL opens the window with `HIGH_PIXEL_DENSITY`; density is
   `GetWindowSizeInPixels / GetWindowSize` and is recomputed every frame.
   `--ui-scale 1|1.25|1.5|2|3` forces it for testing. Pointer coordinates are
   normalised through the same pixel/logical ratio.
-- **Window-responsive zoom.** The panel is authored at 1180x760. Above that,
-  `ui_zoom_for_window()` returns a uniform zoom from the geometric mean of the
-  width and height ratios, clamped to 1.8x and never below the tested 900x620
-  virtual frame. The window layer renders the virtual layout with
-  `canvas.scale = display_density * zoom` and maps pointer input through the
-  same transform, so hit targets stay aligned at every size. At 1920x1080 the
-  effective zoom is 1.52x (1263x710 layout); a 2536x986 window uses 1.59x
-  (1595x620 layout). Below 1180x760 the zoom stays 1:1 and the flexible
-  layout compresses instead of shrinking the type.
+- **Headless virtual frame.** `ui-test` and `ui-shot` author the panel at
+  1180x760 and apply `ui_zoom_for_window()` from the geometric mean of the
+  width/height ratios, clamped to 1.8x and never below the tested 900x620
+  virtual frame. At 1920x1080 the harness uses 1.52x (1263x710 layout); a
+  2536x986 canvas uses 1.59x (1595x620 layout). The native window stays at
+  SDL's logical pixel size and lets the flexible layout expand or compress;
+  `--ui-scale` only changes physical density.
 - **Charts.** Per-track input-level history, EQ response, compressor transfer,
   reverb decay, delay taps, stereo width and limiter ceiling are drawn as
   smooth polylines with gradient fills, grids and threshold markers.
@@ -452,11 +444,11 @@ density.
   meter when the FX rack is open in a short window.
 
 The legacy 12.5 px / 25 px mono atlases and the stb_truetype runtime path remain
-only for the fixed-cell `canvas_text` tests; the application shell uses Pango.
+only for the fixed-cell `canvas_text` tests; the headless harness uses Pango.
 
 Sources that shaped this path: Cairo's image-surface and path API, Pango's
-Cairo integration (`pango_cairo_show_layout`, 72 dpi resolution), the SDL2
-high-DPI guidance, and the Inter/SIL OFL and Noto font licences.
+Cairo integration (`pango_cairo_show_layout`, 72 dpi resolution), the SDL3
+high-DPI guidance, and the JetBrains Mono/Inter/Noto font licences.
 
 ## Limitations
 
@@ -466,29 +458,22 @@ high-DPI guidance, and the Inter/SIL OFL and Noto font licences.
   zero-latency hardware monitor loop, and overdub can still drift on long takes.
 - Accessibility is keyboard-first with high-contrast/reduced-motion modes and a
   textual `--a11y-log` snapshot. There is no AT-SPI accessibility tree.
+- Settings text entry is single-line printable ASCII; there is no IME or
+  non-Latin composition in the custom text fields.
 - JACK GUI takes accumulate in RAM until stop (≈384 MB/hour stereo); the CLI
   path is unchanged.
 - RF64 writing/streaming is implemented and tested, but the engine still
   buffers each take while splitting it; it does not stream a take end-to-end.
 - Multi-take comping has whole-take UI and arbitrary-region CLI; there is no
   waveform/timeline region editor by product design.
-- Preview render and bounce run synchronously on the UI thread; a long mix
-  pauses the window while it renders. JACK capture is exposed through the CLI,
-  not yet as a GUI mode.
-- The session path is fixed per run (`--session`); there is no native file
-  picker or recent-projects list.
-- No undo/redo, comping, RF64 (>4 GB), or screen-reader accessibility yet.
-- `ui-test` covers the state machine and rendering, not OS-level window focus or
-  audio-device hotplug.
-- The baked text atlases are generated from Noto Sans Mono (Apache-2.0) and the
-  runtime path embeds `assets/NotoSansMono-Regular.ttf` from the same family;
-  see `assets/FONT-LICENSE.txt`. On a machine with JetBrains Mono installed,
-  `scripts/gen_font.py` regenerates the baked atlases from it instead, but the
-  bundled runtime TTF stays Noto so builds are reproducible.
+- Preview render and bounce run synchronously on the UI thread; a long mix can
+  pause the window while it renders. Long bounces show the bounce overlay but
+  do not make the render asynchronous.
+- The Cairo/Pango harness remains the pixel-stable regression surface. The
+  vinland window is exercised through `vui-test`/`vui-ctl`, not OS-level pointer
+  injection; `ui-test` pointer coordinates are logical.
 - HiDPI density is sampled from the compositor's window/pixel ratio; densities
-  outside 1–3× are clamped. Arbitrary fractional densities inside that range
-  are rasterised at their exact physical size (glyph metrics stay logical);
-  `--ui-scale` is deliberately limited to the tested 1/1.25/1.5/2/3 set.
-- `ui-test` pointer assertions drive logical coordinates; physical→logical
-  mapping is covered by unit tests and used by the SDL window, but the harness
-  has no OS pointer injection.
+  outside 1–3× are clamped. `--ui-scale` is limited to the tested
+  1/1.25/1.5/2/3 set.
+- Google Drive transfer is explicit backup/restore, not live sync; a live Google
+  account round-trip still needs the user's own OAuth client.

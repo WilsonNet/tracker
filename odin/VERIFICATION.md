@@ -1,8 +1,8 @@
 # Verification matrix
 
 Measured on the development machine (Arch Linux, PipeWire 1.6.11, Odin
-`dev-2026-11-nightly`), 2026-11-17/21. The port is complete; details and
-intentional limits are in `ROADMAP.md`.
+`dev-2026-11-nightly`), 2026-11-17 through 2026-11-22. The native port is
+complete; details and intentional limits are in `ROADMAP.md`.
 
 ## Build and unit tests
 
@@ -11,15 +11,16 @@ intentional limits are in `ROADMAP.md`.
 | clean build | `make clean && make build` | ≈0.8 s |
 | DSP | `odin test src/dsp` | **70 passed** |
 | engine / project / WAV / RF64 / takes / CLI / settings / cloud | `odin test src` | **124 passed** |
-| UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **70 passed** |
-| vector renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
+| UI state, layout, HiDPI, harness zoom, PNG | `odin test src/ui` | **70 passed** |
+| native renderer | vinland-ui SDL3 + Vulkan/GL | JetBrains Mono, canvas charts, `vui-ctl` screenshots |
+| harness renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
 | charts | level history + 5 FX response graphs | 17 screenshots inspected |
 | static checks | `odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
 Total: **264 unit tests**.
 
-## Native UI harness
+## Headless UI harness
 
 `./bin/tracker-odin ui-test --script tests/ui/full-tour.json --out /tmp/ui`
 
@@ -29,11 +30,12 @@ Total: **264 unit tests**.
 - Covers arm/mute/solo, record/play/stop, faders/pans, FX tabs/knobs/bypass,
   palette, recents, bounce, I/O, tempo/click, monitor, JACK toggle, latency,
   rescan, undo/redo, keyboard focus, resizes
-- Window-responsive zoom verified at 1440x900 (1.20x), 1920x1080 (1.52x),
-  2536x986 (1.59x) and 3840x2160 (1.80x cap); the virtual frame never drops
-  below 900x620
-- Window suite (`make e2e`): **17 cases**, including settings keyboard
-  selection, path edit, apply, cloud settings and the cloud overlay
+- Headless virtual-frame zoom verified at 1440x900 (1.20x), 1920x1080
+  (1.52x), 2536x986 (1.59x) and 3840x2160 (1.80x cap); the virtual frame never
+  drops below 900x620. The native e2e window is exercised at 900x620 and
+  1180x760 with SDL density and the flexible layout.
+- Window suite (`make e2e`): **17 cases**, including settings path edit and
+  apply, text selection/caret, secret masking, and the cloud settings/overlay
 
 ## Settings persistence (2026-11-21)
 
@@ -219,7 +221,8 @@ the high-contrast theme changes colour only.
   transport, selection, per-track arm/mute/solo/takes/level/pan/peak, tempo,
   monitor/latency/backend, contrast/motion flags, undo depth and status.
 - High-contrast and reduced-motion modes are keyboard/palette accessible and
-  persisted in `project.json`.
+  persisted in `settings.json` (projects also carry the values for portable
+  sessions).
 - No AT-SPI tree; the textual log is the screen-reader surface.
 
 ## Packaging

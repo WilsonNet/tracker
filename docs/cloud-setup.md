@@ -56,7 +56,7 @@ every computer.
 
 While the OAuth consent screen is in **Testing**, Google expires refresh
 tokens after **7 days**. You do **not** re-add test users; just click
-`CONNECT`/`Reconnect` and approve again. Each computer re-authorizes
+`CONNECT` again and approve. Each computer re-authorizes
 separately.
 
 To avoid the weekly re-login, **Publish app** in the OAuth consent screen.
@@ -94,7 +94,9 @@ Drive when you want it gone. Revoke access at
 
 `~/.config/tracker/cloud.json` (or `$XDG_CONFIG_HOME/tracker/cloud.json`) holds
 the Client ID/secret, refresh token, and folder name. It is written with
-`0600` permissions. It contains no Drive file contents.
+`0600` permissions. It contains no Drive file contents. With an explicit
+`--session DIR`, Tracker keeps `cloud.json` inside `DIR` so isolated test and
+throwaway runs never touch the real machine config.
 
 ## Safety properties (enforced in code and tests)
 

@@ -1,8 +1,7 @@
-# Odin port — completion record
+# Native completion record
 
-All phases are implemented in this tree. The Tauri/React application was the
-behavioral reference and was removed after the port completed; it remains in
-git history.
+All phases are implemented in this native Odin tree. There is no legacy frontend
+or external toolchain required to build, test or run the app.
 
 Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 `./scripts/check.sh --hardware --jack --loopback`.
@@ -11,7 +10,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | item | status | evidence |
 |---|---|---|
-| Parity with the Rust DSP (biquad, EQ, compressor, limiter) | done | 70 DSP tests, A/B vectors |
+| DSP parity (biquad, EQ, compressor, limiter) | done | 70 DSP tests, A/B vectors |
 | FDN reverb, ping-pong delay, widener, sends | done | impulse/timing/mono tests |
 | Master chain, limiter latency compensation | done | short-take and tail tests |
 | Lock-free capture ring + writer thread | done | writer drains while recording, overflow reporting |
@@ -50,8 +49,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | 4 track strips, master, meters, GR | done | 220-action tour |
 | Arm preview: live input meter + history before REC | done | `vui-ctl` screenshots, preview tests |
 | Reference density + design-token layers | done | `theme.odin`, geometry tests at 900/1180/1920 |
-| Window-responsive type/control zoom | done | `ui_zoom_for_window`, 1.0–1.8x, 70 UI tests |
-| Cairo/Pango vector shell + charts | done | AA paths, Inter, level history, FX graphs |
+| Headless responsive zoom / virtual frame | done | `ui_zoom_for_window`, 1.0–1.8x, 70 UI tests; native window uses SDL density + flexible layout |
+| Cairo/Pango harness + vinland canvas charts | done | AA paths, Inter, level history, FX graphs |
 | Transport, timecode, BPM, click, monitor | done | tour |
 | FX rack (track + master) | done | knobs, bypass, ping-pong, focus |
 | Command palette, recents, recent overlay | done | 220-action tour |
@@ -59,10 +58,10 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | Bounce overlay and status | done | engine bounce |
 | Undo/redo | done | 64-entry history, tests |
 | Accessibility: keyboard-first, high contrast, reduced motion | done | tests + `--a11y-log` |
-| HiDPI 1×/1.25×/1.5×/2×/3× | done | stb_truetype runtime + baked atlases |
+| HiDPI 1×/1.25×/1.5×/2×/3× | done | SDL density in the window; stb_truetype atlases in the harness |
 | Window class `tracker` for compositor rules | done | `hyprctl clients`; optional scratchpad rule |
 
-## Test harness (Playwright replacement)
+## Headless UI test harness
 
 | item | status | evidence |
 |---|---|---|

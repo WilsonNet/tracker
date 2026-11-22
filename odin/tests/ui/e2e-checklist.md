@@ -23,11 +23,12 @@ $C info            # must contain "sandboxed":true, else stop
 - Bounce is synchronous in the window, so the bounce overlay is never on screen
   long enough to check there (check it with `ui-shot` instead).
 - `vui-ctl key tab|enter|space` also reaches vinland's own focus handling (the
-  real window consumes keys first). After `key tab` the last clicked button can
-  show a focus ring, and `key enter`/`key space` can click it. Click an empty
-  area to clear focus before key steps that must be isolated.
-- Pointer modifiers can't be held from vui-ctl (`down`/`move`/`scroll` take no
-  `mods`), so shift-fine drag/wheel is checked from code, not end to end.
+  real window consumes keys first). While a text field is editing Tracker
+  clears vinland focus; outside edit mode, click an empty area to clear focus
+  before key steps that must be isolated.
+- Pointer modifiers are supported: `down`/`move`/`up` and `drag-text` accept
+  `mods` (`shift`, `ctrl`). Shift-fine drag/wheel can be checked end to end.
+  `click` accepts `right`, `double` and `triple`.
 
 Locate controls by exact text (`raw '{"cmd":"find","text":"ARM","nth":1,"exact":true}'`).
 `click-text` matches substrings without regard to case: `2` also matches `120`.
@@ -117,14 +118,14 @@ The − / + glyphs must sit on the vertical centre of the 28px box.
   click 3 / MST / 1 (tabs, y > rack top) -> "TRACK 3" / "MASTER" / "TRACK 1"
   type ] / [                     -> next / previous channel (wraps through MST)
   MST: click BYP (REVERB)        -> "ON" (border-sig bg-sig); click P·P -> readout "mono repeats" <-> "L/R alternating"
-  knob values follow FxRack.tsx: SIZE 62%  DECAY 2.9s  TONE 55%  PRE 18ms  RET 45%  FB 35%  WIDTH 100%
-  enabled knob drag 0 -17        -> +10 % (170 px = full range, Knob.tsx)
+  knob values follow the DSP defaults: SIZE 62%  DECAY 2.9s  TONE 55%  PRE 18ms  RET 45%  FB 35%  WIDTH 100%
+  enabled knob drag 0 -17        -> +10 % (170 px = full range)
   enabled knob scroll -48        -> +1.5 % per notch; dblclick -> default
   bypassed module knob drag      -> unchanged
   key tab                        -> ring on LOW; footer "EQ · LOW +0.0" (no "knob.eq.low" ids)
   type l / lll / L / h / H       -> +1 % / +3 % / fine / -1 % / fine   (arrows do the same)
   key enter on a knob            -> reset to default
-  13 more tabs                   -> knobs then "EQ · ON · ENTER TOGGLES", "COMP · ON ..."; enter flips ON/BYP
+  Tab through the remaining knobs -> "EQ · ON · ENTER TOGGLES", "COMP · ON ..."; enter flips ON/BYP
   key tab shift                  -> back one
   click ✕ (close)  / type x / key escape -> rack closes, mode NORMAL
   values never read "-0.0" (EQ gains, GR readout)

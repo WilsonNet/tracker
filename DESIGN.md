@@ -47,20 +47,20 @@ The palette is dark. The scene is a musician in a dim home studio at night, moni
 
 ## 3. Typography
 
-**Primary Font:** JetBrains Mono (fallback: Fira Code, Cascadia Code, Consolas). No display/body pairing. One family carries headings, labels, buttons, meters, and body text.
+**Primary Font:** JetBrains Mono in the native window (fallback: the system mono face). No display/body pairing. One family carries headings, labels, buttons, meters, and body text. The Cairo/Pango regression harness uses Inter for labels and Noto Sans Mono for timecode.
 
 **Character:** Technical precision without feeling cold. The monospace choice aligns with the Vim-native, keyboard-first philosophy. Letters have clear differentiation (no ambiguous 0/O, 1/l/I). Reading rhythm feels natural, not mechanical.
 
 ### Hierarchy
 
-- **Heading** (bold, 1.25rem–1.5rem): Section headers, track names, transport labels. Fixed rem scale, no fluid clamp.
-- **Body** (regular, 0.875rem–1rem, 1.5 line-height): Prose, settings descriptions, help text. Max line length 65–75ch where prose appears.
-- **Label** (medium, 0.75rem–0.8125rem, uppercase, 0.04em letter-spacing): Button labels, meter readouts, status indicators, keybinding hints.
-- **Data** (regular, 0.8125rem–0.875rem, tabular-nums): Timecode, level readouts, track numbers. Monospace numbers align naturally.
+- **Heading** (bold, 20–25 px): Section headers, track names, transport labels. Fixed logical-px scale, no fluid clamp.
+- **Body** (regular, 11.5–14 px, 1.5 line-height): Prose, settings descriptions, help text. Max line length 65–75ch where prose appears.
+- **Label** (medium, 10–12 px, uppercase, 0.04em letter-spacing): Button labels, meter readouts, status indicators, keybinding hints.
+- **Data** (regular, 11–14 px, tabular-nums): Timecode, level readouts, track numbers. Monospace numbers align naturally.
 
 **Named Rules**
 - **The One-Family Rule.** One font family across the entire interface. Weight, size, and case create hierarchy — not font pairing. A second family is allowed only for timecode/timing displays where tabular-nums and monospace precision are critical.
-- **The Fixed-Scale Rule.** Type sizes are fixed rem values, not fluid clamp. This is a tool viewed at consistent DPI, not a marketing page viewed across devices. Headings that shrink when the window narrows serve no purpose here.
+- **The Fixed-Scale Rule.** Type sizes are fixed logical-px values, not fluid clamp. This is a tool viewed at consistent DPI, not a marketing page viewed across devices. Headings that shrink when the window narrows serve no purpose here.
 
 ## 4. Elevation
 
@@ -73,20 +73,20 @@ Shadows exist only where they serve a structural purpose: dropdown menus, dialog
 
 ## 5. Components
 
-All components live in `src/components/`. Shared tokens are in `src/styles/tokens.css`; the FX system has its own sheet (`src/styles/fx.css`).
+All native UI components live in `odin/src/ui/`; `odin/src/ui_window.odin` is the thin SDL3/vinland window adapter. `view.odin` composes the vinland-ui element tree; `theme.odin` is the single source of colour, space, type and metric tokens; `app.odin` owns state and key handling; `text_edit.odin` and `text_field_view.odin` own the settings text fields. Knobs, meters and FX graphs use vinland canvas primitives (`draw_line`, `draw_arc`, `draw_area`). The Cairo/Pango path in `draw.odin`/`canvas.odin` is the headless regression renderer.
 
 **Transport bar** — amber-bordered REC / PLAY / STOP, timecode in tabular mono, BPM stepper. State is carried by fill, not by shadow: recording red, playing teal, idle ink-dim.
 
 **Track strip** — numbered header, `IN n` channel selector, `FX` badge row (lit label + `EQ · CMP · REV · DLY` summary), ARM/SOLO/MUTE toggles, pan knob, vertical fader, segmented meter. Selected = amber-dim border; armed = amber border; recording = red border with pulsing number.
 
-**FX rack** (`FxRack.tsx`) — a horizontal instrument rack above the bounce row.
+**FX rack** (`view.odin` / `app.odin`) — a horizontal instrument rack above the bounce row.
 - Header: `FX`, channel tabs `1 2 3 4 MST` (a 3px dot marks a channel with active effects), channel name, interaction hint, close.
 - Modules: numbered `01…05`, power switch (`ON` amber / `BYP` dim), a response visual, a knob row, and a readout footer. Bypassed modules dim to 40% but stay editable-free (knobs disabled).
 - Overflow: the chain scrolls horizontally with edge chevrons; the wheel scrolls it too.
 - Channels: track = `EQ · COMP · SEND`; master = `COMP · REVERB · DELAY · WIDTH · LIMITER`.
 - Visuals are derived from the actual DSP parameters: EQ magnitude curve with draggable nodes, compressor transfer curve + GR meter, reverb RT60 envelope with pre-delay and early reflections, delay repeats with L/R lanes, vectorscope for width, ceiling-clipped waveform for the limiter.
 
-**Knob** — the single control primitive for continuous values. 270° arc, amber value arc, pointer, label + real-unit readout. Drag (vertical, `Shift` = fine), wheel, arrow keys (`Home`/`End`, `PageUp`/`PageDown`), double-click reset. `role="slider"` with `aria-valuetext` in real units. Disabled at 35% opacity.
+**Knob** — the single control primitive for continuous values. 270° arc, amber value arc, pointer, label + real-unit readout. Drag (vertical, `Shift` = fine), wheel, arrow keys (`Home`/`End`, `PageUp`/`PageDown`), double-click reset. The selected module and real-unit readout are mirrored in the `--a11y-log` snapshot. Disabled at 35% opacity.
 
 **Gain-reduction meter** — right-to-left amber fill over a 24 dB range, peak tick, numeric `−x.x dB`. Static peak after a render, animated at 20 Hz while audio plays.
 
@@ -101,8 +101,8 @@ All components live in `src/components/`. Shared tokens are in `src/styles/token
 **Status line / rhythm section** — mode badge, transient message, capture/record indicators, hint string; rhythm toggle at the right.
 
 ### Interaction vocabulary
-- Buttons: 1px border, flat; hover fills with the 8–12% tint (`--amber-bg`, `--teal-bg`, `--red-bg`).
-- Toggles: `aria-pressed` + filled state; chips (`AUTO`, `SYNC`, `P·P`) are the compact form.
+- Buttons: 1px border, flat; hover fills with the 8–12% tint (`amber_bg`, `teal_bg`, `red_bg` semantic tokens).
+- Toggles: filled on-state plus a model flag; chips (`AUTO`, `SYNC`, `P·P`) are the compact form.
 - Focus: 1px amber outline, 1–2px offset, never removed.
 - Nothing is a modal unless it must be (command palette, settings, project/cloud browser).
 
@@ -117,7 +117,7 @@ All components live in `src/components/`. Shared tokens are in `src/styles/token
 - **Do** use white text on saturated color fills (amber buttons, red recording indicator, teal overdub badge).
 - **Do** maintain ≥7:1 contrast for body text against the background surface. Studio environments have variable lighting.
 - **Do** respond to every state change with purposeful, fast motion (150–250ms). Recording glow, meter bounce, mode transitions.
-- **Do** respect `prefers-reduced-motion`: replace transitions with instant state changes when the user requests it.
+- **Do** respect the in-app **Reduced motion** setting: replace transitions with instant state changes when it is on.
 
 ### Don't:
 
