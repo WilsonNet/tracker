@@ -40,7 +40,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | Folder picker starts with sibling projects visible | done | `dialog_start_dir` unit test |
 | Text fields: caret, selection, click/drag/double/triple, clipboard, undo | done | native `vui-ctl` geometry + 4 UI tests + e2e case |
 | Google Drive backup/restore (`drive.file`, visible named folder) | done | live Google round-trip, innocent-file guard, fake-Drive no-delete tests |
-| Restore collision safety | done | `-2` local folder, delete+restore, duplicate marked-name guard |
+| Restore collision safety | done | `-2` local folder, delete+restore, duplicate marked-name guard, same-name projects stay separate |
 
 ## Native UI
 

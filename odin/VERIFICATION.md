@@ -195,6 +195,7 @@ with only `https://www.googleapis.com/auth/drive.file`:
 | Drive folder collision | an unmarked `untitled-umnNNw` folder in `projects/` stayed empty; backup used the marked Tracker folder |
 | Drive file collision | an unmarked `track1.wav` stayed `INNOCENT-AGGRESSIVE`; the marked `track1.wav` was updated and hash-matched the local file |
 | duplicate marked names | `cloud_drive_find` rejects multiple marked files with the same name instead of choosing one |
+| same display name | a second local project named `Test Project` got a new cloud id, a sibling Drive folder and a second index entry; the first project was untouched |
 | delete guard | the app performed no Drive DELETE; the test-only innocent fixtures were removed by the verification script afterwards |
 | fonts/UI | the window stayed responsive; `unknown_classes: []` |
 

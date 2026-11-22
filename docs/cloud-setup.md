@@ -114,6 +114,14 @@ If the project has no `.tracker-cloud-id` (for example, an older copy), the
 first backup creates a new cloud identity and therefore a separate Drive
 project. Keep the restored folder together when moving a project by hand.
 
+Starting a **new** local project with the same display name as an existing
+cloud project is safe: it has a new `.tracker-cloud-id`, so it gets its own
+`projects/<name>-<short id>` folder and its own index entry. Both projects
+appear in `g`, and restoring one never overwrites the other locally. Copying a
+project folder **with** its `.tracker-cloud-id` is different: that folder is the
+same cloud identity, so `BACK UP NOW` updates the existing cloud project
+instead of creating a second one.
+
 ## Local token storage
 
 `~/.config/tracker/cloud.json` (or `$XDG_CONFIG_HOME/tracker/cloud.json`) holds

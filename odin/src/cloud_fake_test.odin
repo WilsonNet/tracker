@@ -287,6 +287,35 @@ cloud_fake_drive_roundtrip_never_touches_unrelated_files :: proc(t: ^testing.T) 
 	_, dup_found := cloud_drive_find(token, entry.folder_id, "track1.wav", false, &dup_err)
 	testing.expect(t, !dup_found && strings.contains(dup_err, "multiple Tracker items"), dup_err)
 
+	// A second local project with the same display name must get a new cloud
+	// identity and a sibling Drive folder, never overwrite the first project.
+	same := fmt.tprintf("%s/same-name", base)
+	_ = os.make_directory_all(same)
+	testing.expect(t, os.write_entire_file(fmt.tprintf("%s/project.json", same), `{"name":"Test Project"}`) == nil, "same-name project fixture")
+	testing.expect(t, os.write_entire_file(fmt.tprintf("%s/track1.wav", same), "SAME-NAME") == nil, "same-name audio fixture")
+	backup3 := new(Cloud_Task)
+	backup3.kind = .Backup
+	backup3.session_dir = strings.clone(same)
+	backup3.project_name = strings.clone("Test Project")
+	backup3.takes = []string{}
+	defer {
+		delete(backup3.session_dir)
+		delete(backup3.project_name)
+		free(backup3)
+	}
+	cloud_job_backup(&c, backup3)
+	testing.expect(t, c.error_len == 0, string(c.error_buf[:c.error_len]))
+	index2, index2_ok := cloud_index_load(token, root, &err)
+	testing.expect(t, index2_ok, err)
+	defer cloud_index_destroy(&index2)
+	testing.expect(t, len(index2.projects) == 2, "same display name must create a second cloud project")
+	if len(index2.projects) == 2 {
+		testing.expect(t, index2.projects[0].name == "Test Project", index2.projects[0].name)
+		testing.expect(t, index2.projects[1].name == "Test Project", index2.projects[1].name)
+		testing.expect(t, index2.projects[0].id != index2.projects[1].id, "cloud ids must differ")
+		testing.expect(t, index2.projects[0].folder_id != index2.projects[1].folder_id, "project folders must differ")
+	}
+
 	stats_data, stats_ok := fake_get_json(server, "/__stats")
 	testing.expect(t, stats_ok, "stats")
 	defer delete(stats_data)
