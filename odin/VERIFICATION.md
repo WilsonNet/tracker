@@ -39,6 +39,21 @@ Total: **265 unit tests**.
   The suite asserts the I/O overlay text but does not baseline its live device
   list: enumeration order is PipeWire/compositor-dependent.
 
+## External mix render (2026-11-22)
+
+The main mix row now has a secondary **RENDER…** action next to BOUNCE; `B`
+runs the same command. It opens a native WAV save dialog, starting in the
+current project folder with `mix.wav`, and writes the full non-destructive mix
+chain to the chosen file. It never modifies the takes or `bounce.wav`.
+
+| check | result |
+|---|---|
+| button | `RENDER…` fits the row at 900×620 and 1180×760; `unknown_classes: []` |
+| dialog | fake zenity captured `--title=Render Mix to WAV`, `--filename=<session>/mix.wav`, `*.wav` filter |
+| render | 2.000 s stereo `pcm_f32le` at 48 kHz, 768,058 bytes |
+| non-destructive | no `bounce.wav` created; source takes untouched |
+| recording guard | while recording, `RENDER…` reports `stop recording before rendering` and does not interrupt the take |
+
 ## Settings persistence (2026-11-21)
 
 Verified against the real window with isolated XDG dirs, no `--session`:

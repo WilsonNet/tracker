@@ -132,9 +132,11 @@ directory is in `XDG_DATA_DIRS`.
 - **Transport:** REC / PLAY / STOP / BOUNCE, timecode, armed count, BPM
   stepper, metronome click, live input **MON**itoring, latency trim and a
   PipeWire/cooperative-JACK backend switch.
-- **Takes:** multi-take recording (`T1/2` on each strip), active-take cycling,
+- **Takes and mix:** multi-take recording (`T1/2` on each strip), active-take cycling,
   whole-take comping from the palette, and arbitrary comp regions through the
-  `comp` CLI. Projects keep the legacy `file` plus the full take/comp list.
+  `comp` CLI. `BOUNCE` writes the canonical `bounce.wav`; `RENDER…` writes the
+  same full-chain stereo mix to an external WAV of your choice. Projects keep
+  the legacy `file` plus the full take/comp list.
 - **HiDPI + responsive density:** the window lays out in logical pixels at the
   compositor's density (1×–3×). The native window expands or compresses the
   flexible layout; the headless harness scales the whole virtual frame up to
@@ -165,7 +167,7 @@ directory is in `XDG_DATA_DIRS`.
   [`../docs/cloud-setup.md`](../docs/cloud-setup.md).
 - **Headless UI harness:** `ui-test` (below) drives the exact same state
   machine without a browser or window.
-- **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `1–4` arm, `j/k`
+- **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `B` render to WAV, `1–4` arm, `j/k`
   select, `J/K` level, `m` mute, `s` solo, `a` arm, `I` input, `x` FX,
   `c` click, `o` monitor, `y` JACK backend, `t`/`T` next/previous take,
   `u`/`U` undo/redo, `[`/`]` FX channel, `Tab`/`Shift+Tab` FX focus,

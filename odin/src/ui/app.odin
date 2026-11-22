@@ -95,6 +95,7 @@ Command_Kind :: enum {
 	Record_Start,
 	Record_Stop,
 	Bounce,
+	Render_Mix,
 	Save,
 	Load,
 	Select_Device,
@@ -1659,6 +1660,17 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		a.bounce_active = true
 		status_buf_set(a, "bouncing")
 		emit(a, .Bounce)
+		bump_revision(a)
+	case .Render_Mix:
+		if a.transport == .Recording {
+			toast(a, "stop recording before rendering")
+			status_buf_set(a, "stop recording before rendering")
+			return
+		}
+		a.last_command = .Render_Mix
+		a.last_command_index = 0
+		emit(a, .Render_Mix)
+		status_buf_set(a, "choose where to render the mix")
 		bump_revision(a)
 	case .Save:
 		a.last_command = .Save

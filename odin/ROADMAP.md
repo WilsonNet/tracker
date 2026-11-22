@@ -58,6 +58,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | Command palette, recents, recent overlay | done | 220-action tour |
 | I/O panel: device list, JACK, latency, rescan | done | tour + live JACK take |
 | Bounce overlay and status | done | engine bounce |
+| External mix render | done | main-window RENDER… + native save dialog; ffprobe/sox |
 | Undo/redo | done | 64-entry history, tests |
 | Accessibility: keyboard-first, high contrast, reduced motion | done | tests + `--a11y-log` |
 | HiDPI 1×/1.25×/1.5×/2×/3× | done | SDL density in the window; stb_truetype atlases in the harness |

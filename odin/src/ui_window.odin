@@ -503,6 +503,20 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 			ui_sync_takes(a, e)
 		case .Bounce:
 			_ = engine_bounce(e, a)
+		case .Render_Mix:
+			path, picked := pick_mix_save(e.session_dir)
+			if picked {
+				if render_ok, render_err := engine_render_to_file(e, a, path); render_ok {
+					ui.status_buf_set(a, fmt.tprintf("rendered %s", path))
+					ui.toast(a, "mix rendered")
+				} else {
+					ui.status_buf_set(a, render_err)
+					ui.toast(a, render_err)
+				}
+				delete(path)
+			} else {
+				ui.status_buf_set(a, "render cancelled")
+			}
 		case .Save:
 			if project_save_with_takes(a, e.takes[:], e.project_path) {
 				ui.status_buf_set(a, "project saved")

@@ -16,6 +16,7 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"play", .Play},
 	{"stop", .Stop},
 	{"bounce", .Bounce},
+	{"render mix…", .Render_Mix},
 	{"fx rack", .Fx},
 	{"io panel", .Io},
 	{"settings", .Settings},
@@ -1561,6 +1562,9 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 		case 'b':
 			app_execute(a, .Bounce)
 			return
+		case 'B':
+			app_execute(a, .Render_Mix)
+			return
 		case 'c':
 			app_execute(a, .Metronome)
 			return
@@ -1956,6 +1960,8 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Record_Stop"
 	case .Bounce:
 		return "Bounce"
+	case .Render_Mix:
+		return "Render_Mix"
 	case .Save:
 		return "Save"
 	case .Load:

@@ -119,6 +119,32 @@ dialog_start_dir :: proc(current, home: string) -> string {
 	return parent_dir(current)
 }
 
+// Save-as path for an external stereo mix render. Returns an owned string.
+pick_mix_save :: proc(start_dir: string) -> (string, bool) {
+	start := start_dir if start_dir != "" else "."
+	argv: []string
+	if zenity_available() {
+		argv = []string{
+			"zenity", "--file-selection", "--save", "--confirm-overwrite",
+			"--title=Render Mix to WAV",
+			fmt.tprintf("--filename=%s/mix.wav", start),
+			"--file-filter=WAV audio | *.wav",
+		}
+	} else {
+		argv = []string{"kdialog", "--getsavefilename", fmt.tprintf("%s/mix.wav", start), "*.wav"}
+	}
+	path, ok := run_dialog(argv)
+	if !ok {
+		return "", false
+	}
+	if !strings.has_suffix(strings.to_lower(path, context.temp_allocator), ".wav") {
+		with_ext := fmt.aprintf("%s.wav", path)
+		delete(path)
+		return with_ext, true
+	}
+	return path, true
+}
+
 // Opens a session directory. Returns an owned string.
 pick_session_open :: proc() -> (string, bool) {
 	home := os.get_env("HOME", context.allocator)

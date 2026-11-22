@@ -1197,6 +1197,9 @@ view_bounce_row :: proc(a: ^App, v: ^View) {
 		if vui.button("···" if a.bounce_active else "BOUNCE", vui.cx(BBTN, "border-line-sig text-sig hover:bg-sig-bg"), {.Disabled} if a.bounce_active else {}) {
 			app_execute(a, .Bounce)
 		}
+		if vui.button("RENDER…", vui.cx(BBTN, "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
+			app_execute(a, .Render_Mix)
+		}
 		can_undo := app_can_undo(a)
 		if vui.button("UNDO", vui.cx(BBTN, can_undo ? "border-line text-ink-dim hover:bg-panel-hover hover:text-ink" : "border-line-subtle text-ink-muted/60"), {} if can_undo else {.Disabled}) {
 			app_execute(a, .Undo)

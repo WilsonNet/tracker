@@ -1467,6 +1467,23 @@ engine_stop_playback :: proc(e: ^Engine) {
 	e.play.stop_expected = 0
 }
 
+// Non-destructive offline render to an arbitrary external WAV. Never touches
+// the take files or the canonical bounce.wav.
+engine_render_to_file :: proc(e: ^Engine, a: ^ui.App, path: string) -> (ok: bool, err: string) {
+	if path == "" {
+		return false, "no render path"
+	}
+	out, have_audio := engine_render_mix(e, a)
+	if !have_audio {
+		return false, "record something first"
+	}
+	defer dsp.render_destroy(&out)
+	if !wav_write(path, e.sample_rate, 2, out.samples) {
+		return false, "cannot write the mix file"
+	}
+	return true, ""
+}
+
 engine_bounce :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	out, ok := engine_render_mix(e, a)
 	if !ok {
