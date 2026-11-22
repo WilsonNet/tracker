@@ -118,7 +118,7 @@ cover it.
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — 265 unit tests (DSP + core/engine/project/cloud + UI)
+- `make test` — 269 unit tests (DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
@@ -159,8 +159,8 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 70 DSP + 125 core/engine/project/WAV/settings/cloud + 70 UI tests.
-- `make e2e` — 17 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay).
+- `make test` — 71 DSP + 127 core/engine/project/WAV/settings/cloud + 71 UI tests.
+- `make e2e` — 18 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, render dialog range/format, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay).
 - The Cairo/Pango harness (`ui-test`, `ui-shot`) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.
 - Do not claim a UI works without inspecting the generated PNG/report. Hardware recording evidence belongs in `odin/VERIFICATION.md`.
@@ -173,7 +173,7 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 - **Master chain** — compressor → FDN reverb → ping-pong delay → mid/side widener (mono-safe below the bass crossover) → lookahead limiter with a soft-clip ceiling.
 - **Persistence** — atomic `project.json` (takes, active take, comp regions, FX, view and a11y flags), recent projects and machine settings under `XDG_CONFIG_HOME` (`settings.json`: project folder, high contrast, reduced motion; `cloud.json`: Google OAuth client/token/folder with 0600), RF64/BW64 reading and writing. The Settings overlay (`SET`, `,`) retargets the project folder by copying takes and persists it; an explicit `--session` ignores global settings so tests and throwaway takes stay isolated.
 - **Cloud** — `cloud.odin` (store/PKCE/curl), `cloud_oauth.odin` (loopback OAuth), `cloud_drive.odin` (Drive v3), `cloud_jobs.odin` (background backup/restore + UI bridge). Scope is exactly `drive.file`; storage is a visible, named My Drive folder. Every created item carries `appProperties.tracker=1`, all queries are parent-scoped and marker-filtered, and there is **no remote DELETE**. Restore writes into a fresh local folder beside the current project, only after download succeeds, and never removes an existing target; a pre-existing name gets `-2`, `-3`, … Duplicate marked filenames are rejected instead of picked arbitrarily. Live setup, the new-machine path and safety tests: `docs/cloud-setup.md`, `tests/cloud/fake_drive.py`.
-- Bounce renders the same chain offline to stereo float `bounce.wav`, including reverb tails. The main window also exposes `RENDER…` (`B`) for the same non-destructive mix to an external WAV via a save dialog.
+- Bounce renders the same chain offline to stereo float `bounce.wav`, including reverb tails. The main window also exposes `RENDER…` (`B`) for the same non-destructive mix to an external WAV via a range/format dialog (32-bit float, 24-bit PCM, 16-bit PCM) and a save dialog. The range is applied after the full mix render so reverb/filter state stays continuous.
 
 ## Docs
 

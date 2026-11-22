@@ -181,6 +181,8 @@ view_frame :: proc(a: ^App, v: ^View) {
 			view_cloud(a)
 		case .Bounce:
 			view_bounce_overlay(a)
+		case .Render:
+			view_render(a)
 		}
 	}
 }
@@ -283,6 +285,8 @@ status_mode :: proc(a: ^App) -> (string, string) {
 		return "SETTINGS", "bg-cue-bg text-cue"
 	case .Cloud:
 		return "CLOUD", "bg-cue-bg text-cue"
+	case .Render:
+		return "RENDER", "bg-sig-bg text-sig"
 	}
 	return "NORMAL", "bg-sig-bg text-sig"
 }
@@ -1273,6 +1277,8 @@ view_status :: proc(a: ^App) {
 			}
 		case .Cloud:
 			hint = "enter: restore  u: back up  r: refresh  esc: close"
+		case .Render:
+			hint = "j/k: row  h/l: adjust  shift: 5s  enter: render  esc: close"
 		}
 		vui.text(hint, "ml-2 whitespace-pre text-ink-muted")
 	}
@@ -1823,6 +1829,76 @@ view_cloud :: proc(a: ^App) {
 				}
 			}
 			vui.text("ENTER restore   U back up   R refresh   ESC close", "whitespace-pre pt-1 text-[11px] text-ink-muted")
+		}
+	}
+}
+
+@(private = "file")
+RSTEP :: "flex size-6 shrink-0 items-center justify-center rounded-[2px] border border-line text-[13px] leading-none text-ink-dim transition-colors duration-150 hover:border-sig-dim hover:text-ink"
+
+@(private = "file")
+view_render :: proc(a: ^App) {
+	if vui.pressable(OVERLAY) {
+		close_on_backdrop(a)
+		if vui.pressable(vui.cx(PANEL, "gap-3 p-5")) {
+			if vui.div("flex items-baseline gap-3") {
+				vui.text("Render mix", "text-[14px] font-semibold text-ink")
+				vui.text("RANGE + FORMAT", "text-[10px] tracking-[0.06em] text-ink-muted")
+				vui.text("ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
+			}
+
+			vui.text("RANGE", "text-[10px] font-semibold tracking-[0.08em] text-ink-muted")
+			values := [2]f32{a.render_from, a.render_to}
+			labels := [2]string{"FROM", "TO"}
+			for row in 0 ..< 2 {
+				selected := a.render_sel == row
+				vui.push_id(row)
+				if vui.div(vui.cx("flex items-center gap-2 rounded-[2px] border px-2 py-1.5", selected ? "border-line-sig bg-sig-bg" : "border-line-subtle")) {
+					vui.text(labels[row], vui.cx("w-10 text-[10px] font-semibold tracking-[0.08em]", selected ? "text-sig" : "text-ink-muted"))
+					if vui.button("−", RSTEP) {
+						app_render_select(a, row)
+						app_render_adjust(a, -1, false)
+					}
+					vui.text(render_time_text(values[row]), "flex-1 text-center text-[13px] tabular-nums text-ink")
+					if vui.button("+", RSTEP) {
+						app_render_select(a, row)
+						app_render_adjust(a, 1, false)
+					}
+				}
+				vui.pop_id()
+			}
+
+			format_selected := a.render_sel == 2
+			if vui.div(vui.cx("flex items-center gap-2 rounded-[2px] border px-2 py-1.5", format_selected ? "border-line-sig bg-sig-bg" : "border-line-subtle")) {
+				vui.text("FORMAT", vui.cx("w-10 text-[10px] font-semibold tracking-[0.08em]", format_selected ? "text-sig" : "text-ink-muted"))
+				vui.text("WAV", "w-9 text-[12px] font-semibold text-ink-dim")
+				formats := [RENDER_FORMAT_COUNT]Render_Format{.Wav_F32, .Wav_PCM24, .Wav_PCM16}
+				for format in formats {
+					on := a.render_format == format
+					if vui.button(render_format_chip(format), vui.cx(BBTN, "px-2 py-0.5 text-[10px]", on ? "border-line-sig bg-sig text-canvas" : "border-line text-ink-dim hover:border-sig-dim hover:text-ink")) {
+						app_render_select(a, 2)
+						app_render_set_format(a, format)
+					}
+				}
+			}
+			detail := render_format_label(a.render_format)
+			if a.render_duration > 0 {
+				vui.text(fmt.tprintf("%s · stereo · %d kHz · full mix %s", detail, a.sample_rate / 1000, render_time_text(a.render_duration)), "text-[10px] text-ink-muted")
+			} else {
+				vui.text(fmt.tprintf("%s · stereo · %d kHz", detail, a.sample_rate / 1000), "text-[10px] text-ink-muted")
+			}
+
+			if vui.div("flex items-center gap-2 border-t border-line-subtle pt-3") {
+				if vui.button("RENDER…", vui.cx(BBTN, "border-line-sig text-sig hover:bg-sig-bg")) {
+					app_execute(a, .Render_File)
+				}
+				if vui.button("CANCEL", vui.cx(BBTN, "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
+					app_render_close(a)
+					status_buf_set(a, "render cancelled")
+				}
+				vui.text("non-destructive · takes stay untouched", "ml-auto text-[10px] text-ink-muted")
+			}
+			vui.text("J/K row   H/L adjust (SHIFT 5s)   ENTER render   ESC close", "whitespace-pre text-[11px] text-ink-muted")
 		}
 	}
 }

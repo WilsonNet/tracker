@@ -15,7 +15,7 @@ fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
 - **Overdub** — hear the existing mix while recording the next part
 - **Native effects** — 3-band EQ and compressor per track, shared FDN reverb and
   ping-pong delay sends, master compressor, widener and lookahead limiter
-- **Bounce / render** — write the canonical project `bounce.wav`, or `RENDER…` the current mix to any external WAV, with reverb tails
+- **Bounce / render** — write the canonical project `bounce.wav`, or `RENDER…` the current mix to an external WAV with a time range and 32-bit float / 24-bit / 16-bit format, including reverb tails
 - **Live metering** — peak/RMS per track plus compressor gain reduction
 - **Keyboard-first** — Vim navigation, `1`–`4` arm, `Space` play/stop, `R` record,
   `x` FX rack, `,` settings, `:` command palette
@@ -44,7 +44,7 @@ git clone https://github.com/WilsonNet/vinland-ui ../vinland-ui
 
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 265 unit tests
+make test         # 269 unit tests
 make check        # tests + headless UI tour + offline bounce
 
 ./bin/tracker-odin ui              # real window
@@ -64,7 +64,7 @@ For Google Drive transfer, follow [docs/cloud-setup.md](docs/cloud-setup.md)
 ```sh
 cd odin
 make test          # DSP + engine/project/WAV + UI unit tests
-make e2e           # 17 headless vinland-ui cases (tests/ui/window.vt)
+make e2e           # 18 headless vinland-ui cases (tests/ui/window.vt)
 make check         # unit + 220-action UI tour + offline bounce + format checks
 ```
 

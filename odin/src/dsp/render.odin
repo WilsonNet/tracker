@@ -52,6 +52,27 @@ track_mix_sanitized :: proc(track: Track_Mix) -> Track_Mix {
 	return t
 }
 
+// Reverb/delay tail appended to the source length. Exported so the render
+// dialog can show the true end of the mix and the UI can clamp ranges to it.
+render_tail_seconds :: proc(settings: Fx_Settings) -> f32 {
+	active_sends := false
+	for track in settings.tracks {
+		t := track_mix_sanitized(track)
+		if t.send_reverb > 0.001 || t.send_delay > 0.001 {
+			active_sends = true
+			break
+		}
+	}
+	if !active_sends || (!settings.reverb.enabled && !settings.delay.enabled) {
+		return 0
+	}
+	tail: f32 = 2.0
+	if settings.reverb.enabled {
+		tail += min(reverb_rt60_seconds(settings.reverb), 5.0)
+	}
+	return tail
+}
+
 // Constant-power pan gains (centre = -3 dB per side).
 track_mix_pan_gains :: proc(track: Track_Mix) -> (f32, f32) {
 	if track.muted {
@@ -141,19 +162,7 @@ render_mix :: proc(track_audio: [][]f32, settings: Fx_Settings, sample_rate: f32
 		}
 	}
 
-	active_sends := false
-	for track in tracks {
-		if track.send_reverb > 0.001 || track.send_delay > 0.001 {
-			active_sends = true
-		}
-	}
-	tail_seconds: f32 = 0
-	if active_sends && (settings.reverb.enabled || settings.delay.enabled) {
-		tail_seconds = 2.0
-		if settings.reverb.enabled {
-			tail_seconds += min(reverb_rt60_seconds(settings.reverb), 5.0)
-		}
-	}
+	tail_seconds := render_tail_seconds(settings)
 	total := max_len + int(tail_seconds * sample_rate)
 
 	eqs := make([]Eq_State, len(tracks))

@@ -504,16 +504,28 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 		case .Bounce:
 			_ = engine_bounce(e, a)
 		case .Render_Mix:
+			ui.app_render_set_duration(a, engine_mix_duration(e, a))
+		case .Render_File:
 			path, picked := pick_mix_save(e.session_dir)
 			if picked {
-				if render_ok, render_err := engine_render_to_file(e, a, path); render_ok {
+				defer delete(path)
+				format := Wav_Export_Format.F32
+				switch a.render_format {
+				case .Wav_F32:
+					format = .F32
+				case .Wav_PCM24:
+					format = .PCM24
+				case .Wav_PCM16:
+					format = .PCM16
+				}
+				if render_ok, render_err := engine_render_to_file(e, a, path, a.render_from, a.render_to, format); render_ok {
+					ui.app_render_close(a)
 					ui.status_buf_set(a, fmt.tprintf("rendered %s", path))
 					ui.toast(a, "mix rendered")
 				} else {
 					ui.status_buf_set(a, render_err)
 					ui.toast(a, render_err)
 				}
-				delete(path)
 			} else {
 				ui.status_buf_set(a, "render cancelled")
 			}

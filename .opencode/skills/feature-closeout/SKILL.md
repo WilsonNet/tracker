@@ -22,8 +22,8 @@ make build                 # must be green (the vui.init stack warning is known)
 make test-dsp              # DSP only
 make test-core             # engine / project / WAV / CLI
 make test-ui               # UI state, layout, HiDPI, PNG
-make test                  # all unit tests (counts live in README/VERIFICATION)
-make e2e                   # 17 headless vinland-ui window cases
+make test                  # all 269 unit tests (counts live in README/VERIFICATION)
+make e2e                   # 18 headless vinland-ui window cases
 make check                 # tests + 220-action UI tour + offline bounce + format checks
 ```
 
@@ -262,6 +262,13 @@ message state:
   inspect the file with `ffprobe`/`soxi`.
 - Screenshots with a live device list are unstable; the render baselines are
   fine because they only gained a button.
+- The render panel is pure App state: FROM/TO seconds, a format enum and a
+  selected row. The window supplies the measured mix length after
+  `.Render_Mix`; Enter emits `.Render_File`, which is where the save dialog and
+  engine call live. Keeping those phases separate makes the dialog fully
+  unit-testable and keeps `ui-shot` engine-free.
+- Integer PCM is written at the file boundary only; the engine, FX chain and
+  range slicing stay f32. Test 16/24-bit with `wav_read` plus `ffprobe`/`soxi`.
 
 ### Window visibility (2026-11-21)
 

@@ -78,7 +78,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 265 unit tests
+make test         # 269 unit tests
 make check        # unit + headless UI tour + offline end-to-end
 
 # 4. Run the app
@@ -107,9 +107,9 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | 265 unit tests: 70 DSP, 125 core/engine/project/cloud, 70 UI |
+| `test` | 269 unit tests: 71 DSP, 127 core/engine/project/cloud, 71 UI |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
-| `e2e` | 17 headless vinland-ui window cases (`tests/ui/window.vt`) |
+| `e2e` | 18 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
 | `ui-test` | run a harness script; `SCRIPT=... UI_OUT=...` |
@@ -134,9 +134,11 @@ directory is in `XDG_DATA_DIRS`.
   PipeWire/cooperative-JACK backend switch.
 - **Takes and mix:** multi-take recording (`T1/2` on each strip), active-take cycling,
   whole-take comping from the palette, and arbitrary comp regions through the
-  `comp` CLI. `BOUNCE` writes the canonical `bounce.wav`; `RENDER…` writes the
-  same full-chain stereo mix to an external WAV of your choice. Projects keep
-  the legacy `file` plus the full take/comp list.
+  `comp` CLI. `BOUNCE` writes the canonical `bounce.wav`; `RENDER…` opens a
+  range/format dialog and writes the same full-chain stereo mix to an external
+  WAV. Range defaults to the full mix, adjusts in 0.5 s steps (Shift: 5 s), and
+  offers 32-bit float, 24-bit PCM and 16-bit PCM. Projects keep the legacy
+  `file` plus the full take/comp list.
 - **HiDPI + responsive density:** the window lays out in logical pixels at the
   compositor's density (1×–3×). The native window expands or compresses the
   flexible layout; the headless harness scales the whole virtual frame up to
@@ -160,6 +162,11 @@ directory is in `XDG_DATA_DIRS`.
   takes into it and leaves the old folder as a recovery copy. A folder that
   already contains `project.json` or `track1..4.wav` is refused, so applying
   cannot overwrite another session.
+- **Render dialog:** `B` or `RENDER…` opens Range + Format. `j/k` select FROM,
+  TO or FORMAT; `h/l` adjust (Shift moves 5 s); the format chips choose
+  32-bit float, 24-bit PCM or 16-bit PCM; `Enter` opens the save dialog.
+  Rendering is non-destructive and always stereo at the project rate. Range
+  ends beyond the mix clamp to the full render; an empty range is refused.
 - **Cloud projects:** Google Drive backup/restore. `Settings → CLOUD` holds
   the Drive folder name, OAuth client ID/secret, connect/disconnect, back up
   and restore. `g` opens the cloud-project list; `u` backs up, `r` refreshes.
@@ -167,7 +174,7 @@ directory is in `XDG_DATA_DIRS`.
   [`../docs/cloud-setup.md`](../docs/cloud-setup.md).
 - **Headless UI harness:** `ui-test` (below) drives the exact same state
   machine without a browser or window.
-- **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `B` render to WAV, `1–4` arm, `j/k`
+- **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `B` render dialog, `1–4` arm, `j/k`
   select, `J/K` level, `m` mute, `s` solo, `a` arm, `I` input, `x` FX,
   `c` click, `o` monitor, `y` JACK backend, `t`/`T` next/previous take,
   `u`/`U` undo/redo, `[`/`]` FX channel, `Tab`/`Shift+Tab` FX focus,
@@ -326,7 +333,7 @@ removes them.
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 125 core/engine/project/cloud + 70 UI = 265 tests
+make test        # 71 DSP + 127 core/engine/project/cloud + 71 UI = 269 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui
@@ -473,9 +480,12 @@ high-DPI guidance, and the JetBrains Mono/Inter/Noto font licences.
   buffers each take while splitting it; it does not stream a take end-to-end.
 - Multi-take comping has whole-take UI and arbitrary-region CLI; there is no
   waveform/timeline region editor by product design.
-- Preview render and bounce run synchronously on the UI thread; a long mix can
-  pause the window while it renders. Long bounces show the bounce overlay but
-  do not make the render asynchronous.
+- Preview render, bounce and external render run synchronously on the UI
+  thread; a long mix can pause the window while it renders. Long bounces show
+  the bounce overlay but do not make the render asynchronous.
+- External render is stereo WAV at the project rate: 32-bit float, 24-bit PCM
+  or 16-bit PCM. There is no compressed format (MP3/FLAC) and no stem export.
+  Integer exports stay RIFF; a >4 GB 16/24-bit mix is refused.
 - The Cairo/Pango harness remains the pixel-stable regression surface. The
   vinland window is exercised through `vui-test`/`vui-ctl`, not OS-level pointer
   injection; `ui-test` pointer coordinates are logical.

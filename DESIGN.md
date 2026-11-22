@@ -75,7 +75,7 @@ Shadows exist only where they serve a structural purpose: dropdown menus, dialog
 
 All native UI components live in `odin/src/ui/`; `odin/src/ui_window.odin` is the thin SDL3/vinland window adapter. `view.odin` composes the vinland-ui element tree; `theme.odin` is the single source of colour, space, type and metric tokens; `app.odin` owns state and key handling; `text_edit.odin` and `text_field_view.odin` own the settings text fields. Knobs, meters and FX graphs use vinland canvas primitives (`draw_line`, `draw_arc`, `draw_area`). The Cairo/Pango path in `draw.odin`/`canvas.odin` is the headless regression renderer.
 
-**Transport bar** — amber-bordered REC / PLAY / STOP, timecode in tabular mono, BPM stepper. State is carried by fill, not by shadow: recording red, playing teal, idle ink-dim. The mix row keeps BOUNCE (canonical project bounce) primary and RENDER… (external WAV) secondary.
+**Transport bar** — amber-bordered REC / PLAY / STOP, timecode in tabular mono, BPM stepper. State is carried by fill, not by shadow: recording red, playing teal, idle ink-dim. The mix row keeps BOUNCE (canonical project bounce) primary and RENDER… (external WAV) secondary. RENDER… opens a compact panel with FROM/TO range rows, three WAV format chips, a non-destructive note and one primary action; the same panel is keyboard-complete.
 
 **Track strip** — numbered header, `IN n` channel selector, `FX` badge row (lit label + `EQ · CMP · REV · DLY` summary), ARM/SOLO/MUTE toggles, pan knob, vertical fader, segmented meter. Selected = amber-dim border; armed = amber border; recording = red border with pulsing number.
 

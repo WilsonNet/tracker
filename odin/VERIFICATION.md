@@ -9,16 +9,16 @@ complete; details and intentional limits are in `ROADMAP.md`.
 | check | command | result |
 |---|---|---|
 | clean build | `make clean && make build` | ≈0.8 s |
-| DSP | `odin test src/dsp` | **70 passed** |
-| engine / project / WAV / RF64 / takes / CLI / settings / cloud | `odin test src` | **125 passed** |
-| UI state, layout, HiDPI, harness zoom, PNG | `odin test src/ui` | **70 passed** |
+| DSP | `odin test src/dsp` | **71 passed** |
+| engine / project / WAV / RF64 / takes / CLI / settings / cloud | `odin test src` | **127 passed** |
+| UI state, layout, HiDPI, harness zoom, PNG | `odin test src/ui` | **71 passed** |
 | native renderer | vinland-ui SDL3 + Vulkan/GL | JetBrains Mono, canvas charts, `vui-ctl` screenshots |
 | harness renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
 | charts | level history + 5 FX response graphs | 17 screenshots inspected |
 | static checks | `odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
-Total: **265 unit tests**.
+Total: **269 unit tests**.
 
 ## Headless UI harness
 
@@ -34,25 +34,38 @@ Total: **265 unit tests**.
   (1.52x), 2536x986 (1.59x) and 3840x2160 (1.80x cap); the virtual frame never
   drops below 900x620. The native e2e window is exercised at 900x620 and
   1180x760 with SDL density and the flexible layout.
-- Window suite (`make e2e`): **17 cases**, including settings path edit and
-  apply, text selection/caret, secret masking, and the cloud settings/overlay.
+- Window suite (`make e2e`): **18 cases**, including the render dialog
+  range/format flow, settings path edit and apply, text selection/caret,
+  secret masking, and the cloud settings/overlay.
   The suite asserts the I/O overlay text but does not baseline its live device
   list: enumeration order is PipeWire/compositor-dependent.
 
 ## External mix render (2026-11-22)
 
-The main mix row now has a secondary **RENDER…** action next to BOUNCE; `B`
-runs the same command. It opens a native WAV save dialog, starting in the
-current project folder with `mix.wav`, and writes the full non-destructive mix
-chain to the chosen file. It never modifies the takes or `bounce.wav`.
+`RENDER…` in the mix row (or `B`) opens an in-app range/format dialog, then the
+native WAV save dialog. The dialog selects FROM/TO in 0.5 s steps (Shift: 5 s)
+and 32-bit float, 24-bit PCM or 16-bit PCM. Rendering is always stereo at the
+project rate, applies the full FX/master chain, and never modifies takes or
+`bounce.wav`. The range is applied to the already-rendered mix, so reverb and
+filter state stay continuous; `TO` defaults to the full rendered length
+including the tail, and `TO <= 0` means the end.
 
 | check | result |
 |---|---|
-| button | `RENDER…` fits the row at 900×620 and 1180×760; `unknown_classes: []` |
-| dialog | fake zenity captured `--title=Render Mix to WAV`, `--filename=<session>/mix.wav`, `*.wav` filter |
-| render | 2.000 s stereo `pcm_f32le` at 48 kHz, 768,058 bytes |
+| dialog layout | 1180×760 and 900×620; `unknown_classes: []`, frame 4.9–5.3 ms |
+| keyboard | `j/k` rows, `h/l` ±0.5 s, Shift ±5 s, `f`/arrows cycle format, Enter renders |
+| full mix, 16-bit | 3.000 s stereo `pcm_s16le` at 48 kHz, 480,044 bytes for a 2.5 s sub-range |
+| full mix, 24-bit | 3.000 s stereo `pcm_s24le` (24-bit) at 48 kHz, 864,044 bytes |
+| sub-range | `0:00.5 → 0:02.0` produced exactly 1.500 s, 432,044 bytes |
+| 32-bit float | 3.000 s `pcm_f32le` at 48 kHz, 768,058 bytes (earlier round) |
+| save dialog | fake zenity captured `--title=Render Mix to WAV`, `--filename=<session>/mix.wav`, `*.wav` filter |
 | non-destructive | no `bounce.wav` created; source takes untouched |
 | recording guard | while recording, `RENDER…` reports `stop recording before rendering` and does not interrupt the take |
+| empty range | `render_slice_bounds` rejects equal/reversed ranges; unit test covers clamping and the end marker |
+| format round-trip | 16-bit and 24-bit exports decode through `wav_read` within one LSB; headers assert PCM tag and bit depth |
+
+Intentional limit: integer exports are RIFF only. A >4 GB 16/24-bit mix is
+refused rather than switching to RF64; the float path retains RF64 support.
 
 ## Settings persistence (2026-11-21)
 

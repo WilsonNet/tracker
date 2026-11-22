@@ -114,6 +114,101 @@ wav_write :: proc(path: string, sample_rate: u32, channels: u32, samples: []f32)
 	return os.write_entire_file(path, buf) == nil
 }
 
+// External render formats. The engine always works in f32; the export writer
+// converts to integer PCM only at the file boundary. Integer exports stay RIFF
+// (no RF64): a >4 GB PCM mix reports failure instead of writing a bad header.
+Wav_Export_Format :: enum u8 {
+	F32,
+	PCM24,
+	PCM16,
+}
+
+WAV_PCM_HEADER_SIZE :: 44
+
+wav_write_export :: proc(
+	path: string,
+	sample_rate: u32,
+	channels: u32,
+	samples: []f32,
+	format: Wav_Export_Format,
+) -> bool {
+	switch format {
+	case .F32:
+		return wav_write(path, sample_rate, channels, samples)
+	case .PCM24:
+		return wav_write_pcm(path, sample_rate, channels, samples, 24)
+	case .PCM16:
+		return wav_write_pcm(path, sample_rate, channels, samples, 16)
+	}
+	return false
+}
+
+@(private)
+wav_write_pcm :: proc(
+	path: string,
+	sample_rate: u32,
+	channels: u32,
+	samples: []f32,
+	bits: int,
+) -> bool {
+	if channels == 0 || channels > WAV_MAX_CHANNELS || len(samples) == 0 {
+		return false
+	}
+	if len(samples) % int(channels) != 0 || sample_rate == 0 {
+		return false
+	}
+	if bits != 16 && bits != 24 {
+		return false
+	}
+	bytes_per_sample := bits / 8
+	frame_bytes := int(channels) * bytes_per_sample
+	byte_rate := u64(sample_rate) * u64(frame_bytes)
+	if byte_rate > 0xFFFF_FFFF {
+		return false
+	}
+	data_len := len(samples) * bytes_per_sample
+	if u64(WAV_PCM_HEADER_SIZE - 8) + u64(data_len) > 0xFFFF_FFFF {
+		return false
+	}
+
+	buf := make([]byte, WAV_PCM_HEADER_SIZE + data_len)
+	defer delete(buf)
+
+	put_tag(buf[0:], "RIFF")
+	endian.unchecked_put_u32le(buf[4:], u32(WAV_PCM_HEADER_SIZE - 8 + data_len))
+	put_tag(buf[8:], "WAVE")
+
+	put_tag(buf[12:], "fmt ")
+	endian.unchecked_put_u32le(buf[16:], 16)
+	endian.unchecked_put_u16le(buf[20:], 1) // WAVE_FORMAT_PCM
+	endian.unchecked_put_u16le(buf[22:], u16(channels))
+	endian.unchecked_put_u32le(buf[24:], sample_rate)
+	endian.unchecked_put_u32le(buf[28:], u32(byte_rate))
+	endian.unchecked_put_u16le(buf[32:], u16(frame_bytes))
+	endian.unchecked_put_u16le(buf[34:], u16(bits))
+
+	put_tag(buf[36:], "data")
+	endian.unchecked_put_u32le(buf[40:], u32(data_len))
+
+	max_value := f32((i32(1) << uint(bits - 1)) - 1)
+	for s, i in samples {
+		v := clamp(s, -1.0, 1.0)
+		q := i32(v * max_value + (0.5 if v >= 0 else -0.5))
+		off := WAV_PCM_HEADER_SIZE + i * bytes_per_sample
+		switch bits {
+		case 16:
+			endian.unchecked_put_u16le(buf[off:], u16(u32(q)))
+		case 24:
+			u := u32(q) & 0xFFFFFF
+			buf[off + 0] = byte(u)
+			buf[off + 1] = byte(u >> 8)
+			buf[off + 2] = byte(u >> 16)
+		}
+	}
+
+	return os.write_entire_file(path, buf) == nil
+}
+
 wav_read :: proc(path: string) -> (wav: Wav, ok: bool) {
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {

@@ -1467,9 +1467,64 @@ engine_stop_playback :: proc(e: ^Engine) {
 	e.play.stop_expected = 0
 }
 
-// Non-destructive offline render to an arbitrary external WAV. Never touches
-// the take files or the canonical bounce.wav.
-engine_render_to_file :: proc(e: ^Engine, a: ^ui.App, path: string) -> (ok: bool, err: string) {
+// Full rendered length: the longest loaded take at the project rate plus the
+// reverb/delay tail. The render dialog uses it to clamp FROM/TO.
+engine_mix_duration :: proc(e: ^Engine, a: ^ui.App) -> f32 {
+	max_seconds: f32 = 0
+	for i in 0 ..< MAX_ENGINE_TRACKS {
+		src := e.loaded[i]
+		if src == nil {
+			continue
+		}
+		rate := e.loaded_rate[i]
+		if rate == 0 {
+			rate = e.sample_rate
+		}
+		if rate == 0 {
+			continue
+		}
+		max_seconds = max(max_seconds, f32(len(src)) / f32(rate))
+	}
+	if max_seconds <= 0 {
+		return 0
+	}
+	settings := settings_from_app(a)
+	defer delete(settings.tracks)
+	return max_seconds + dsp.render_tail_seconds(settings)
+}
+
+// Maps a dialog range in seconds to frame bounds in an already rendered mix.
+// `end_s <= 0` means "to the end" so an unknown duration at open still renders
+// the whole file. Out-of-range values clamp instead of failing.
+render_slice_bounds :: proc(
+	total_frames: int,
+	sample_rate: u32,
+	start_s, end_s: f32,
+) -> (first, last: int, ok: bool) {
+	if total_frames <= 0 || sample_rate == 0 {
+		return 0, 0, false
+	}
+	total_s := f32(total_frames) / f32(sample_rate)
+	s0 := clamp(start_s, 0, total_s)
+	s1 := total_s if end_s <= 0 else clamp(end_s, 0, total_s)
+	first = clamp(int(math.round(f64(s0) * f64(sample_rate))), 0, total_frames)
+	last = clamp(int(math.round(f64(s1) * f64(sample_rate))), 0, total_frames)
+	if last <= first {
+		return 0, 0, false
+	}
+	return first, last, true
+}
+
+// Non-destructive offline render to an arbitrary external file. Never touches
+// the take files or the canonical bounce.wav. The range is applied after the
+// full mix is rendered, so filters and reverb state stay continuous.
+engine_render_to_file :: proc(
+	e: ^Engine,
+	a: ^ui.App,
+	path: string,
+	start_s, end_s: f32,
+	format: Wav_Export_Format,
+) -> (ok: bool, err: string) {
 	if path == "" {
 		return false, "no render path"
 	}
@@ -1478,7 +1533,12 @@ engine_render_to_file :: proc(e: ^Engine, a: ^ui.App, path: string) -> (ok: bool
 		return false, "record something first"
 	}
 	defer dsp.render_destroy(&out)
-	if !wav_write(path, e.sample_rate, 2, out.samples) {
+	first, last, range_ok := render_slice_bounds(out.frames, e.sample_rate, start_s, end_s)
+	if !range_ok {
+		return false, "render range is empty"
+	}
+	slice := out.samples[first * 2:last * 2]
+	if !wav_write_export(path, e.sample_rate, 2, slice, format) {
 		return false, "cannot write the mix file"
 	}
 	return true, ""

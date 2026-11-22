@@ -28,7 +28,15 @@ DESCRIBE_MAX :: 1024
 HISTORY_LABEL_MAX :: 40
 HISTORY_LEN :: 120
 
-Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent, Settings, Cloud }
+Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent, Settings, Cloud, Render }
+
+// External render settings. All formats are WAV; the choice is the sample
+// encoding. The mix itself always runs through the f32 engine chain.
+Render_Format :: enum u8 { Wav_F32, Wav_PCM24, Wav_PCM16 }
+
+RENDER_FORMAT_COUNT :: int(Render_Format.Wav_PCM16) + 1
+RENDER_STEP_SECONDS :: f32(0.5)
+RENDER_COARSE_STEP_SECONDS :: f32(5.0)
 
 // Keyboard order of the settings rows. Keep view_settings, app_settings_key
 // and this enum in the same order.
@@ -96,6 +104,7 @@ Command_Kind :: enum {
 	Record_Stop,
 	Bounce,
 	Render_Mix,
+	Render_File,
 	Save,
 	Load,
 	Select_Device,
@@ -424,6 +433,13 @@ App :: struct {
 	input_count:  int,
 	bounce_progress: f32,
 	bounce_active:   bool,
+	// Render dialog. `render_duration` is supplied by the engine when the
+	// dialog opens; 0 means "end of mix" until then.
+	render_from:     f32,
+	render_to:       f32,
+	render_duration: f32,
+	render_format:   Render_Format,
+	render_sel:      int,
 	demo:         bool,
 	// True while the arm preview capture is feeding live input levels, so the
 	// window keeps redrawing the meters without waiting for an event.
@@ -1247,6 +1263,8 @@ app_describe :: proc(a: ^App) -> string {
 		mode_name = "Settings"
 	case .Cloud:
 		mode_name = "Cloud projects"
+	case .Render:
+		mode_name = "Render mix"
 	}
 	transport := "stopped"
 	switch a.transport {
@@ -1667,11 +1685,21 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 			status_buf_set(a, "stop recording before rendering")
 			return
 		}
+		if a.mode == .Render {
+			return
+		}
 		a.last_command = .Render_Mix
 		a.last_command_index = 0
+		app_render_open(a)
 		emit(a, .Render_Mix)
+	case .Render_File:
+		if a.mode != .Render {
+			return
+		}
+		a.last_command = .Render_File
+		a.last_command_index = 0
+		emit(a, .Render_File)
 		status_buf_set(a, "choose where to render the mix")
-		bump_revision(a)
 	case .Save:
 		a.last_command = .Save
 		emit(a, .Save)
@@ -1987,6 +2015,125 @@ app_bounce_dismiss :: proc(a: ^App) {
 	}
 	a.mode = .Normal
 	status_buf_set(a, "bounce continues in background")
+}
+
+// ---------------------------------------------------------------- render dialog
+
+render_time_text :: proc(seconds: f32) -> string {
+	tenths := int(max(seconds, 0) * 10 + 0.5)
+	deci := tenths % 10
+	total_s := tenths / 10
+	s := total_s % 60
+	m := (total_s / 60) % 60
+	h := total_s / 3600
+	if h > 0 {
+		return fmt.tprintf("%d:%02d:%02d.%d", h, m, s, deci)
+	}
+	return fmt.tprintf("%d:%02d.%d", m, s, deci)
+}
+
+render_format_label :: proc(format: Render_Format) -> string {
+	switch format {
+	case .Wav_F32:
+		return "WAV · 32-bit float"
+	case .Wav_PCM24:
+		return "WAV · 24-bit PCM"
+	case .Wav_PCM16:
+		return "WAV · 16-bit PCM"
+	}
+	return "WAV"
+}
+
+render_format_chip :: proc(format: Render_Format) -> string {
+	switch format {
+	case .Wav_F32:
+		return "32-BIT FLOAT"
+	case .Wav_PCM24:
+		return "24-BIT"
+	case .Wav_PCM16:
+		return "16-BIT"
+	}
+	return "?"
+}
+
+@(private)
+app_render_open :: proc(a: ^App) {
+	a.mode = .Render
+	a.render_sel = 0
+	a.render_from = 0
+	a.render_to = 0
+	a.render_duration = 0
+	status_buf_set(a, "render range: full mix")
+	bump_revision(a)
+}
+
+app_render_close :: proc(a: ^App) {
+	if a.mode != .Render {
+		return
+	}
+	a.mode = .Normal
+	bump_revision(a)
+}
+
+app_render_select :: proc(a: ^App, row: int) {
+	a.render_sel = clamp(row, 0, 2)
+	bump_revision(a)
+}
+
+// Called by the window after .Render_Mix, when the engine can measure the
+// loaded takes and the FX tail. Keeping this out of app_execute preserves the
+// headless model tests and lets `ui-shot` render the dialog without an engine.
+app_render_set_duration :: proc(a: ^App, seconds: f32) {
+	if a.mode != .Render || seconds <= 0 {
+		return
+	}
+	a.render_duration = seconds
+	if a.render_to <= 0 || a.render_to > seconds {
+		a.render_to = seconds
+	}
+	a.render_from = clamp(a.render_from, 0, max(a.render_to - 0.1, 0))
+	status_buf_set(a, fmt.tprintf("render range %s → %s", render_time_text(a.render_from), render_time_text(a.render_to)))
+	bump_revision(a)
+}
+
+app_render_set_format :: proc(a: ^App, format: Render_Format) {
+	if a.render_format == format {
+		return
+	}
+	a.render_format = format
+	status_buf_set(a, render_format_label(a.render_format))
+	bump_revision(a)
+}
+
+app_render_cycle_format :: proc(a: ^App, direction: int) {
+	if direction == 0 {
+		return
+	}
+	next := (int(a.render_format) + direction + RENDER_FORMAT_COUNT) % RENDER_FORMAT_COUNT
+	app_render_set_format(a, Render_Format(next))
+}
+
+app_render_adjust :: proc(a: ^App, direction: int, shift: bool) {
+	if direction == 0 || a.mode != .Render {
+		return
+	}
+	if a.render_sel == 2 {
+		app_render_cycle_format(a, direction)
+		return
+	}
+	step := RENDER_COARSE_STEP_SECONDS if shift else RENDER_STEP_SECONDS
+	switch a.render_sel {
+	case 0:
+		upper := max(a.render_to - 0.1, 0)
+		a.render_from = clamp(a.render_from + f32(direction) * step, 0, upper)
+	case 1:
+		lower := a.render_from + 0.1
+		upper := max(a.render_duration, lower)
+		a.render_to = clamp(a.render_to + f32(direction) * step, lower, upper)
+	case:
+	}
+	status_buf_set(a, fmt.tprintf("render range %s → %s", render_time_text(a.render_from), render_time_text(a.render_to)))
+	bump_revision(a)
 }
 
 // ---------------------------------------------------------------- tick

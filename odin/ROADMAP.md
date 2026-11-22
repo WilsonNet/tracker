@@ -10,7 +10,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | item | status | evidence |
 |---|---|---|
-| DSP parity (biquad, EQ, compressor, limiter) | done | 70 DSP tests, A/B vectors |
+| DSP parity (biquad, EQ, compressor, limiter) | done | 71 DSP tests, A/B vectors |
 | FDN reverb, ping-pong delay, widener, sends | done | impulse/timing/mono tests |
 | Master chain, limiter latency compensation | done | short-take and tail tests |
 | Lock-free capture ring + writer thread | done | writer drains while recording, overflow reporting |
@@ -51,14 +51,14 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | 4 track strips, master, meters, GR | done | 220-action tour |
 | Arm preview: live input meter + history before REC | done | `vui-ctl` screenshots, preview tests |
 | Reference density + design-token layers | done | `theme.odin`, geometry tests at 900/1180/1920 |
-| Headless responsive zoom / virtual frame | done | `ui_zoom_for_window`, 1.0–1.8x, 70 UI tests; native window uses SDL density + flexible layout |
+| Headless responsive zoom / virtual frame | done | `ui_zoom_for_window`, 1.0–1.8x, 71 UI tests; native window uses SDL density + flexible layout |
 | Cairo/Pango harness + vinland canvas charts | done | AA paths, Inter, level history, FX graphs |
 | Transport, timecode, BPM, click, monitor | done | tour |
 | FX rack (track + master) | done | knobs, bypass, ping-pong, focus |
 | Command palette, recents, recent overlay | done | 220-action tour |
 | I/O panel: device list, JACK, latency, rescan | done | tour + live JACK take |
 | Bounce overlay and status | done | engine bounce |
-| External mix render | done | main-window RENDER… + native save dialog; ffprobe/sox |
+| External mix render | done | range/format dialog, 32f/24/16-bit WAV, native save dialog; ffprobe/sox |
 | Undo/redo | done | 64-entry history, tests |
 | Accessibility: keyboard-first, high contrast, reduced motion | done | tests + `--a11y-log` |
 | HiDPI 1×/1.25×/1.5×/2×/3× | done | SDL density in the window; stb_truetype atlases in the harness |
@@ -77,7 +77,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **265** (70 DSP, 125 core/engine/project/cloud, 70 UI) |
+| unit tests | **269** (71 DSP, 127 core/engine/project/cloud, 71 UI) |
 | UI e2e | 17 headless vinland-ui cases |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |

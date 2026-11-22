@@ -221,6 +221,8 @@ app_draw :: proc(a: ^App, c: ^Canvas) {
 		draw_settings(a, c)
 	} else if a.mode == .Cloud {
 		draw_cloud(a, c)
+	} else if a.mode == .Render {
+		draw_render(a, c)
 	}
 }
 
@@ -250,6 +252,8 @@ draw_header :: proc(a: ^App, c: ^Canvas) {
 		mode_text = "CLOUD"; mode_col = T.color.teal
 	case .Bounce:
 		mode_text = "BOUNCE"; mode_col = T.color.red
+	case .Render:
+		mode_text = "RENDER"; mode_col = T.color.amber
 	}
 	if a.transport == .Recording {
 		mode_text = "RECORDING"; mode_col = T.color.red
@@ -506,6 +510,8 @@ draw_status :: proc(a: ^App, c: ^Canvas) {
 		mode_text = "SET"; mode_col = T.color.teal
 	case .Cloud:
 		mode_text = "CLOUD"; mode_col = T.color.teal
+	case .Render:
+		mode_text = "RENDER"; mode_col = T.color.amber
 	}
 	if a.transport == .Recording {
 		mode_text = "REC"; mode_col = T.color.red
@@ -657,7 +663,7 @@ command_hint :: proc(kind: Command_Kind) -> string {
 	#partial switch kind {
 	case .Play, .Stop, .Record_Start, .Record_Stop:
 		return "transport"
-	case .Bounce:
+	case .Bounce, .Render_Mix, .Render_File:
 		return "render"
 	case .Save, .Load, .Save_As:
 		return "project"
@@ -922,6 +928,67 @@ draw_cloud :: proc(a: ^App, c: ^Canvas) {
 		canvas_text_px_right(c, row.x + row.w - 12, row.y + 8, cloud_time_text(p.modified), T.color.ink_muted, T.type.caption, .Mono)
 	}
 	canvas_text_px(c, r.x + 20, r.y + h - 30, "ENTER restore    U back up    R refresh    ESC close", T.color.ink_muted, T.type.caption, .Regular)
+}
+
+@(private)
+draw_render :: proc(a: ^App, c: ^Canvas) {
+	T := ACTIVE_TOKENS
+	canvas_fill(c, Rect{0, 0, f32(a.width), f32(a.height)}, with_alpha(T.color.bg, 0xD0))
+	w: f32 = 560
+	h: f32 = 300
+	r := Rect{(f32(a.width) - w) * 0.5, (f32(a.height) - h) * 0.5, w, h}
+	canvas_shadow(c, r, T.radius.xl, 16, with_alpha(T.color.black, 0x66))
+	canvas_fill_round(c, r, T.radius.xl, T.color.surface)
+	canvas_stroke_round(c, r, T.radius.xl, T.color.line, 1)
+	canvas_text_px(c, r.x + 24, r.y + 20, "Render Mix", T.color.ink, T.type.title, .SemiBold)
+	canvas_text_px(c, r.x + 142, r.y + 24, "RANGE + FORMAT", T.color.ink_muted, T.type.caption, .Regular)
+	canvas_text_px_right(c, r.x + r.w - 24, r.y + 24, "ESC", T.color.ink_muted, T.type.caption, .Medium)
+
+	y := r.y + 60
+	canvas_text_px(c, r.x + 24, y, "RANGE", T.color.ink_muted, T.type.caption, .SemiBold)
+	y += 20
+	labels := [2]string{"FROM", "TO"}
+	values := [2]f32{a.render_from, a.render_to}
+	for row in 0 ..< 2 {
+		row_r := Rect{r.x + 24, y + f32(row) * 34, r.w - 48, 29}
+		sel := a.render_sel == row
+		if sel {
+			canvas_fill_round(c, row_r, T.radius.sm, T.color.amber_bg)
+			canvas_stroke_round(c, row_r, T.radius.sm, T.color.amber_dim, 1)
+		}
+		canvas_text_px(c, row_r.x + 10, row_r.y + 7, labels[row], T.color.amber if sel else T.color.ink_muted, T.type.caption, .SemiBold)
+		draw_button(c, Rect{row_r.x + 66, row_r.y + 2, 24, 25}, "-", false, false, true, T.color.ink_dim)
+		canvas_text_px_center(c, row_r.x + row_r.w * 0.5, row_r.y + 7, render_time_text(values[row]), T.color.ink, T.type.body, .Mono)
+		draw_button(c, Rect{row_r.x + row_r.w - 90, row_r.y + 2, 24, 25}, "+", false, false, true, T.color.ink_dim)
+	}
+	y += 76
+	sel := a.render_sel == 2
+	format_row := Rect{r.x + 24, y, r.w - 48, 29}
+	if sel {
+		canvas_fill_round(c, format_row, T.radius.sm, T.color.amber_bg)
+		canvas_stroke_round(c, format_row, T.radius.sm, T.color.amber_dim, 1)
+	}
+	canvas_text_px(c, format_row.x + 10, format_row.y + 7, "FORMAT", T.color.amber if sel else T.color.ink_muted, T.type.caption, .SemiBold)
+	canvas_text_px(c, format_row.x + 74, format_row.y + 7, "WAV", T.color.ink_dim, T.type.caption, .SemiBold)
+	chips := [RENDER_FORMAT_COUNT]string{"32-BIT FLOAT", "24-BIT", "16-BIT"}
+	for chip, i in chips {
+		on := int(a.render_format) == i
+		cr := Rect{format_row.x + 116 + f32(i) * 92, format_row.y + 3, 86, 23}
+		canvas_fill_round(c, cr, T.radius.sm, T.color.amber if on else T.color.surface_high)
+		canvas_text_px_center(c, cr.x + cr.w * 0.5, cr.y + 5, chip, T.color.bg if on else T.color.ink_muted, T.type.micro, .SemiBold)
+	}
+	y += 38
+	detail := render_format_label(a.render_format)
+	if a.render_duration > 0 {
+		detail = fmt.tprintf("%s  ·  stereo  ·  %d kHz  ·  full mix %s", detail, a.sample_rate / 1000, render_time_text(a.render_duration))
+	}
+	canvas_text_px(c, r.x + 24, y, detail, T.color.ink_muted, T.type.caption, .Regular)
+
+	by := r.y + h - 72
+	canvas_hline(c, r.x + 24, r.x + r.w - 24, by - 12, T.color.line_subtle)
+	draw_button(c, Rect{r.x + 24, by, 100, 28}, "RENDER...", false, false, true, T.color.amber)
+	draw_button(c, Rect{r.x + 132, by, 88, 28}, "CANCEL", false, false, true, T.color.ink_dim)
+	canvas_text_px(c, r.x + 24, r.y + h - 30, "J/K row   H/L adjust (SHIFT 5s)   ENTER render   ESC close", T.color.ink_muted, T.type.caption, .Regular)
 }
 
 @(private)

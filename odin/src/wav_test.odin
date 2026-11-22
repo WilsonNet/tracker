@@ -109,3 +109,36 @@ wav_write_rejects_bad_shapes :: proc(t: ^testing.T) {
 	testing.expect(t, !wav_write(WAV_TMP + "-bad.wav", 48_000, 2, buf[:]), "misaligned samples accepted")
 	testing.expect(t, !wav_write(WAV_TMP + "-bad.wav", 48_000, 1, nil), "empty samples accepted")
 }
+
+@(test)
+wav_export_integer_pcm_roundtrip :: proc(t: ^testing.T) {
+	samples := []f32{-1.0, -0.5, -0.1, 0.0, 0.1, 0.5, 1.0}
+	formats := [?]struct {
+		format: Wav_Export_Format,
+		bits:   u16,
+		bytes:  int,
+	}{
+		{.PCM16, 16, 2},
+		{.PCM24, 24, 3},
+	}
+	for item in formats {
+		path := WAV_TMP + "-pcm.wav"
+		defer os.remove(path)
+		testing.expect(t, wav_write_export(path, 48_000, 1, samples, item.format), "write failed")
+
+		data, err := os.read_entire_file(path, context.allocator)
+		testing.expect(t, err == nil, "read header failed")
+		defer delete(data)
+		testing.expect(t, len(data) == WAV_PCM_HEADER_SIZE + len(samples) * item.bytes, "file size")
+		testing.expect(t, endian.unchecked_get_u16le(data[20:]) == 1, "PCM format tag")
+		testing.expect(t, endian.unchecked_get_u16le(data[34:]) == item.bits, "bit depth")
+
+		wav, ok := wav_read(path)
+		testing.expect(t, ok, "decode failed")
+		defer wav_destroy(&wav)
+		tolerance := f32(1.0) / f32(u32(1) << u32(item.bits - 1))
+		for s, i in samples {
+			testing.expectf(t, abs(wav.samples[i] - s) <= tolerance, "%v: %v vs %v", item.format, wav.samples[i], s)
+		}
+	}
+}

@@ -182,6 +182,58 @@ ui_screenshot_is_a_real_png :: proc(t: ^testing.T) {
 }
 
 @(test)
+ui_render_dialog_range_and_formats :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	app_execute(&a, .Render_Mix)
+	testing.expect(t, a.mode == .Render, "render dialog opens")
+	testing.expect(t, a.render_sel == 0, "FROM selected first")
+	testing.expect(t, a.render_format == .Wav_F32, "float32 default")
+
+	app_render_set_duration(&a, 12.4)
+	testing.expect(t, abs(a.render_from - 0.0) < 0.001, "from starts at zero")
+	testing.expect(t, abs(a.render_to - 12.4) < 0.001, "to spans the mix")
+
+	app_key(&a, .Left)
+	testing.expect(t, abs(a.render_from) < 0.001, "from cannot go negative")
+	app_key(&a, .Right)
+	testing.expect(t, abs(a.render_from - 0.5) < 0.001, "from steps 0.5s")
+	app_key(&a, .Right, 0, true)
+	testing.expect(t, abs(a.render_from - 5.5) < 0.001, "shift steps 5s")
+
+	app_key(&a, .Char, 'j')
+	testing.expect(t, a.render_sel == 1, "TO row selected")
+	app_key(&a, .Left)
+	testing.expect(t, abs(a.render_to - 11.9) < 0.001, "to steps 0.5s")
+	for _ in 0 ..< 20 {
+		app_key(&a, .Left, 0, true)
+	}
+	testing.expect(t, a.render_to >= a.render_from + 0.099, "to stays after from")
+	testing.expect(t, a.render_to <= 12.4, "to stays within the mix")
+
+	app_key(&a, .Char, 'j')
+	testing.expect(t, a.render_sel == 2, "FORMAT row selected")
+	app_key(&a, .Right)
+	testing.expect(t, a.render_format == .Wav_PCM24, "format cycles to 24-bit")
+	testing.expect(t, render_format_label(a.render_format) == "WAV · 24-bit PCM", "24-bit label")
+	app_key(&a, .Char, 'l')
+	testing.expect(t, a.render_format == .Wav_PCM16, "format cycles to 16-bit")
+	app_key(&a, .Char, 'f')
+	testing.expect(t, a.render_format == .Wav_F32, "F cycles format")
+
+	testing.expect(t, render_time_text(0) == "0:00.0", render_time_text(0))
+	testing.expect(t, render_time_text(65.4) == "1:05.4", render_time_text(65.4))
+
+	app_execute(&a, .Render_File)
+	testing.expect(t, a.last_command == .Render_File, "render file command emitted")
+	app_key(&a, .Escape)
+	testing.expect(t, a.mode == .Normal, "escape closes the render dialog")
+	testing.expect(t, app_status(&a) == "render cancelled", "cancel status")
+}
+
+@(test)
 ui_draws_every_overlay_without_panicking :: proc(t: ^testing.T) {
 	a: App
 	app_init(&a, 1180, 760)
@@ -190,7 +242,7 @@ ui_draws_every_overlay_without_panicking :: proc(t: ^testing.T) {
 	canvas_init(&c, 1180, 760)
 	defer canvas_destroy(&c)
 
-	modes := [8]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent, .Settings, .Cloud}
+	modes := [9]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent, .Settings, .Cloud, .Render}
 	for mode in modes {
 		a.mode = mode
 		app_draw(&a, &c)
@@ -585,7 +637,12 @@ ui_bounce_refused_while_recording_and_survives_dismissal :: proc(t: ^testing.T) 
 	app_key(&a, .Char, 'r')
 	app_key(&a, .Char, 'B')
 	testing.expect(t, a.last_command == .Render_Mix, "render command emitted by B")
-	testing.expect(t, app_status(&a) == "choose where to render the mix", "render status")
+	testing.expect(t, a.mode == .Render, "B opens the render dialog")
+	testing.expect(t, app_status(&a) == "render range: full mix", "render status")
+	app_render_set_duration(&a, 4.0)
+	testing.expect(t, a.render_to == 4.0, "range defaults to the full mix")
+	app_key(&a, .Escape)
+	testing.expect(t, a.mode == .Normal, "escape closes the render dialog")
 	app_execute(&a, .Bounce)
 	testing.expect(t, a.mode == .Bounce, "bounce overlay")
 	testing.expect(t, a.bounce_active, "bounce active")
@@ -821,7 +878,7 @@ ui_interactive_targets_meet_minimum_size :: proc(t: ^testing.T) {
 @(test)
 ui_render_is_nonblank_in_every_mode_and_size :: proc(t: ^testing.T) {
 	sizes := [3][2]int{{900, 620}, {1180, 760}, {1920, 1080}}
-	modes := [8]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent, .Settings, .Cloud}
+	modes := [9]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent, .Settings, .Cloud, .Render}
 	for size in sizes {
 		vw, vh := ui_virtual_size(size[0], size[1])
 		a: App

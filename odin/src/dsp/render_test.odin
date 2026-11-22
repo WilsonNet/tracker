@@ -130,3 +130,32 @@ render_preserves_length_and_stereo_shape :: proc(t: ^testing.T) {
 	testing.expectf(t, len(out.samples) == n * 2, "sample count %v", len(out.samples))
 	testing.expectf(t, len(out.stats.track_gr_timeline) == 2, "missing timeline")
 }
+
+@(test)
+render_tail_seconds_matches_mix_length :: proc(t: ^testing.T) {
+	track := make([]f32, 480)
+	defer delete(track)
+	settings := fx_settings_default()
+	settings.tracks = make([]Track_Mix, 1)
+	defer delete(settings.tracks)
+	mix := track_mix_default()
+	mix.send_reverb = 0.5
+	mix.send_delay = 0.0
+	settings.tracks[0] = mix
+	settings.reverb.enabled = true
+	settings.delay.enabled = false
+	settings.limiter.enabled = false
+	settings.master_comp.enabled = false
+
+	tail := render_tail_seconds(settings)
+	testing.expectf(t, abs(tail - (2.0 + min(reverb_rt60_seconds(settings.reverb), 5.0))) < 1e-6, "tail %v", tail)
+
+	out := render_mix([][]f32{track}, settings, FS)
+	defer render_destroy(&out)
+	expected := len(track) + int(tail * FS)
+	testing.expectf(t, out.frames == expected, "frames %d vs %d", out.frames, expected)
+
+	mix.send_reverb = 0
+	settings.tracks[0] = mix
+	testing.expect(t, render_tail_seconds(settings) == 0, "no sends means no tail")
+}

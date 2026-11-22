@@ -793,7 +793,7 @@ app_text_editing :: proc(a: ^App) -> bool {
 		return true
 	case .Settings:
 		return a.settings_path_edit || a.cloud_edit != .None
-	case .Normal, .Fx, .Io, .Bounce, .Cloud:
+	case .Normal, .Fx, .Io, .Bounce, .Cloud, .Render:
 		return false
 	}
 	return false
@@ -870,7 +870,44 @@ app_paste_text :: proc(a: ^App, text: string) {
 				bump_revision(a)
 			}
 		}
-	case .Normal, .Fx, .Io, .Bounce, .Cloud:
+	case .Normal, .Fx, .Io, .Bounce, .Cloud, .Render:
+	}
+}
+
+// Keyboard model for the render dialog. FROM, TO and FORMAT are the three
+// selectable rows; Enter always opens the save dialog.
+@(private)
+app_render_key :: proc(a: ^App, key: Key, ch: u8, shift, ctrl: bool) {
+	#partial switch key {
+	case .Escape:
+		app_render_close(a)
+		status_buf_set(a, "render cancelled")
+	case .Enter:
+		app_execute(a, .Render_File)
+	case .Tab:
+		app_render_select(a, (a.render_sel + (2 if shift else 1)) % 3)
+	case .Up:
+		app_render_select(a, (a.render_sel + 2) % 3)
+	case .Down:
+		app_render_select(a, (a.render_sel + 1) % 3)
+	case .Left:
+		app_render_adjust(a, -1, shift)
+	case .Right:
+		app_render_adjust(a, 1, shift)
+	case .Char:
+		switch ch {
+		case 'k':
+			app_render_select(a, (a.render_sel + 2) % 3)
+		case 'j':
+			app_render_select(a, (a.render_sel + 1) % 3)
+		case 'h':
+			app_render_adjust(a, -1, shift)
+		case 'l':
+			app_render_adjust(a, 1, shift)
+		case 'f':
+			app_render_cycle_format(a, 1)
+		}
+	case:
 	}
 }
 
@@ -1215,7 +1252,7 @@ app_mouse_down :: proc(a: ^App, x, y: f32, button: int = 0) {
 		return
 	}
 
-	if a.mode == .Bounce {
+	if a.mode == .Bounce || a.mode == .Render {
 		return
 	}
 
@@ -1501,6 +1538,10 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 		if key == .Escape {
 			app_bounce_dismiss(a)
 		}
+		return
+	}
+	if a.mode == .Render {
+		app_render_key(a, key, ch, shift, ctrl)
 		return
 	}
 
@@ -1863,6 +1904,8 @@ app_target_available :: proc(a: ^App, name: string) -> bool {
 		return false
 	case .Bounce:
 		return false
+	case .Render:
+		return false
 	}
 	return false
 }
@@ -1962,6 +2005,8 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Bounce"
 	case .Render_Mix:
 		return "Render_Mix"
+	case .Render_File:
+		return "Render_File"
 	case .Save:
 		return "Save"
 	case .Load:
@@ -2075,6 +2120,8 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 			return "Settings", true
 		case .Cloud:
 			return "Cloud", true
+		case .Render:
+			return "Render", true
 		}
 	case "selected":
 		return fmt.tprintf("%d", a.selected), true

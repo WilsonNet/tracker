@@ -40,6 +40,20 @@ test "record requires an armed track"
   click STOP
   expect-text "NORMAL"
 
+test "render dialog range and format"
+  type B
+  expect-text "Render mix"
+  expect-text "RANGE"
+  expect-text "FORMAT"
+  click-text "24-BIT"
+  expect-text "WAV · 24-bit PCM"
+  key down
+  key right
+  key left
+  key escape
+  expect-no-text "Render mix"
+  expect-text NORMAL
+
 test "fx rack via keyboard and tabs"
   type x
   expect-text "TRACK 1"
