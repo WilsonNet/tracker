@@ -249,6 +249,20 @@ message state:
   backup/restore round-trip. A live Google account run is still required for
   consent and quota behavior.
 
+### External mix render (2026-11-22)
+
+- The main row has BOUNCE (canonical `bounce.wav`) and `RENDER…` (`B`,
+  `.Render_Mix`). Render reuses `engine_render_mix`, writes stereo float via
+  `wav_write`, and must not touch takes or `bounce.wav`; refuse while recording.
+- Adding a `Command_Kind` is not local: update `command_name`, the palette
+  table, the key handler, `App.execute`, and the button in the same change or
+  the build fails on an unhandled switch.
+- Native save dialogs are testable with a fake `zenity` on `PATH` that records
+  argv and prints a path; assert the title, start folder and `.wav` filter, then
+  inspect the file with `ffprobe`/`soxi`.
+- Screenshots with a live device list are unstable; the render baselines are
+  fine because they only gained a button.
+
 ### Window visibility (2026-11-21)
 
 - A Hyprland `workspace = "special:tracker silent"` rule made every `tracker`
