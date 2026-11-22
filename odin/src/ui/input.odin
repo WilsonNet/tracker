@@ -798,19 +798,6 @@ app_text_editing :: proc(a: ^App) -> bool {
 	return false
 }
 
-@(private)
-text_delete_last :: proc(buf: []u8, len_out: ^int) {
-	if len_out^ <= 0 {
-		return
-	}
-	i := len_out^ - 1
-	// Keep multi-byte UTF-8 paths intact.
-	for i > 0 && (buf[i] & 0xC0) == 0x80 {
-		i -= 1
-	}
-	len_out^ = i
-}
-
 // Single-line paste sanitizer. Paths keep spaces; credentials drop them.
 @(private)
 paste_sanitize :: proc(text: string, strip_spaces: bool) -> string {
@@ -870,30 +857,16 @@ app_paste_text :: proc(a: ^App, text: string) {
 		if a.cloud_edit != .None {
 			clean := paste_sanitize(text, a.cloud_edit != .Folder)
 			defer delete(clean)
-			if clean != "" && a.edit_select_all {
-				switch a.cloud_edit {
-				case .Folder:
-					a.cloud_folder_len = 0
-				case .Client_ID:
-					a.cloud_client_id_len = 0
-				case .Client_Secret:
-					a.cloud_client_secret_len = 0
-				case .None:
-				}
-				a.edit_select_all = false
-			}
-			for c in transmute([]u8)clean {
-				app_cloud_append(a, c)
+			if clean != "" {
+				_ = text_paste(a, clean)
+				bump_revision(a)
 			}
 		} else if a.settings_path_edit {
 			clean := paste_sanitize(text, false)
 			defer delete(clean)
-			if clean != "" && a.edit_select_all {
-				a.settings_path_len = 0
-				a.edit_select_all = false
-			}
-			for c in transmute([]u8)clean {
-				settings_path_append(a, c)
+			if clean != "" {
+				_ = text_paste(a, clean)
+				bump_revision(a)
 			}
 		}
 	case .Normal, .Fx, .Io, .Bounce, .Cloud:
@@ -963,10 +936,37 @@ settings_switch_text :: proc(a: ^App, delta: int) {
 }
 
 @(private)
-app_settings_key :: proc(a: ^App, key: Key, ch: u8, shift: bool) -> bool {
+app_settings_key :: proc(a: ^App, key: Key, ch: u8, shift, ctrl: bool) -> bool {
 	if key == .Tab {
 		settings_switch_text(a, -1 if shift else 1)
 		return true
+	}
+	// Clipboard shortcuts that need no OS callback. Copy/cut are handled by
+	// the window (which owns the desktop clipboard); redo accepts Ctrl+Y and
+	// Ctrl+Shift+Z like a native text field.
+	if ctrl && (a.cloud_edit != .None || a.settings_path_edit) {
+		switch ch {
+		case 'a', 'A':
+			text_select_all(a)
+			a.text_scroll_x = 0
+			bump_revision(a)
+			return true
+		case 'z', 'Z':
+			if shift {
+				_ = text_redo(a)
+			} else {
+				_ = text_undo(a)
+			}
+			bump_revision(a)
+			return true
+		case 'y', 'Y':
+			_ = text_redo(a)
+			bump_revision(a)
+			return true
+		case 'c', 'C', 'x', 'X':
+			// Owned by app_copy_text in the window layer.
+			return true
+		}
 	}
 	if a.cloud_edit != .None {
 		#partial switch key {
@@ -983,43 +983,12 @@ app_settings_key :: proc(a: ^App, key: Key, ch: u8, shift: bool) -> bool {
 			a.edit_select_all = false
 			a.cloud_edit = .None
 			app_execute(a, .Cloud_Save_Credentials)
-		case .Backspace:
-			a.edit_confirm = false
-			if a.edit_select_all {
-				switch a.cloud_edit {
-				case .Folder:
-					a.cloud_folder_len = 0
-				case .Client_ID:
-					a.cloud_client_id_len = 0
-				case .Client_Secret:
-					a.cloud_client_secret_len = 0
-				case .None:
-				}
-				a.edit_select_all = false
-				a.cloud_dirty = true
-				bump_revision(a)
-			} else {
-				switch a.cloud_edit {
-				case .Folder:
-					text_delete_last(a.cloud_folder[:], &a.cloud_folder_len)
-				case .Client_ID:
-					text_delete_last(a.cloud_client_id[:], &a.cloud_client_id_len)
-				case .Client_Secret:
-					text_delete_last(a.cloud_client_secret[:], &a.cloud_client_secret_len)
-				case .None:
-				}
-				a.cloud_dirty = true
-				bump_revision(a)
-			}
-		case .Space:
-			if a.cloud_edit == .Folder {
-				app_cloud_append(a, ' ')
-			}
-		case .Char:
-			if ch >= 32 && ch <= 126 {
-				app_cloud_append(a, ch)
-			}
 		case:
+			if text_key(a, key, ch, shift, ctrl) {
+				a.edit_confirm = false
+				bump_revision(a)
+				return true
+			}
 		}
 		return true
 	}
@@ -1038,22 +1007,12 @@ app_settings_key :: proc(a: ^App, key: Key, ch: u8, shift: bool) -> bool {
 			a.edit_select_all = false
 			a.settings_path_edit = false
 			app_execute(a, .Apply_Save_Dir)
-		case .Backspace:
-			a.edit_confirm = false
-			if a.edit_select_all {
-				a.settings_path_len = 0
-				a.edit_select_all = false
-			} else {
-				text_delete_last(a.settings_path[:], &a.settings_path_len)
-			}
-			bump_revision(a)
-		case .Space:
-			settings_path_append(a, ' ')
-		case .Char:
-			if ch >= 32 && ch <= 126 {
-				settings_path_append(a, ch)
-			}
 		case:
+			if text_key(a, key, ch, shift, ctrl) {
+				a.edit_confirm = false
+				bump_revision(a)
+				return true
+			}
 		}
 		return true
 	}
@@ -1511,7 +1470,7 @@ fx_focus_activate :: proc(a: ^App) {
 	}
 }
 
-app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
+app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool = false) {
 	// SDL2 reports the modifier state on every KEYDOWN; refresh the drag
 	// modifier here so Shift-drag works without a second input channel.
 	a.shift_down = shift
@@ -1530,7 +1489,7 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 		}
 	}
 	if a.mode == .Settings {
-		app_settings_key(a, key, ch, shift)
+		app_settings_key(a, key, ch, shift, ctrl)
 		return
 	}
 	if a.mode == .Cloud {

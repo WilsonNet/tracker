@@ -26,7 +26,9 @@ fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
   no remote delete
 - **Settings** — choose the project folder, input backend, latency and
   monitoring, plus high contrast and reduced motion; folder and accessibility
-  choices persist in `settings.json`
+  choices persist in `settings.json`. Text fields have a real caret and
+  selection: click/drag/shift-click, double-click a word, triple-click all,
+  clipboard and undo, with secrets rendered as `*`
 - **HiDPI and responsive density** — crisp type at 1×–3×, whole-panel zoom for larger windows
 - **Linux audio** — PipeWire/ALSA capture and cooperative JACK capture (`--jack`)
 
@@ -42,7 +44,7 @@ git clone https://github.com/WilsonNet/vinland-ui ../vinland-ui
 
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 260 unit tests
+make test         # 264 unit tests
 make check        # tests + native UI tour + offline bounce
 
 ./bin/tracker-odin ui              # real window
@@ -61,7 +63,7 @@ For Google Drive transfer, follow [docs/cloud-setup.md](docs/cloud-setup.md).
 ```sh
 cd odin
 make test          # DSP + engine/project/WAV + UI unit tests
-make e2e           # 16 headless vinland-ui cases (tests/ui/window.vt)
+make e2e           # 17 headless vinland-ui cases (tests/ui/window.vt)
 make check         # unit + 220-action UI tour + offline bounce + format checks
 ```
 

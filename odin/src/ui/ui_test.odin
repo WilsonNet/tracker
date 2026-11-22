@@ -1827,6 +1827,152 @@ ui_input_switch_click_tab_preserves_drafts :: proc(t: ^testing.T) {
 }
 
 @(test)
+ui_text_caret_selection_and_word_navigation :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_save_dir(&a, "/home/user/takes")
+	app_execute(&a, .Settings)
+	app_key(&a, .Enter)
+
+	// Caret starts at the end; plain arrows collapse/move, Shift extends.
+	testing.expect(t, a.text_cursor == len("/home/user/takes") && a.text_anchor == a.text_cursor, "caret at end")
+	app_key(&a, .Left)
+	testing.expect(t, a.text_cursor == len("/home/user/take"), "left moves one rune")
+	app_key(&a, .Left, 0, true)
+	testing.expect(t, a.text_cursor == len("/home/user/tak") && a.text_anchor == len("/home/user/take"), "shift-left anchors")
+	app_key(&a, .Left, 0, true)
+	app_key(&a, .Left, 0, true)
+	testing.expect(t, a.text_cursor == len("/home/user/t"), "shift-left extends")
+	app_key(&a, .Char, 'X')
+	testing.expectf(t, app_settings_path(&a) == "/home/user/tXs", "typing replaces selection: %q", app_settings_path(&a))
+	testing.expect(t, a.text_anchor == a.text_cursor, "insertion collapses selection")
+
+	// Home/End and Ctrl+arrow word jumps.
+	app_key(&a, .Home)
+	testing.expect(t, a.text_cursor == 0, "home")
+	app_key(&a, .Right, 0, false, true)
+	testing.expect(t, a.text_cursor == len("/home"), "ctrl-right -> next word")
+	app_key(&a, .Right, 0, true, true)
+	testing.expect(t, a.text_anchor == len("/home") && a.text_cursor > a.text_anchor, "ctrl-shift-right selects word")
+	app_key(&a, .End)
+	testing.expect(t, a.text_cursor == len(app_settings_path(&a)) && a.text_anchor == a.text_cursor, "end")
+	app_key(&a, .Home, 0, true)
+	testing.expect(t, a.text_cursor == 0 && a.text_anchor == len(app_settings_path(&a)), "shift-home selects all")
+	app_key(&a, .Left)
+	testing.expect(t, a.text_cursor == 0 && a.text_cursor == a.text_anchor, "plain arrow collapses to edge")
+}
+
+@(test)
+ui_text_delete_backspace_and_word_ops :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_save_dir(&a, "/tmp/café/session")
+	app_execute(&a, .Settings)
+	app_key(&a, .Enter)
+
+	// Delete forward removes a whole UTF-8 rune.
+	app_key(&a, .Home)
+	for _ in 0 ..< len("/tmp/caf") {
+		app_key(&a, .Right)
+	}
+	app_key(&a, .Delete)
+	testing.expectf(t, app_settings_path(&a) == "/tmp/caf/session", "delete rune: %q", app_settings_path(&a))
+
+	// Ctrl+Backspace removes the word before the caret.
+	app_key(&a, .End)
+	app_key(&a, .Backspace, 0, false, true)
+	testing.expectf(t, app_settings_path(&a) == "/tmp/caf/", "ctrl-backspace: %q", app_settings_path(&a))
+
+	// Ctrl+Delete removes the next word from the start.
+	app_key(&a, .Home)
+	app_key(&a, .Delete, 0, false, true)
+	testing.expectf(t, app_settings_path(&a) == "/caf/", "ctrl-delete: %q", app_settings_path(&a))
+
+	// Selection backspace deletes exactly the selection.
+	app_key(&a, .End)
+	app_key(&a, .Left, 0, true)
+	app_key(&a, .Left, 0, true)
+	app_key(&a, .Backspace)
+	testing.expectf(t, app_settings_path(&a) == "/ca", "selection backspace: %q", app_settings_path(&a))
+}
+
+@(test)
+ui_text_copy_cut_paste_undo_redo :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_save_dir(&a, "/tmp/original")
+	app_execute(&a, .Settings)
+	app_key(&a, .Enter)
+
+	// Copy leaves the buffer alone; cut removes and can be undone.
+	app_key(&a, .Home)
+	app_key(&a, .Right, 0, true, true)
+	copied := app_copy_text(&a, false)
+	testing.expect(t, copied == "/tmp", copied)
+	delete(copied)
+	testing.expect(t, app_settings_path(&a) == "/tmp/original", "copy keeps text")
+	cut := app_copy_text(&a, true)
+	testing.expect(t, cut == "/tmp", cut)
+	delete(cut)
+	testing.expectf(t, app_settings_path(&a) == "/original", "cut removes: %q", app_settings_path(&a))
+	app_key(&a, .Char, 'z', false, true)
+	testing.expectf(t, app_settings_path(&a) == "/tmp/original", "undo cut: %q", app_settings_path(&a))
+	app_key(&a, .Char, 'y', false, true)
+	testing.expectf(t, app_settings_path(&a) == "/original", "redo cut: %q", app_settings_path(&a))
+
+	// A run of typed characters is one undo step.
+	app_key(&a, .Home)
+	app_key(&a, .Char, 'a')
+	app_key(&a, .Char, 'b')
+	app_key(&a, .Char, 'c')
+	testing.expect(t, app_settings_path(&a) == "abc/original", app_settings_path(&a))
+	app_key(&a, .Char, 'z', false, true)
+	testing.expect(t, app_settings_path(&a) == "/original", "typing run undo")
+	app_key(&a, .Char, 'z', true, true)
+	testing.expect(t, app_settings_path(&a) == "abc/original", "ctrl-shift-z redo")
+
+	// Paste replaces the selection as its own undo step.
+	app_select_all_text(&a)
+	app_paste_text(&a, "replaced")
+	testing.expect(t, app_settings_path(&a) == "replaced", app_settings_path(&a))
+	app_key(&a, .Char, 'z', false, true)
+	testing.expect(t, app_settings_path(&a) == "abc/original", "undo paste")
+}
+
+@(test)
+ui_text_word_and_select_all_helpers :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_cloud_credentials(&a, "client-123", "secret-123", "Studio Backups")
+	app_execute(&a, .Settings)
+
+	app_cloud_begin_edit(&a, .Folder)
+	text_select_word_at(&a, len("Studio B"))
+	lo, hi := min(a.text_anchor, a.text_cursor), max(a.text_anchor, a.text_cursor)
+	testing.expect(t, app_cloud_folder(&a)[lo:hi] == "Backups", app_cloud_folder(&a)[lo:hi])
+
+	text_select_all(&a)
+	testing.expect(t, a.text_anchor == 0 && a.text_cursor == len(app_cloud_folder(&a)), "select all")
+	testing.expect(t, a.edit_select_all, "ALL flag")
+
+	// The mask never exposes plaintext even with a selection active.
+	masked := cloud_mask_secret(app_cloud_client_secret(&a))
+	testing.expect(t, masked == "**********", masked)
+
+	// Field switching keeps the caret/anchor independent from the buffer.
+	app_cloud_begin_edit(&a, .Client_ID)
+	app_key(&a, .Home)
+	app_key(&a, .Right, 0, true, true)
+	testing.expect(t, a.cloud_edit == .Client_ID && a.text_cursor > a.text_anchor, "id word selection")
+	app_cloud_begin_edit(&a, .Client_Secret)
+	testing.expect(t, a.text_cursor == len(app_cloud_client_secret(&a)) && a.text_anchor == a.text_cursor, "new field caret")
+}
+
+@(test)
 ui_screenshots_render_at_every_supported_scale :: proc(t: ^testing.T) {
 	scales := [4]f32{1.0, 1.5, 2.0, 3.0}
 	for scale in scales {

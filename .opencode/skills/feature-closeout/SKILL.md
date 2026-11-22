@@ -149,8 +149,10 @@ message state:
   `project.json`, retarget, then persist. Refuse a folder that already has
   `project.json` or `track1..4.wav`; the old folder remains as a recovery copy.
 - An explicit `--session` is a sandbox: do not load global settings, and write
-  any settings changes beside the session. Tests and throwaway takes must not
-  touch the user's real config.
+  any settings **and cloud** changes beside the session. Tests and throwaway
+  takes must not touch the user's real config. `ui/e2e` saves credentials, so
+  `cloud.json` must follow the session path or the test suite corrupts the
+  user's Google client.
 - Long-lived path strings must use `fmt.aprintf`, not `fmt.tprintf`: the
   temporary allocator invalidated the settings store between frames and produced
   a garbage `.tmp` path plus "cannot save settings".
@@ -163,7 +165,7 @@ message state:
   `view_settings` and the selection test together.
 - Validation: `vui-ctl` open → select → edit path → apply → inspect
   `project.json`/`settings.json` → toggle contrast → restart → 900×620 →
-  idle. Keep the 15-case `make e2e` suite green.
+  idle. Keep the 17-case `make e2e` suite green.
 
 ### Clipboard and edit mode (2026-11-22)
 
@@ -183,6 +185,33 @@ message state:
   secrets render as `*` while editing, not plaintext.
 - Regression tests: unit tests for cloud/project/palette/recent paste and the
   two-step escape; upstream `clipboard_from_argv` test.
+
+### Text fields: caret, selection, drag (2026-11-22)
+
+- Model the field as a caret plus anchor in byte offsets. Render the selection
+  as an absolute amber box and the caret as an absolute 2 px bar inside a
+  `relative overflow-hidden` parent; set `absolute` in the element class at
+  creation, not only on `last_style`, or vinland never assigns a containing
+  block and the element lays out at 0×0.
+- Measure with `vui.caret_stops` using the same `font_family`/`font_size`/
+  `font_weight` as the text. A zero weight resolves to faces with zero advance,
+  so every click lands at offset 0.
+- Click maps x→nearest caret stop; drag keeps the press anchor; Shift+click
+  extends; double-click selects a word and triple-click selects all. The
+  multi-click selection must lock drag updates until release: the button-up
+  arrives a frame later and would otherwise turn the word/all selection into a
+  drag to the click point.
+- Keyboard: arrows/Home/End, Shift variants, Ctrl+arrow/Backspace/Delete,
+  Ctrl+A/C/X/V/Z/Y and Shift+Insert/Shift+Delete/Ctrl+Insert. Coalesce a typed
+  run into one undo step; paste and cut are their own steps.
+- Synthetic vui-ctl keys bypass `window_on_event` and still reach vinland's
+  focus traversal. Clear `vui.focus(0)` before each frame while a text field is
+  editing, or Tab focuses BROWSE and a later synthetic Enter opens a blocking
+  native folder dialog.
+- Secrets stay masked through selection and save; assert the plaintext is
+  absent from `vui-ctl tree`. e2e must pass an explicit `--session`, and the
+  window must store `cloud.json` beside that session, never in the user's real
+  `~/.config/tracker`.
 
 ### Google Drive transfer (2026-11-22)
 

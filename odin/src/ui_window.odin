@@ -92,6 +92,13 @@ run_ui_window :: proc(args: []string) -> bool {
 
 	cloud: Cloud
 	cloud_store := cloud_store_path()
+	// An explicit session is a sandbox: keep cloud credentials beside the
+	// project so e2e/throwaway runs can never overwrite the user's real
+	// ~/.config/tracker/cloud.json.
+	if session_given {
+		delete(cloud_store)
+		cloud_store = fmt.aprintf("%s/cloud.json", e.session_dir)
+	}
 	cloud_init(&cloud, cloud_store)
 	delete(cloud_store)
 	defer cloud_destroy(&cloud)
@@ -167,7 +174,17 @@ run_ui_window :: proc(args: []string) -> bool {
 	a11y_log := has_flag(args, "--a11y-log")
 	a11y_revision: u64 = a.state_revision
 	last := time.now()
-	for vapp.next_frame(&va) {
+	for {
+		// vui-ctl keys bypass window_on_event and reach vinland's input, so a
+		// synthetic Tab would move vinland focus to a button and a later Enter
+		// would click it. Text fields own Tab/Enter/Space; keep vinland focus
+		// clear while one is being edited.
+		if ui.app_text_editing(&a) {
+			vui.focus(0)
+		}
+		if !vapp.next_frame(&va) {
+			break
+		}
 		window_synthetic_keys(&a, &ctx)
 		// key events are consumed by window_on_event, so vinland's input.mods
 		// never sees Shift; poll it for fine knob drags and wheel steps
@@ -221,15 +238,23 @@ window_on_event :: proc(va: ^vapp.App, ev: ^sdl.Event) -> bool {
 		ctrl_down := .LCTRL in ev.key.mod || .RCTRL in ev.key.mod
 		shift_down := .LSHIFT in ev.key.mod || .RSHIFT in ev.key.mod
 		// SDL key events are consumed before vinland sees them, so the app's
-		// custom text surfaces handle paste themselves.
-		if ui.app_text_editing(ws.a) && (ctrl_down || (shift_down && ev.key.key == sdl.K_INSERT)) {
-			if (ctrl_down && ev.key.key == sdl.K_V) || (shift_down && ev.key.key == sdl.K_INSERT) {
+		// custom text surfaces handle their own clipboard/selection shortcuts.
+		if ui.app_text_editing(ws.a) && (ctrl_down || (shift_down && (ev.key.key == sdl.K_INSERT || ev.key.key == sdl.K_DELETE))) {
+			if shift_down && ev.key.key == sdl.K_INSERT {
 				window_clipboard_paste(ws.a)
-			} else if ctrl_down && ev.key.key == sdl.K_A {
-				ui.app_select_all_text(ws.a)
+				return true
 			}
-			// Swallow the rest of the edit shortcuts so Ctrl+C does not type
-			// a literal "c" into a field.
+			if shift_down && ev.key.key == sdl.K_DELETE {
+				window_clipboard_copy(ws.a, va.ctx, true)
+				return true
+			}
+			if ctrl_down && ev.key.key == sdl.K_INSERT {
+				window_clipboard_copy(ws.a, va.ctx, false)
+				return true
+			}
+			key, ch, shift := map_key(ev.key.key, ev.key.mod)
+			window_edit_shortcut(ws.a, va.ctx, key, ch, shift)
+			// Swallow every other Ctrl chord so it cannot type a literal.
 			return true
 		}
 		key, ch, shift := map_key(ev.key.key, ev.key.mod)
@@ -278,6 +303,55 @@ window_clipboard_paste :: proc(a: ^ui.App) {
 	ui.app_paste_text(a, text)
 }
 
+@(private)
+window_clipboard_copy :: proc(a: ^ui.App, ctx: ^vui.Context, cut: bool) {
+	text := ui.app_copy_text(a, cut)
+	if text == "" {
+		return
+	}
+	defer delete(text)
+	if ctx.clipboard_set != nil {
+		ctx.clipboard_set(text)
+	}
+}
+
+// Standard single-line editing chords. Returns false for a Ctrl chord that is
+// not an edit command; the caller still swallows it while a field has focus.
+@(private)
+window_edit_shortcut :: proc(a: ^ui.App, ctx: ^vui.Context, key: ui.Key, ch: u8, shift: bool) -> bool {
+	#partial switch key {
+	case .Char:
+		switch ch {
+		case 'v', 'V':
+			window_clipboard_paste(a)
+			return true
+		case 'a', 'A':
+			ui.app_select_all_text(a)
+			return true
+		case 'c', 'C':
+			window_clipboard_copy(a, ctx, false)
+			return true
+		case 'x', 'X':
+			window_clipboard_copy(a, ctx, true)
+			return true
+		case 'z', 'Z':
+			if shift {
+				_ = ui.text_redo(a)
+			} else {
+				_ = ui.text_undo(a)
+			}
+			return true
+		case 'y', 'Y':
+			_ = ui.text_redo(a)
+			return true
+		}
+	case .Backspace, .Delete, .Left, .Right, .Home, .End:
+		ui.app_key(a, key, ch, shift, true)
+		return true
+	}
+	return false
+}
+
 // Vim h/l adjust the focused FX rack control (the status line advertises
 // "h/l: adjust"); H/L are the fine variants, like Shift+arrows.
 @(private)
@@ -299,32 +373,52 @@ window_key :: proc(a: ^ui.App, key: ui.Key, ch: u8, shift: bool) {
 @(private)
 window_synthetic_keys :: proc(a: ^ui.App, ctx: ^vui.Context) {
 	in_ := &ctx.input
-	if .Ctrl in in_.mods {
+	shift := .Shift in in_.mods
+	ctrl := .Ctrl in in_.mods || .Super in in_.mods
+	if ctrl {
 		if .V in in_.keys_pressed {
 			window_clipboard_paste(a)
-		} else if .A in in_.keys_pressed {
+		}
+		if .A in in_.keys_pressed {
 			ui.app_select_all_text(a)
 		}
-	}
-	for r in in_.text {
-		if r < 128 {
-			if r == ' ' {
-				// SDL reports Space as a key, never as a Char; mirror that so
-				// `vui-ctl type " "` toggles play like the real keyboard
-				window_key(a, .Space, ' ', false)
+		if .C in in_.keys_pressed {
+			window_clipboard_copy(a, ctx, false)
+		}
+		if .X in in_.keys_pressed {
+			window_clipboard_copy(a, ctx, true)
+		}
+		if .Z in in_.keys_pressed {
+			if shift {
+				_ = ui.text_redo(a)
 			} else {
-				window_key(a, .Char, u8(r), r >= 'A' && r <= 'Z')
+				_ = ui.text_undo(a)
+			}
+		}
+		if .Y in in_.keys_pressed {
+			_ = ui.text_redo(a)
+		}
+	}
+	if !ctrl {
+		for r in in_.text {
+			if r < 128 {
+				if r == ' ' {
+					// SDL reports Space as a key, never as a Char; mirror that so
+					// `vui-ctl type " "` toggles play like the real keyboard
+					window_key(a, .Space, ' ', false)
+				} else {
+					window_key(a, .Char, u8(r), r >= 'A' && r <= 'Z')
+				}
 			}
 		}
 	}
-	shift := .Shift in in_.mods
 	pairs := [?]struct {
 		k: vui.Key,
 		t: ui.Key,
-	}{{.Escape, .Escape}, {.Enter, .Enter}, {.Tab, .Tab}, {.Space, .Space}, {.Backspace, .Backspace}, {.Left, .Left}, {.Right, .Right}, {.Up, .Up}, {.Down, .Down}}
+	}{{.Escape, .Escape}, {.Enter, .Enter}, {.Tab, .Tab}, {.Space, .Space}, {.Backspace, .Backspace}, {.Delete, .Delete}, {.Home, .Home}, {.End, .End}, {.Left, .Left}, {.Right, .Right}, {.Up, .Up}, {.Down, .Down}}
 	for p in pairs {
 		if p.k in in_.keys_pressed {
-			ui.app_key(a, p.t, ' ' if p.t == .Space else 0, shift)
+			ui.app_key(a, p.t, ' ' if p.t == .Space else 0, shift, ctrl)
 		}
 	}
 }
@@ -627,6 +721,12 @@ map_key :: proc(k: sdl.Keycode, mod: sdl.Keymod) -> (key: ui.Key, ch: u8, shift:
 		return .Escape, 0, shift
 	case sdl.K_BACKSPACE:
 		return .Backspace, 0, shift
+	case sdl.K_DELETE:
+		return .Delete, 0, shift
+	case sdl.K_HOME:
+		return .Home, 0, shift
+	case sdl.K_END:
+		return .End, 0, shift
 	case sdl.K_LEFT:
 		return .Left, 0, shift
 	case sdl.K_RIGHT:

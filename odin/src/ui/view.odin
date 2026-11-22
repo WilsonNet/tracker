@@ -1514,11 +1514,12 @@ view_settings :: proc(a: ^App, v: ^View) {
 			// focused field and re-enter edit mode after APPLY.
 			if vui.div(vui.cx("flex w-full items-center gap-2 rounded-[2px] border bg-canvas px-3 py-2 text-left", editing ? "border-sig" : path_selected ? "border-sig ring-2 ring-sig" : "border-line hover:border-sig-dim")) {
 				vui.text("$", "text-[12px] font-bold text-sig")
-				path := app_settings_path(a)
-				vui.text(path if path != "" else "not set", vui.cx("flex-1 truncate text-[11px]", path != "" ? "text-ink" : "text-ink-muted"))
+				if vui.div("relative min-w-0 flex-1 overflow-hidden") {
+					text_field_view(a, 0, app_settings_path(a), false, editing, "not set", vui.prev_rect())
+				}
+				editing = a.settings_path_edit
 				if editing {
-					vui.el("h-4 w-[2px] animate-pulse bg-sig")
-					vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+					vui.text("ALL" if a.edit_select_all else "EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
 				} else {
 					vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
 				}
@@ -1597,19 +1598,20 @@ view_settings :: proc(a: ^App, v: ^View) {
 			folder_selected := a.settings_sel == .Cloud_Folder
 			if vui.div(vui.cx("flex items-center gap-2 rounded-[2px] border px-2 py-1", folder_editing || folder_selected ? "border-sig" : "border-line")) {
 				vui.text("Drive folder", "w-28 shrink-0 text-[11px] text-ink-dim")
-				if vui.div("flex min-w-0 flex-1 items-center gap-2") {
-					folder := app_cloud_folder(a)
-					vui.text(folder if folder != "" else "Tracker", vui.cx("flex-1 truncate text-[11px]", folder != "" ? "text-ink" : "text-ink-muted"))
-					if folder_editing {
-						vui.el("h-4 w-[2px] animate-pulse bg-sig")
-						vui.text("ALL" if a.edit_select_all else "EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
-					} else {
-						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
-					}
+				if vui.div("relative min-w-0 flex-1 overflow-hidden") {
+					text_field_view(a, 1, app_cloud_folder(a), false, folder_editing, "Tracker", vui.prev_rect())
+				}
+				folder_editing = a.cloud_edit == .Folder
+				if folder_editing {
+					vui.text("ALL" if a.edit_select_all else "EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+				} else {
+					vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
 				}
 				if vui.clicked() {
 					a.settings_sel = .Cloud_Folder
-					app_cloud_begin_edit(a, .Folder)
+					if !folder_editing {
+						app_cloud_begin_edit(a, .Folder)
+					}
 				}
 				if a.settings_sel == .Cloud_Folder {
 					cloud_sel_rect = vui.prev_rect()
@@ -1619,19 +1621,20 @@ view_settings :: proc(a: ^App, v: ^View) {
 			client_selected := a.settings_sel == .Cloud_Client_ID
 			if vui.div(vui.cx("flex items-center gap-2 rounded-[2px] border px-2 py-1", client_editing || client_selected ? "border-sig" : "border-line")) {
 				vui.text("Client ID", "w-28 shrink-0 text-[11px] text-ink-dim")
-				if vui.div("flex min-w-0 flex-1 items-center gap-2") {
-					value := app_cloud_client_id(a)
-					vui.text(value if value != "" else "not set", vui.cx("flex-1 truncate text-[11px]", value != "" ? "text-ink" : "text-ink-muted"))
-					if client_editing {
-						vui.el("h-4 w-[2px] animate-pulse bg-sig")
-						vui.text("ALL" if a.edit_select_all else "EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
-					} else {
-						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
-					}
+				if vui.div("relative min-w-0 flex-1 overflow-hidden") {
+					text_field_view(a, 2, app_cloud_client_id(a), false, client_editing, "not set", vui.prev_rect())
+				}
+				client_editing = a.cloud_edit == .Client_ID
+				if client_editing {
+					vui.text("ALL" if a.edit_select_all else "EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+				} else {
+					vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
 				}
 				if vui.clicked() {
 					a.settings_sel = .Cloud_Client_ID
-					app_cloud_begin_edit(a, .Client_ID)
+					if !client_editing {
+						app_cloud_begin_edit(a, .Client_ID)
+					}
 				}
 				if a.settings_sel == .Cloud_Client_ID {
 					cloud_sel_rect = vui.prev_rect()
@@ -1641,20 +1644,20 @@ view_settings :: proc(a: ^App, v: ^View) {
 			secret_selected := a.settings_sel == .Cloud_Client_Secret
 			if vui.div(vui.cx("flex items-center gap-2 rounded-[2px] border px-2 py-1", secret_editing || secret_selected ? "border-sig" : "border-line")) {
 				vui.text("Client secret", "w-28 shrink-0 text-[11px] text-ink-dim")
-				if vui.div("flex min-w-0 flex-1 items-center gap-2") {
-					secret := app_cloud_client_secret(a)
-					display := cloud_mask_secret(secret) if secret != "" else "not set"
-					vui.text(display, vui.cx("flex-1 truncate text-[11px]", secret != "" ? "text-ink" : "text-ink-muted"))
-					if secret_editing {
-						vui.el("h-4 w-[2px] animate-pulse bg-sig")
-						vui.text("ALL" if a.edit_select_all else "EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
-					} else {
-						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
-					}
+				if vui.div("relative min-w-0 flex-1 overflow-hidden") {
+					text_field_view(a, 3, app_cloud_client_secret(a), true, secret_editing, "not set", vui.prev_rect())
+				}
+				secret_editing = a.cloud_edit == .Client_Secret
+				if secret_editing {
+					vui.text("ALL" if a.edit_select_all else "EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+				} else {
+					vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
 				}
 				if vui.clicked() {
 					a.settings_sel = .Cloud_Client_Secret
-					app_cloud_begin_edit(a, .Client_Secret)
+					if !secret_editing {
+						app_cloud_begin_edit(a, .Client_Secret)
+					}
 				}
 				if a.settings_sel == .Cloud_Client_Secret {
 					cloud_sel_rect = vui.prev_rect()
@@ -1715,7 +1718,16 @@ view_settings :: proc(a: ^App, v: ^View) {
 				v.settings_sel_last = a.settings_sel
 				v.settings_panel_h = panel_rect.h
 				if int(a.settings_sel) >= int(Settings_Item.Cloud_Folder) && cloud_sel_rect.h > 0 {
-					vui.scroll_to(panel_id, max(cloud_sel_rect.y - panel_rect.y - 24, 0))
+					// Scroll only as far as needed to reveal the selected row.
+					// Clicking a visible field must not jump the panel.
+					scroll := vui.scroll_of(panel_id).y
+					top := cloud_sel_rect.y - panel_rect.y + scroll
+					bottom := top + cloud_sel_rect.h
+					if top < 24 {
+						vui.scroll_to(panel_id, max(scroll + top - 24, 0))
+					} else if bottom > panel_rect.h - 24 {
+						vui.scroll_to(panel_id, scroll + bottom - (panel_rect.h - 24))
+					}
 				} else {
 					vui.scroll_to(panel_id, 0)
 				}

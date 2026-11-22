@@ -12,7 +12,7 @@ This project has a PRODUCT.md and DESIGN.md at the repo root. Read both before m
 
 The app is a single native binary in `odin/src/` — no webview, no IPC.
 
-- **UI**: `src/ui/` — `view.odin` renders the `App` model as a vinland-ui element tree; `theme.odin` is the single source of design tokens; `draw.odin`/`canvas.odin` paint the Cairo/Pango headless harness; `app.odin` holds state and key handling.
+- **UI**: `src/ui/` — `view.odin` renders the `App` model as a vinland-ui element tree; `theme.odin` is the single source of design tokens; `text_edit.odin` owns caret/selection/clipboard/undo and `text_field_view.odin` maps pointer positions and paints the selection; `draw.odin`/`canvas.odin` paint the Cairo/Pango headless harness; `app.odin` holds state and key handling.
 - **Window**: `src/ui_window.odin` — SDL3 via vinland-ui, key mapping, engine commands, HiDPI.
 - **Audio**: `engine.odin`, `capture.odin` (miniaudio), `jack_capture.odin` (cooperative PipeWire/JACK), `wav.odin` (float32 WAV/RF64), `project.odin` (JSON persistence).
 - **DSP**: `src/dsp/` — hand-written biquad/EQ, compressor, limiter, FDN reverb, ping-pong delay, widener, resampling, mixdown. No VSTs, no plugin host.
@@ -26,13 +26,18 @@ SDL key events are consumed before vinland sees them, so Tracker owns text
 entry. Clicking a text field enters **EDIT**; `Enter` applies/saves and `Esc`
 asks once before discarding (`Esc` again cancels). Clicking another field or
 `Tab`/`Shift+Tab` switches text inputs without losing drafts; the form stays in
-EDIT until your explicit save/cancel. `Ctrl+A` selects all and the next
-type/paste/backspace replaces it; `Ctrl+V` and `Shift+Insert` read the desktop
-clipboard through `vapp.clipboard_read` and insert through `ui.app_paste_text`;
-mirror the same path in `window_synthetic_keys` so `vui-ctl` behaves like the
-real keyboard. Credential fields reject spaces and secrets always render as
-`*`, including while editing. Never put tokens in argv; clipboard helpers use
-fixed commands.
+EDIT until your explicit save/cancel. The fields carry a real caret and anchor:
+click places it, drag selects, Shift+click extends, double-click selects a
+word and triple-click selects all. Arrows/Home/End move it, `Ctrl+arrow` moves
+by word, `Ctrl+Backspace`/`Delete` delete words, and `Ctrl+C`/`X`/`V`/`Z`/`Y`
+(plus `Shift+Insert`, `Shift+Delete`, `Ctrl+Insert`) use the desktop clipboard.
+`Ctrl+A` selects all and the next type/paste/backspace replaces it. Paste goes
+through `vapp.clipboard_read` and `ui.app_paste_text`; mirror the same path in
+`window_synthetic_keys` so `vui-ctl` behaves like the real keyboard. Synthetic
+keys reach vinland's input even though real SDL keys are consumed, so clear
+vinland focus while a text field is editing or Tab/Enter can activate a button.
+Credential fields reject spaces and secrets always render as `*`, including
+while editing. Never put tokens in argv; clipboard helpers use fixed commands.
 
 ## Feedback Loop (Critical)
 
@@ -113,7 +118,7 @@ cover it.
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — 260 unit tests (DSP + core/engine/project/cloud + UI)
+- `make test` — 264 unit tests (DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
@@ -154,8 +159,8 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 70 DSP + 124 core/engine/project/WAV/settings/cloud + 66 UI tests.
-- `make e2e` — 16 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, cloud settings/overlay).
+- `make test` — 70 DSP + 124 core/engine/project/WAV/settings/cloud + 70 UI tests.
+- `make e2e` — 17 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay).
 - The Cairo/Pango harness (`ui-test`, `ui-shot`) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.
 - Do not claim a UI works without inspecting the generated PNG/report. Hardware recording evidence belongs in `odin/VERIFICATION.md`.

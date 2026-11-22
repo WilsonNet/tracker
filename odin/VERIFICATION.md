@@ -11,13 +11,13 @@ intentional limits are in `ROADMAP.md`.
 | clean build | `make clean && make build` | ≈0.8 s |
 | DSP | `odin test src/dsp` | **70 passed** |
 | engine / project / WAV / RF64 / takes / CLI / settings / cloud | `odin test src` | **124 passed** |
-| UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **66 passed** |
+| UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **70 passed** |
 | vector renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
 | charts | level history + 5 FX response graphs | 17 screenshots inspected |
 | static checks | `odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
-Total: **260 unit tests**.
+Total: **264 unit tests**.
 
 ## Native UI harness
 
@@ -32,7 +32,7 @@ Total: **260 unit tests**.
 - Window-responsive zoom verified at 1440x900 (1.20x), 1920x1080 (1.52x),
   2536x986 (1.59x) and 3840x2160 (1.80x cap); the virtual frame never drops
   below 900x620
-- Window suite (`make e2e`): **16 cases**, including settings keyboard
+- Window suite (`make e2e`): **17 cases**, including settings keyboard
   selection, path edit, apply, cloud settings and the cloud overlay
 
 ## Settings persistence (2026-11-21)
@@ -98,6 +98,39 @@ vui-ctl --port 7421 key v ctrl
 
 The SDL read path was also fixed to clone the clipboard text **before**
 `SDL_free`; reading after free produced garbage in the field.
+
+## Text selection, caret and clipboard (2026-11-22)
+
+Verified in the real offscreen window at 900x620 and 1180x760 with isolated XDG
+dirs. `vui-ctl tree` exposed the caret and selection boxes so their geometry could
+be asserted, not just seen in a screenshot.
+
+| check | result |
+|---|---|
+| click caret | clicking the path field placed the 2x14 px caret at the pointer x (503 for click x=500) |
+| drag selection | drag from x=360 to 620 selected 224 px / 34 characters; amber selection box behind the text |
+| shift-click | shift-click at x=390 selected 9 secret stars from the caret anchor |
+| double-click | selected the 8-character word under the pointer (52.8 px) and kept it after the button release |
+| triple-click | selected the full 297 px path; `vui-ctl click ... triple` drives the native clicks=3 path |
+| keyboard selection | Home, Shift+Right (one rune), Shift+Home, End and Ctrl+Shift+Right move/extend exactly |
+| Ctrl+word | Ctrl+Left/Right, Ctrl+Backspace and Ctrl+Delete stop at path/word boundaries |
+| clipboard | Ctrl+A, Ctrl+C, End, Ctrl+V round-tripped the full path inside the app |
+| cut/undo | Ctrl+X cleared the field; Ctrl+Z restored it with its selection; Ctrl+Y redid the cut |
+| paste undo | a pasted replacement is one undo step and restores the previous field contents |
+| typing undo | a run of typed characters coalesces into one undo step |
+| secret mask | secret stayed `**********` with a selection/caret; plaintext never appeared in `tree` |
+| tab switching | Tab/Shift+Tab moved ID ↔ secret and preserved both drafts |
+| save | Enter on the secret saved `id`/`sec` to the isolated `cloud.json`; the window stayed responsive |
+| session isolation | `--session` stores `cloud.json` beside the session, so e2e never overwrites `~/.config/tracker/cloud.json` |
+| e2e | `settings text field selection and secret mask`: click, keyboard selection, double-click, Tab/Shift+Tab, mask and save |
+| unit tests | caret/selection, word ops, copy/cut/paste, undo/redo, UTF-8 and select-all (`ui_text_*`) |
+| upstream | vinland-ui `357c115` adds triple-click and Ctrl+Y to the `vui-ctl` synthetic surface |
+
+A double/triple click must not be converted into a drag on the following frame:
+the button-up arrives in a later frame, so multi-click selections lock drag
+updates until release. Synthetic Tab also reaches vinland's focus traversal;
+Tracker clears vinland focus while a text field is editing so a later synthetic
+Enter cannot activate BROWSE and block on the native folder dialog.
 
 ## Google Drive (2026-11-22)
 

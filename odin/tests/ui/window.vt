@@ -138,6 +138,50 @@ test "settings menu edits project folder"
   key escape
   expect-no-text "Machine preferences"
 
+test "settings text field selection and secret mask"
+  click-text SET
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  click-text "Client ID"
+  type "alpha-beta"
+  # Keyboard selection replaces exactly the selected word.
+  key home
+  key right shift
+  key right shift
+  key right shift
+  key right shift
+  key right shift
+  type "Z"
+  expect-exact "Z-beta"
+  # Double-click selects a word; typing replaces it.
+  dblclick "Z-beta"
+  type "Q"
+  expect-exact "Z-Q"
+  # Tab moves to the secret without losing the ID draft.
+  key tab
+  type "s3cret"
+  expect-text "******"
+  expect-no-text "s3cret"
+  key tab shift
+  type x
+  expect-exact "Z-Qx"
+  # Secrets stay masked after saving.
+  key tab
+  key enter
+  expect-text "******"
+  expect-no-text "s3cret"
+  key escape
+
 test "cloud settings and overlay are reachable"
   click-text SET
   key down

@@ -56,6 +56,12 @@ SETTINGS_ITEM_COUNT :: int(Settings_Item.Cloud_Restore) + 1
 
 Cloud_Edit :: enum { None, Folder, Client_ID, Client_Secret }
 
+Text_Snapshot :: struct {
+	text:   []u8,
+	cursor: int,
+	anchor: int,
+}
+
 Cloud_Project_View :: struct {
 	id:       [CLOUD_PROJECT_ID_MAX]u8,
 	id_len:   int,
@@ -79,7 +85,7 @@ cloud_view_name :: proc(view: ^Cloud_Project_View) -> string {
 	return string(view.name[:view.name_len])
 }
 Transport :: enum { Stopped, Playing, Recording }
-Key :: enum { Char, Space, Enter, Escape, Backspace, Left, Right, Up, Down, Tab }
+Key :: enum { Char, Space, Enter, Escape, Backspace, Delete, Left, Right, Up, Down, Home, End, Tab }
 
 Fx_Module :: enum u8 { EQ, COMP, SEND, REVERB, DELAY, WIDTH, LIMITER }
 
@@ -454,6 +460,20 @@ App :: struct {
 	edit_confirm:         bool,
 	edit_select_all:      bool,
 	cloud_dirty:          bool,
+	// Caret/anchor for the active settings text field. Byte offsets into the
+	// active fixed buffer; anchor == cursor means no selection.
+	text_cursor:          int,
+	text_anchor:          int,
+	text_undo:            [32]Text_Snapshot,
+	text_undo_count:      int,
+	text_redo:            [32]Text_Snapshot,
+	text_redo_count:      int,
+	// Typed run coalescing: one undo step per run of typed characters.
+	text_typing:          bool,
+	text_scroll_x:        f32,
+	text_dragging:        bool,
+	text_drag_multi:      bool,
+	text_drag_field:      int,
 	cloud_projects:       [MAX_CLOUD_PROJECTS]Cloud_Project_View,
 	cloud_project_count:  int,
 	cloud_selected:       int,
@@ -564,6 +584,13 @@ app_init :: proc(a: ^App, width, height: int) {
 }
 
 app_destroy :: proc(a: ^App) {
+	for i in 0 ..< a.text_undo_count {
+		delete(a.text_undo[i].text)
+	}
+	for i in 0 ..< a.text_redo_count {
+		delete(a.text_redo[i].text)
+	}
+
 	for i in 0 ..< MAX_TRACKS {
 		if a.track_name_owned[i] {
 			delete(a.tracks[i].name)
@@ -986,6 +1013,10 @@ app_settings_close :: proc(a: ^App) {
 	a.edit_confirm = false
 	a.edit_select_all = false
 	a.cloud_dirty = false
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	text_history_reset(a)
 	settings_path_set(a, app_save_dir(a))
 	a.mode = .Normal
 	status_buf_set(a, "settings closed")
@@ -997,6 +1028,13 @@ app_settings_begin_edit :: proc(a: ^App) {
 	a.cloud_edit = .None
 	a.edit_confirm = false
 	a.edit_select_all = false
+	a.text_cursor = a.settings_path_len
+	a.text_anchor = a.text_cursor
+	a.text_scroll_x = 0
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	text_history_reset(a)
 	// Keep a candidate left over from a failed apply so the user can fix it;
 	// only seed an empty field from the applied folder.
 	if app_settings_path(a) == "" {
@@ -1009,22 +1047,11 @@ app_settings_cancel_edit :: proc(a: ^App) {
 	a.settings_path_edit = false
 	a.edit_confirm = false
 	a.edit_select_all = false
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	text_history_reset(a)
 	settings_path_set(a, app_save_dir(a))
-	bump_revision(a)
-}
-
-@(private)
-settings_path_append :: proc(a: ^App, ch: u8) {
-	if a.settings_path_len >= len(a.settings_path) {
-		return
-	}
-	if a.edit_select_all {
-		a.settings_path_len = 0
-		a.edit_select_all = false
-	}
-	a.settings_path[a.settings_path_len] = ch
-	a.settings_path_len += 1
-	a.edit_confirm = false
 	bump_revision(a)
 }
 
@@ -1132,6 +1159,13 @@ app_cloud_begin_edit :: proc(a: ^App, field: Cloud_Edit) {
 	a.settings_path_edit = false
 	a.edit_confirm = false
 	a.edit_select_all = false
+	a.text_cursor = text_field_length(a)
+	a.text_anchor = a.text_cursor
+	a.text_scroll_x = 0
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	text_history_reset(a)
 	bump_revision(a)
 }
 
@@ -1140,6 +1174,10 @@ app_cloud_cancel_edit :: proc(a: ^App) {
 	a.edit_confirm = false
 	a.edit_select_all = false
 	a.cloud_dirty = false
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	text_history_reset(a)
 	bump_revision(a)
 }
 
@@ -1152,40 +1190,25 @@ app_select_all_text :: proc(a: ^App) {
 	if a.mode != .Settings || (a.cloud_edit == .None && !a.settings_path_edit) {
 		return
 	}
-	a.edit_select_all = true
+	text_select_all(a)
+	a.text_scroll_x = 0
 	bump_revision(a)
 }
 
-@(private)
-app_cloud_append :: proc(a: ^App, ch: u8) {
-	buf: []u8
-	length: ^int
-	switch a.cloud_edit {
-	case .Folder:
-		buf = a.cloud_folder[:]
-		length = &a.cloud_folder_len
-	case .Client_ID:
-		buf = a.cloud_client_id[:]
-		length = &a.cloud_client_id_len
-	case .Client_Secret:
-		buf = a.cloud_client_secret[:]
-		length = &a.cloud_client_secret_len
-	case .None:
-		return
+// Selected text for Ctrl+C/Ctrl+X. The window writes the returned string to
+// the desktop clipboard; cuts update the model through text_clipboard.
+app_copy_text :: proc(a: ^App, cut: bool) -> string {
+	text, ok := text_clipboard(a, cut)
+	if !ok {
+		return ""
 	}
-	if a.edit_select_all {
-		length^ = 0
-		a.edit_select_all = false
+	if cut {
+		a.edit_confirm = false
+		bump_revision(a)
 	}
-	if length^ >= len(buf) {
-		return
-	}
-	buf[length^] = ch
-	length^ += 1
-	a.edit_confirm = false
-	a.cloud_dirty = true
-	bump_revision(a)
+	return text
 }
+
 
 // ---------------------------------------------------------------- accessibility
 

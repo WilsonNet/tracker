@@ -81,7 +81,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 260 unit tests
+make test         # 264 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -110,9 +110,9 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | 260 unit tests: 70 DSP, 124 core/engine/project/cloud, 66 UI |
+| `test` | 264 unit tests: 70 DSP, 124 core/engine/project/cloud, 70 UI |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
-| `e2e` | 16 headless vinland-ui window cases (`tests/ui/window.vt`) |
+| `e2e` | 17 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
 | `ui-test` | run a harness script; `SCRIPT=... UI_OUT=...` |
@@ -149,9 +149,11 @@ directory is in `XDG_DATA_DIRS`.
 - **Settings:** `,` or the SET button. Edits the project folder (type, BROWSE…,
   APPLY, DEFAULT), shows the input device/backends, latency and monitoring, and
   toggles high contrast and reduced motion. `j/k` selects a row and `Enter`
-  runs it. Clicking a text field enters EDIT; `Enter` applies, `Esc` asks
-  before discarding, `Ctrl+A` selects all, `Ctrl+V`/`Shift+Insert` paste, and
-  `Tab`/`Shift+Tab` switch inputs without losing drafts.
+  runs it. Clicking a text field enters EDIT with a real caret: click/drag or
+  Shift+click select, double-click selects a word, triple-click selects all,
+  arrows/Home/End and Ctrl+word movement work, and `Ctrl+C`/`X`/`V`/`Z`/`Y`
+  use the clipboard and undo. `Enter` applies, `Esc` asks before discarding,
+  and `Tab`/`Shift+Tab` switch inputs without losing drafts.
   Client secrets render as `*` even while editing. The folder and
   accessibility choices persist in
   `~/.config/tracker/settings.json`; changing the folder copies the current
@@ -318,7 +320,7 @@ removes them.
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 124 core/engine/project/cloud + 66 UI = 260 tests
+make test        # 70 DSP + 124 core/engine/project/cloud + 70 UI = 264 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui
