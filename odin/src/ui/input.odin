@@ -19,6 +19,9 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"fx rack", .Fx},
 	{"io panel", .Io},
 	{"settings", .Settings},
+	{"cloud projects", .Cloud_Open},
+	{"back up to google drive", .Cloud_Backup},
+	{"connect google drive", .Cloud_Connect},
 	{"save project", .Save},
 	{"load project", .Load},
 	{"arm all", .Arm_All},
@@ -758,6 +761,18 @@ app_settings_activate :: proc(a: ^App) {
 		app_execute(a, .High_Contrast)
 	case .Reduced_Motion:
 		app_execute(a, .Reduced_Motion)
+	case .Cloud_Folder:
+		app_cloud_begin_edit(a, .Folder)
+	case .Cloud_Client_ID:
+		app_cloud_begin_edit(a, .Client_ID)
+	case .Cloud_Client_Secret:
+		app_cloud_begin_edit(a, .Client_Secret)
+	case .Cloud_Connect:
+		app_execute(a, .Cloud_Disconnect if a.cloud_connected else .Cloud_Connect)
+	case .Cloud_Backup:
+		app_execute(a, .Cloud_Backup)
+	case .Cloud_Restore:
+		app_execute(a, .Cloud_Open)
 	}
 }
 
@@ -769,6 +784,42 @@ settings_move :: proc(a: ^App, delta: int) {
 
 @(private)
 app_settings_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
+	if a.cloud_edit != .None {
+		#partial switch key {
+		case .Escape:
+			app_cloud_cancel_edit(a)
+		case .Enter:
+			a.cloud_edit = .None
+			app_execute(a, .Cloud_Save_Credentials)
+		case .Backspace:
+			switch a.cloud_edit {
+			case .Folder:
+				if a.cloud_folder_len > 0 {
+					a.cloud_folder_len -= 1
+					bump_revision(a)
+				}
+			case .Client_ID:
+				if a.cloud_client_id_len > 0 {
+					a.cloud_client_id_len -= 1
+					bump_revision(a)
+				}
+			case .Client_Secret:
+				if a.cloud_client_secret_len > 0 {
+					a.cloud_client_secret_len -= 1
+					bump_revision(a)
+				}
+			case .None:
+			}
+		case .Space:
+			app_cloud_append(a, ' ')
+		case .Char:
+			if ch >= 32 && ch <= 126 {
+				app_cloud_append(a, ch)
+			}
+		case:
+		}
+		return true
+	}
 	if a.settings_path_edit {
 		#partial switch key {
 		case .Escape:
@@ -815,6 +866,38 @@ app_settings_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
 		case 'r':
 			a.settings_sel = .Default
 			app_execute(a, .Reset_Save_Dir)
+		}
+	}
+	return true
+}
+
+@(private)
+app_cloud_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
+	#partial switch key {
+	case .Escape:
+		a.mode = .Normal
+		status_buf_set(a, "cloud projects closed")
+		bump_revision(a)
+	case .Up:
+		a.cloud_selected = max(a.cloud_selected - 1, 0)
+		bump_revision(a)
+	case .Down:
+		a.cloud_selected = min(a.cloud_selected + 1, max(a.cloud_project_count - 1, 0))
+		bump_revision(a)
+	case .Enter:
+		app_execute(a, .Cloud_Restore)
+	case .Char:
+		switch ch {
+		case 'j':
+			a.cloud_selected = min(a.cloud_selected + 1, max(a.cloud_project_count - 1, 0))
+			bump_revision(a)
+		case 'k':
+			a.cloud_selected = max(a.cloud_selected - 1, 0)
+			bump_revision(a)
+		case 'u':
+			app_execute(a, .Cloud_Backup)
+		case 'r':
+			app_execute(a, .Cloud_List)
 		}
 	}
 	return true
@@ -1235,6 +1318,10 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 		app_settings_key(a, key, ch)
 		return
 	}
+	if a.mode == .Cloud {
+		app_cloud_key(a, key, ch)
+		return
+	}
 	if a.mode == .Bounce {
 		if key == .Escape {
 			app_bounce_dismiss(a)
@@ -1281,6 +1368,9 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false) {
 			return
 		case ',':
 			app_execute(a, .Settings)
+			return
+		case 'g':
+			app_execute(a, .Cloud)
 			return
 		case 'I':
 			if a.selected < MAX_TRACKS && a.transport != .Recording {
@@ -1591,6 +1681,8 @@ app_target_available :: proc(a: ^App, name: string) -> bool {
 		return is_recent
 	case .Settings:
 		return false
+	case .Cloud:
+		return false
 	case .Bounce:
 		return false
 	}
@@ -1754,6 +1846,22 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Apply_Save_Dir"
 	case .Reset_Save_Dir:
 		return "Reset_Save_Dir"
+	case .Cloud:
+		return "Cloud"
+	case .Cloud_Open:
+		return "Cloud_Open"
+	case .Cloud_Connect:
+		return "Cloud_Connect"
+	case .Cloud_Disconnect:
+		return "Cloud_Disconnect"
+	case .Cloud_Backup:
+		return "Cloud_Backup"
+	case .Cloud_Restore:
+		return "Cloud_Restore"
+	case .Cloud_List:
+		return "Cloud_List"
+	case .Cloud_Save_Credentials:
+		return "Cloud_Save_Credentials"
 	}
 	return "None"
 }
@@ -1785,6 +1893,8 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 			return "Recent", true
 		case .Settings:
 			return "Settings", true
+		case .Cloud:
+			return "Cloud", true
 		}
 	case "selected":
 		return fmt.tprintf("%d", a.selected), true
@@ -1831,6 +1941,22 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 		return app_settings_path(a), true
 	case "settings.editing":
 		return "true" if a.settings_path_edit else "false", true
+	case "cloud.open":
+		return "true" if a.mode == .Cloud else "false", true
+	case "cloud.connected":
+		return "true" if a.cloud_connected else "false", true
+	case "cloud.busy":
+		return "true" if a.cloud_busy else "false", true
+	case "cloud.count":
+		return fmt.tprintf("%d", a.cloud_project_count), true
+	case "cloud.status":
+		return app_cloud_status(a), true
+	case "cloud.error":
+		return app_cloud_error(a), true
+	case "cloud.selected":
+		return fmt.tprintf("%d", a.cloud_selected), true
+	case "cloud.id":
+		return app_cloud_selected_id(a), true
 	case "command":
 		return command_name(a.last_command), true
 	case "command.index":

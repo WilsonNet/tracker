@@ -23,7 +23,7 @@ make test-dsp              # DSP only
 make test-core             # engine / project / WAV / CLI
 make test-ui               # UI state, layout, HiDPI, PNG
 make test                  # all unit tests (counts live in README/VERIFICATION)
-make e2e                   # 15 headless vinland-ui window cases
+make e2e                   # 16 headless vinland-ui window cases
 make check                 # tests + 220-action UI tour + offline bounce + format checks
 ```
 
@@ -164,6 +164,28 @@ message state:
 - Validation: `vui-ctl` open → select → edit path → apply → inspect
   `project.json`/`settings.json` → toggle contrast → restart → 900×620 →
   idle. Keep the 15-case `make e2e` suite green.
+
+### Google Drive transfer (2026-11-22)
+
+- Scope is exactly `drive.file`; do not widen it to full Drive. Storage is a
+  visible My Drive folder whose name is user-configurable (`cloud.json`).
+- Every created file/folder carries `appProperties.tracker=1`; every lookup,
+  list and restore filter uses that marker. This protects same-named files even
+  inside the Tracker folder.
+- There is **no remote DELETE**. Do not add one without a separate product and
+  safety review. Deleting the Drive folder is the user-facing deletion path.
+- Restore accepts single ordinary filenames only (`/`, `\`, NUL, `.` and `..`
+  rejected), writes to a fresh `.partial-*` sibling, and never removes an
+  existing local folder. The finish step must not call `os.remove_all(final)`.
+- The only local deletes are generated temp files and the job's own partial
+  folder. Long-lived strings use `fmt.aprintf`, not `tprintf`.
+- OAuth is loopback + PKCE with a `state` check. The refresh token lives in
+  `cloud.json` (0600). Testing-mode tokens expire weekly; detect
+  `invalid_grant`, clear the token and prompt reconnect.
+- Test with the fake Drive server (`tests/cloud/fake_drive.py`): it seeds an
+  unrelated same-named file, records DELETE calls, and verifies the full
+  backup/restore round-trip. A live Google account run is still required for
+  consent and quota behavior.
 
 ### Window visibility (2026-11-21)
 

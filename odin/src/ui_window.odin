@@ -89,6 +89,12 @@ run_ui_window :: proc(args: []string) -> bool {
 		return false
 	}
 	defer engine_destroy(&e)
+
+	cloud: Cloud
+	cloud_store := cloud_store_path()
+	cloud_init(&cloud, cloud_store)
+	delete(cloud_store)
+	defer cloud_destroy(&cloud)
 	// An explicit session is a sandbox: keep settings beside the takes instead
 	// of touching the user's real XDG config. Its own file may carry the
 	// accessibility switches, but the explicit folder still wins.
@@ -171,8 +177,9 @@ run_ui_window :: proc(args: []string) -> bool {
 		dt := f32(time.duration_seconds(time.since(last)))
 		last = now
 		ui.app_tick(&a, clamp(dt, 0, 0.1))
-		window_run_commands(&a, &e, recent_store)
+		window_run_commands(&a, &e, recent_store, &cloud)
 		engine_update(&e, &a)
+		cloud_sync_ui(&cloud, &a, &e, recent_store)
 		ui_sync_takes(&a, &e)
 		if a11y_log && a.state_revision != a11y_revision {
 			a11y_revision = a.state_revision
@@ -182,7 +189,7 @@ run_ui_window :: proc(args: []string) -> bool {
 		ui.view_frame(&a, &view)
 		vapp.end_frame(&va)
 		// clicks in the tree emit commands; run them before the next idle wait
-		window_run_commands(&a, &e, recent_store)
+		window_run_commands(&a, &e, recent_store, &cloud)
 		dirty_settings := a.settings_dirty
 		if dirty_settings {
 			ui_persist_settings(&a, settings_store)
@@ -330,7 +337,20 @@ window_apply_save_dir :: proc(a: ^ui.App, e: ^Engine, dir: string, recent_store:
 }
 
 @(private)
-window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string) {
+window_cloud_commit :: proc(a: ^ui.App, cloud: ^Cloud) -> bool {
+	if cloud == nil {
+		return false
+	}
+	return cloud_set_client(
+		cloud,
+		ui.app_cloud_client_id(a),
+		ui.app_cloud_client_secret(a),
+		ui.app_cloud_folder(a),
+	)
+}
+
+@(private)
+window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud: ^Cloud) {
 	for {
 		cmd, has := ui.app_take_command(a)
 		if !has {
@@ -473,6 +493,80 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string) {
 			defer delete(dir)
 			ui.app_set_settings_path(a, dir)
 			_ = window_apply_save_dir(a, e, dir, recent_store)
+		case .Cloud_Connect:
+			if cloud == nil || !window_cloud_commit(a, cloud) {
+				ui.app_cloud_failed(a, "cannot save cloud.json")
+			} else if ui.app_cloud_client_id(a) == "" || ui.app_cloud_client_secret(a) == "" {
+				ui.app_cloud_failed(a, "Set the Google Client ID and secret first")
+			} else if !cloud_start_connect(cloud) {
+				ui.app_cloud_failed(a, "a cloud operation is already running")
+			}
+		case .Cloud_Disconnect:
+			if cloud != nil && cloud_is_connected(cloud) {
+				if !cloud_start_disconnect(cloud) {
+					ui.app_cloud_failed(a, "a cloud operation is already running")
+				}
+			}
+		case .Cloud_List:
+			_ = window_cloud_commit(a, cloud)
+			if cloud == nil || !cloud_is_connected(cloud) {
+				ui.app_cloud_failed(a, "Connect Google Drive first")
+			} else if !cloud_start_list(cloud) {
+				ui.app_cloud_failed(a, "a cloud operation is already running")
+			}
+		case .Cloud_Save_Credentials:
+			if cloud == nil || !cloud_set_client(cloud, ui.app_cloud_client_id(a), ui.app_cloud_client_secret(a), ui.app_cloud_folder(a)) {
+				ui.app_cloud_failed(a, "cannot save cloud.json")
+			} else {
+				ui.app_cloud_status_set(a, "Google credentials saved", "")
+				ui.status_buf_set(a, "Google credentials saved")
+			}
+		case .Cloud_Backup:
+			_ = window_cloud_commit(a, cloud)
+			if cloud == nil || !cloud_is_connected(cloud) {
+				ui.app_cloud_failed(a, "Connect Google Drive first")
+			} else if a.transport != .Stopped || e.rec.active || e.play.active {
+				ui.app_cloud_failed(a, "stop transport before backing up")
+			} else if !project_save_with_takes(a, e.takes[:], e.project_path) {
+				ui.app_cloud_failed(a, "cannot save the project before backup")
+			} else {
+				take_names: [dynamic]string
+				defer {
+					for name in take_names {
+						delete(name)
+					}
+					delete(take_names)
+				}
+				for list in e.takes {
+					for take in list.takes {
+						if take.file != "" {
+							append(&take_names, fmt.aprintf("%s", take.file))
+						}
+					}
+				}
+				if !cloud_start_backup(cloud, e.session_dir, ui.app_project(a), take_names[:]) {
+					ui.app_cloud_failed(a, "a cloud operation is already running")
+				} else {
+					ui.status_buf_set(a, "backing up to Google Drive")
+				}
+			}
+		case .Cloud_Restore:
+			id := ui.app_cloud_selected_id(a)
+			_ = window_cloud_commit(a, cloud)
+			if cloud == nil || !cloud_is_connected(cloud) {
+				ui.app_cloud_failed(a, "Connect Google Drive first")
+			} else if id == "" {
+				ui.app_cloud_failed(a, "no cloud project selected")
+			} else if a.transport != .Stopped || e.rec.active || e.play.active {
+				ui.app_cloud_failed(a, "stop transport before restoring")
+			} else {
+				root := parent_dir(e.session_dir)
+				if !cloud_start_restore(cloud, id, root) {
+					ui.app_cloud_failed(a, "a cloud operation is already running")
+				} else {
+					ui.status_buf_set(a, "restoring from Google Drive")
+				}
+			}
 		case .Open_Recent:
 			path := ui.app_recent_target(a)
 			if path != "" && engine_open_project(a, e, path) {

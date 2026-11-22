@@ -99,11 +99,11 @@ cover it.
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — 236 unit tests (DSP + core/engine/project + UI)
+- `make test` — 255 unit tests (DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
-- `make ui-shot SHOT=/tmp/ui.png` — render one frame
+- `make ui-shot SHOT=/tmp/ui.png` — render one frame (`--settings`, `--cloud`)
 - `make ui-test SCRIPT=... UI_OUT=...` — run a harness script
 - `make devices`, `make selftest`, `make bounce SESSION=...` — CLI helpers
 - `make install` / `make uninstall` — desktop integration under `PREFIX`
@@ -140,8 +140,8 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 70 DSP + 106 core/engine/project/WAV/settings + 60 UI tests.
-- `make e2e` — 15 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow).
+- `make test` — 70 DSP + 124 core/engine/project/WAV/settings/cloud + 61 UI tests.
+- `make e2e` — 16 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, cloud settings/overlay).
 - The Cairo/Pango harness (`ui-test`, `ui-shot`) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.
 - Do not claim a UI works without inspecting the generated PNG/report. Hardware recording evidence belongs in `odin/VERIFICATION.md`.
@@ -152,7 +152,8 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 - **Engine** — lock-free capture ring drained by a writer thread, preview/overdub playback, duplex live monitoring, metronome (40–240 BPM), manual latency trim, mixed-rate resampling to the project rate.
 - **Track chain** — 3-band EQ (low shelf 110 Hz → mid bell → high shelf 7.5 kHz) → compressor → fader/pan, with post-fader sends into the shared reverb and delay buses.
 - **Master chain** — compressor → FDN reverb → ping-pong delay → mid/side widener (mono-safe below the bass crossover) → lookahead limiter with a soft-clip ceiling.
-- **Persistence** — atomic `project.json` (takes, active take, comp regions, FX, view and a11y flags), recent projects and machine settings under `XDG_CONFIG_HOME` (`settings.json`: project folder, high contrast, reduced motion), RF64/BW64 reading and writing. The Settings overlay (`SET`, `,`) retargets the project folder by copying takes and persists it; an explicit `--session` ignores global settings so tests and throwaway takes stay isolated.
+- **Persistence** — atomic `project.json` (takes, active take, comp regions, FX, view and a11y flags), recent projects and machine settings under `XDG_CONFIG_HOME` (`settings.json`: project folder, high contrast, reduced motion; `cloud.json`: Google OAuth client/token/folder with 0600), RF64/BW64 reading and writing. The Settings overlay (`SET`, `,`) retargets the project folder by copying takes and persists it; an explicit `--session` ignores global settings so tests and throwaway takes stay isolated.
+- **Cloud** — `cloud.odin` (store/PKCE/curl), `cloud_oauth.odin` (loopback OAuth), `cloud_drive.odin` (Drive v3), `cloud_jobs.odin` (background backup/restore + UI bridge). Scope is exactly `drive.file`; storage is a visible, named My Drive folder. Every created item carries `appProperties.tracker=1`, all queries are parent-scoped and marker-filtered, and there is **no remote DELETE**. Restore writes into a fresh local folder, only after download succeeds, and never removes an existing target. Live setup and safety tests: `docs/cloud-setup.md`, `tests/cloud/fake_drive.py`.
 - Bounce renders the same chain offline to stereo float `bounce.wav`, including reverb tails.
 
 ## Docs
@@ -161,5 +162,6 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 - `odin/ROADMAP.md` — completion record and intentional limits
 - `odin/VERIFICATION.md` — test/measurement matrix and sources
 - `.opencode/skills/feature-closeout` — mandatory end-of-feature validation and docs update
+- `docs/cloud-setup.md` — Google OAuth client, scope, Drive layout, safety model
 - `docs/RESEARCH.md`, `docs/fx-research.md` — product and effects research
 - `PRODUCT.md`, `DESIGN.md` — product strategy and visual system

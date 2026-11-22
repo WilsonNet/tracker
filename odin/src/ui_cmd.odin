@@ -28,7 +28,7 @@ ui_scale_from_flags :: proc(args: []string, name: string, fallback: f32 = 1.0) -
 
 run_ui_shot :: proc(args: []string) -> bool {
 	if !validate_flags(args, []string{"--out", "--width", "--height", "--scale"}, []string{
-		"--playing", "--recording", "--three", "--fx", "--master", "--palette", "--io", "--settings", "--bounce", "--click",
+		"--playing", "--recording", "--three", "--fx", "--master", "--palette", "--io", "--settings", "--cloud", "--bounce", "--click",
 	}) || !validate_numbers(args, nil, []string{"--width", "--height"}) {
 		return false
 	}
@@ -84,6 +84,9 @@ run_ui_shot :: proc(args: []string) -> bool {
 		a.mode = .Settings
 		ui.app_set_save_dir(&a, "/home/studio/Music/Tracker")
 		ui.app_set_settings_path(&a, "/home/studio/Music/Tracker")
+	}
+	if has_flag(args, "--cloud") {
+		a.mode = .Cloud
 	}
 	if has_flag(args, "--bounce") {
 		a.mode = .Bounce

@@ -92,7 +92,11 @@ All components live in `src/components/`. Shared tokens are in `src/styles/token
 
 **Command palette** — Vim `:` overlay, monospace, amber selection.
 
-**Settings overlay** — grouped preferences (Storage, Audio, Appearance) in the same panel style. One row is selected at a time with `j/k` or the arrows; `Enter` edits the folder or runs the row. The project-folder row is a full-width monospace path field with an `EDIT` affordance, followed by BROWSE / APPLY / DEFAULT. New settings are added as rows inside an existing group so the panel scales.
+**Settings overlay** — grouped preferences (Storage, Audio, Appearance, Cloud) in the same panel style. One row is selected at a time with `j/k` or the arrows; `Enter` edits the folder or runs the row. The project-folder row is a full-width monospace path field with an `EDIT` affordance, followed by BROWSE / APPLY / DEFAULT. New settings are added as rows inside an existing group so the panel scales.
+
+**Cloud section** — a visible, named Google Drive folder (`Tracker` by default), Client ID/secret fields, a connection row with `CONNECT`/`DISCONNECT`, and `BACK UP NOW` / `RESTORE…`. Transfer status uses a thin amber progress bar and the same mono labels; no cloud illustrations, cards, or dashboard chrome. The keyboard-selected cloud row scrolls into view.
+
+**Cloud projects overlay** — compact list of remote projects with name, short cloud id, modified time and size. Same overlay shell and amber selection as Recents; `Enter` restores, `U` backs up the current project, `R` refreshes. Disconnected and empty states teach the next action.
 
 **Status line / rhythm section** — mode badge, transient message, capture/record indicators, hint string; rhythm toggle at the right.
 
@@ -100,7 +104,7 @@ All components live in `src/components/`. Shared tokens are in `src/styles/token
 - Buttons: 1px border, flat; hover fills with the 8–12% tint (`--amber-bg`, `--teal-bg`, `--red-bg`).
 - Toggles: `aria-pressed` + filled state; chips (`AUTO`, `SYNC`, `P·P`) are the compact form.
 - Focus: 1px amber outline, 1–2px offset, never removed.
-- Nothing is a modal unless it must be (command palette only).
+- Nothing is a modal unless it must be (command palette, settings, project/cloud browser).
 
 ## 6. Do's and Don'ts
 

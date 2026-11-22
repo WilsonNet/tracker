@@ -190,7 +190,7 @@ ui_draws_every_overlay_without_panicking :: proc(t: ^testing.T) {
 	canvas_init(&c, 1180, 760)
 	defer canvas_destroy(&c)
 
-	modes := [7]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent, .Settings}
+	modes := [8]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent, .Settings, .Cloud}
 	for mode in modes {
 		a.mode = mode
 		app_draw(&a, &c)
@@ -815,7 +815,7 @@ ui_interactive_targets_meet_minimum_size :: proc(t: ^testing.T) {
 @(test)
 ui_render_is_nonblank_in_every_mode_and_size :: proc(t: ^testing.T) {
 	sizes := [3][2]int{{900, 620}, {1180, 760}, {1920, 1080}}
-	modes := [7]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent, .Settings}
+	modes := [8]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent, .Settings, .Cloud}
 	for size in sizes {
 		vw, vh := ui_virtual_size(size[0], size[1])
 		a: App
@@ -1592,6 +1592,10 @@ ui_settings_keyboard_selection_reaches_every_row :: proc(t: ^testing.T) {
 
 	app_key(&a, .Down)
 	testing.expect(t, a.settings_sel == .Reduced_Motion, "reached reduced motion")
+	for _ in 0 ..< 6 {
+		app_key(&a, .Down)
+	}
+	testing.expect(t, a.settings_sel == .Cloud_Restore, "reached cloud restore")
 	app_key(&a, .Down)
 	testing.expect(t, a.settings_sel == .Path, "selection wraps")
 }
@@ -1622,6 +1626,48 @@ ui_settings_escape_cancels_path_edit :: proc(t: ^testing.T) {
 
 	app_execute(&a, .High_Contrast)
 	testing.expect(t, a.settings_dirty, "a11y change asks for persistence")
+}
+
+@(test)
+ui_cloud_overlay_and_credentials :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	app_execute(&a, .Cloud)
+	testing.expect(t, a.mode == .Cloud, "cloud overlay")
+	views: [2]Cloud_Project_View
+	Cloud_View_Set(&views[0], "abc12345", "Night session")
+	Cloud_View_Set(&views[1], "def67890", "Sketch")
+	app_set_cloud_projects(&a, views[:])
+	testing.expect(t, a.cloud_project_count == 2, "cloud projects")
+	app_key(&a, .Down)
+	testing.expect(t, a.cloud_selected == 1, "cloud selection")
+	app_key(&a, .Enter)
+	testing.expect(t, a.last_command == .Cloud_Restore, "restore command")
+	app_key(&a, .Escape)
+	testing.expect(t, a.mode == .Normal, "cloud closes")
+
+	app_execute(&a, .Settings)
+	a.settings_sel = .Cloud_Folder
+	app_key(&a, .Enter)
+	testing.expect(t, a.cloud_edit == .Folder, "folder edit")
+	folder_name := "Studio"
+	for i in 0 ..< len(folder_name) {
+		app_key(&a, .Char, folder_name[i])
+	}
+	app_key(&a, .Enter)
+	testing.expect(t, app_cloud_folder(&a) == "Studio", app_cloud_folder(&a))
+
+	a.settings_sel = .Cloud_Client_ID
+	app_key(&a, .Enter)
+	testing.expect(t, a.cloud_edit == .Client_ID, "credential edit")
+	app_key(&a, .Char, 'a')
+	app_key(&a, .Char, 'b')
+	testing.expect(t, app_cloud_client_id(&a) != "", "credential typed")
+	app_key(&a, .Enter)
+	testing.expect(t, a.cloud_edit == .None, "credential edit ends")
+	testing.expect(t, a.last_command == .Cloud_Save_Credentials, "credentials command")
 }
 
 @(test)

@@ -137,3 +137,24 @@ test "settings menu edits project folder"
   expect-text e2e
   key escape
   expect-no-text "Machine preferences"
+
+test "cloud settings and overlay are reachable"
+  click-text SET
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  expect-text "Drive folder"
+  key escape
+  type g
+  expect-text "Cloud projects"
+  expect-text "Connect Google Drive in Settings"
+  key escape
+  expect-no-text "Google Drive · hidden app data"

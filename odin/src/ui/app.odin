@@ -17,11 +17,17 @@ MAX_RECENT :: 8
 RECENT_PATH_MAX :: 192
 RECENT_QUERY_MAX :: 40
 SAVE_DIR_MAX :: 4096
+MAX_CLOUD_PROJECTS :: 32
+CLOUD_PROJECT_ID_MAX :: 64
+CLOUD_PROJECT_NAME_MAX :: 96
+CLOUD_STATUS_MAX :: 192
+CLOUD_ERROR_MAX :: 320
+CLOUD_CREDENTIAL_MAX :: 256
 DESCRIBE_MAX :: 1024
 HISTORY_LABEL_MAX :: 40
 HISTORY_LEN :: 120
 
-Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent, Settings }
+Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent, Settings, Cloud }
 
 // Keyboard order of the settings rows. Keep view_settings, app_settings_key
 // and this enum in the same order.
@@ -37,9 +43,40 @@ Settings_Item :: enum u8 {
 	Monitor,
 	High_Contrast,
 	Reduced_Motion,
+	Cloud_Folder,
+	Cloud_Client_ID,
+	Cloud_Client_Secret,
+	Cloud_Connect,
+	Cloud_Backup,
+	Cloud_Restore,
 }
 
-SETTINGS_ITEM_COUNT :: int(Settings_Item.Reduced_Motion) + 1
+SETTINGS_ITEM_COUNT :: int(Settings_Item.Cloud_Restore) + 1
+
+Cloud_Edit :: enum { None, Folder, Client_ID, Client_Secret }
+
+Cloud_Project_View :: struct {
+	id:       [CLOUD_PROJECT_ID_MAX]u8,
+	id_len:   int,
+	name:     [CLOUD_PROJECT_NAME_MAX]u8,
+	name_len: int,
+	modified: i64,
+	bytes:    u64,
+	files:    int,
+}
+
+Cloud_View_Set :: proc(view: ^Cloud_Project_View, id, name: string) {
+	buf_set(view.id[:], &view.id_len, id)
+	buf_set(view.name[:], &view.name_len, name)
+}
+
+cloud_view_id :: proc(view: ^Cloud_Project_View) -> string {
+	return string(view.id[:view.id_len])
+}
+
+cloud_view_name :: proc(view: ^Cloud_Project_View) -> string {
+	return string(view.name[:view.name_len])
+}
 Transport :: enum { Stopped, Playing, Recording }
 Key :: enum { Char, Space, Enter, Escape, Backspace, Left, Right, Up, Down, Tab }
 
@@ -83,6 +120,14 @@ Command_Kind :: enum {
 	Choose_Save_Dir,
 	Apply_Save_Dir,
 	Reset_Save_Dir,
+	Cloud,
+	Cloud_Open,
+	Cloud_Connect,
+	Cloud_Disconnect,
+	Cloud_Backup,
+	Cloud_Restore,
+	Cloud_List,
+	Cloud_Save_Credentials,
 }
 
 Command :: struct {
@@ -386,6 +431,28 @@ App :: struct {
 	settings_path_edit: bool,
 	settings_sel:      Settings_Item,
 	settings_dirty:    bool,
+
+	// Cloud display state. The worker in cloud_jobs.odin owns tokens and
+	// network I/O; these fields are copied on the UI thread.
+	cloud_connected:    bool,
+	cloud_busy:         bool,
+	cloud_status:       [CLOUD_STATUS_MAX]u8,
+	cloud_status_len:   int,
+	cloud_error:        [CLOUD_ERROR_MAX]u8,
+	cloud_error_len:    int,
+	cloud_progress_done:  int,
+	cloud_progress_total: int,
+	cloud_last_sync:      i64,
+	cloud_folder:        [CLOUD_PROJECT_NAME_MAX]u8,
+	cloud_folder_len:    int,
+	cloud_client_id:      [CLOUD_CREDENTIAL_MAX]u8,
+	cloud_client_id_len:  int,
+	cloud_client_secret:     [CLOUD_CREDENTIAL_MAX]u8,
+	cloud_client_secret_len: int,
+	cloud_edit:           Cloud_Edit,
+	cloud_projects:       [MAX_CLOUD_PROJECTS]Cloud_Project_View,
+	cloud_project_count:  int,
+	cloud_selected:       int,
 
 	mouse_x, mouse_y: f32,
 	mouse_down:   bool,
@@ -889,6 +956,7 @@ app_mark_settings_dirty :: proc(a: ^App) {
 app_settings_open :: proc(a: ^App) {
 	a.mode = .Settings
 	a.settings_path_edit = false
+	a.cloud_edit = .None
 	a.settings_sel = .Path
 	settings_path_set(a, app_save_dir(a))
 	status_buf_set(a, "settings")
@@ -897,6 +965,7 @@ app_settings_open :: proc(a: ^App) {
 
 app_settings_close :: proc(a: ^App) {
 	a.settings_path_edit = false
+	a.cloud_edit = .None
 	settings_path_set(a, app_save_dir(a))
 	a.mode = .Normal
 	status_buf_set(a, "settings closed")
@@ -905,6 +974,7 @@ app_settings_close :: proc(a: ^App) {
 
 app_settings_begin_edit :: proc(a: ^App) {
 	a.settings_path_edit = true
+	a.cloud_edit = .None
 	// Keep a candidate left over from a failed apply so the user can fix it;
 	// only seed an empty field from the applied folder.
 	if app_settings_path(a) == "" {
@@ -926,6 +996,129 @@ settings_path_append :: proc(a: ^App, ch: u8) {
 	}
 	a.settings_path[a.settings_path_len] = ch
 	a.settings_path_len += 1
+	bump_revision(a)
+}
+
+// ---------------------------------------------------------------- cloud
+
+app_cloud_status :: proc(a: ^App) -> string { return string(a.cloud_status[:a.cloud_status_len]) }
+app_cloud_error :: proc(a: ^App) -> string { return string(a.cloud_error[:a.cloud_error_len]) }
+app_cloud_folder :: proc(a: ^App) -> string { return string(a.cloud_folder[:a.cloud_folder_len]) }
+app_cloud_client_id :: proc(a: ^App) -> string { return string(a.cloud_client_id[:a.cloud_client_id_len]) }
+app_cloud_client_secret :: proc(a: ^App) -> string { return string(a.cloud_client_secret[:a.cloud_client_secret_len]) }
+
+app_cloud_status_set :: proc(a: ^App, status, err: string) {
+	changed := app_cloud_status(a) != status || app_cloud_error(a) != err
+	buf_set(a.cloud_status[:], &a.cloud_status_len, status)
+	buf_set(a.cloud_error[:], &a.cloud_error_len, err)
+	if changed {
+		bump_revision(a)
+	}
+}
+
+app_set_cloud_status :: proc(a: ^App, status, err: string, connected: bool) {
+	if a.cloud_connected != connected {
+		a.cloud_connected = connected
+		bump_revision(a)
+	}
+	app_cloud_status_set(a, status, err)
+}
+
+app_set_cloud_credentials :: proc(a: ^App, id, secret, folder: string) {
+	buf_set(a.cloud_client_id[:], &a.cloud_client_id_len, id)
+	buf_set(a.cloud_client_secret[:], &a.cloud_client_secret_len, secret)
+	buf_set(a.cloud_folder[:], &a.cloud_folder_len, folder)
+}
+
+app_cloud_connected :: proc(a: ^App, last_sync: i64) {
+	a.cloud_connected = true
+	a.cloud_last_sync = last_sync
+	app_cloud_status_set(a, "Google Drive connected", "")
+	status_buf_set(a, "Google Drive connected")
+	toast(a, "Google Drive connected")
+	bump_revision(a)
+}
+
+app_cloud_disconnected :: proc(a: ^App) {
+	a.cloud_connected = false
+	a.cloud_project_count = 0
+	a.cloud_last_sync = 0
+	app_cloud_status_set(a, "Google Drive disconnected", "")
+	status_buf_set(a, "Google Drive disconnected")
+	toast(a, "Google Drive disconnected")
+	bump_revision(a)
+}
+
+app_cloud_backed_up :: proc(a: ^App, last_sync: i64) {
+	a.cloud_last_sync = last_sync
+	status_buf_set(a, "project backed up to Google Drive")
+	toast(a, "backup complete")
+	bump_revision(a)
+}
+
+app_cloud_restored :: proc(a: ^App) {
+	a.mode = .Normal
+	status_buf_set(a, "project restored from Google Drive")
+	toast(a, "project restored")
+	bump_revision(a)
+}
+
+app_cloud_failed :: proc(a: ^App, msg: string) {
+	app_cloud_status_set(a, msg, msg)
+	status_buf_set(a, msg)
+	toast(a, msg)
+	bump_revision(a)
+}
+
+app_set_cloud_projects :: proc(a: ^App, views: []Cloud_Project_View) {
+	a.cloud_project_count = min(len(views), MAX_CLOUD_PROJECTS)
+	for i in 0 ..< a.cloud_project_count {
+		a.cloud_projects[i] = views[i]
+	}
+	a.cloud_selected = clamp(a.cloud_selected, 0, max(a.cloud_project_count - 1, 0))
+	bump_revision(a)
+}
+
+app_cloud_selected_id :: proc(a: ^App) -> string {
+	if a.cloud_selected < 0 || a.cloud_selected >= a.cloud_project_count {
+		return ""
+	}
+	return cloud_view_id(&a.cloud_projects[a.cloud_selected])
+}
+
+app_cloud_begin_edit :: proc(a: ^App, field: Cloud_Edit) {
+	a.cloud_edit = field
+	a.settings_path_edit = false
+	bump_revision(a)
+}
+
+app_cloud_cancel_edit :: proc(a: ^App) {
+	a.cloud_edit = .None
+	bump_revision(a)
+}
+
+@(private)
+app_cloud_append :: proc(a: ^App, ch: u8) {
+	buf: []u8
+	length: ^int
+	switch a.cloud_edit {
+	case .Folder:
+		buf = a.cloud_folder[:]
+		length = &a.cloud_folder_len
+	case .Client_ID:
+		buf = a.cloud_client_id[:]
+		length = &a.cloud_client_id_len
+	case .Client_Secret:
+		buf = a.cloud_client_secret[:]
+		length = &a.cloud_client_secret_len
+	case .None:
+		return
+	}
+	if length^ >= len(buf) {
+		return
+	}
+	buf[length^] = ch
+	length^ += 1
 	bump_revision(a)
 }
 
@@ -963,6 +1156,8 @@ app_describe :: proc(a: ^App) -> string {
 		mode_name = "Recent projects"
 	case .Settings:
 		mode_name = "Settings"
+	case .Cloud:
+		mode_name = "Cloud projects"
 	}
 	transport := "stopped"
 	switch a.transport {
@@ -985,6 +1180,7 @@ app_describe :: proc(a: ^App) -> string {
 		"Jack" if a.jack_backend else "PipeWire",
 		"on" if a.high_contrast else "off",
 		"on" if a.reduced_motion else "off", app_save_dir(a))
+	describe_append(out[:], &n, "google drive %s. cloud projects %d. ", "connected" if a.cloud_connected else "disconnected", a.cloud_project_count)
 	for t, i in a.tracks {
 		describe_append(out[:], &n, "track %d %s: %s, mute %s, solo %s, %d take(s), level %d percent, pan %s, peak %.1f dB. ",
 			i + 1, t.name,
@@ -1446,6 +1642,70 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		a.settings_path_edit = false
 		emit(a, .Reset_Save_Dir)
 		status_buf_set(a, "reset to default folder")
+		bump_revision(a)
+	case .Cloud:
+		if a.mode == .Cloud {
+			a.mode = .Normal
+			status_buf_set(a, "cloud projects closed")
+			bump_revision(a)
+		} else {
+			app_execute(a, .Cloud_Open)
+		}
+	case .Cloud_Open:
+		a.mode = .Cloud
+		a.cloud_selected = 0
+		status_buf_set(a, "cloud projects")
+		emit(a, .Cloud_List)
+		bump_revision(a)
+	case .Cloud_Connect:
+		a.cloud_edit = .None
+		a.last_command = .Cloud_Connect
+		a.last_command_index = 0
+		emit(a, .Cloud_Connect)
+		status_buf_set(a, "connecting Google Drive")
+		bump_revision(a)
+	case .Cloud_Disconnect:
+		a.last_command = .Cloud_Disconnect
+		a.last_command_index = 0
+		emit(a, .Cloud_Disconnect)
+		status_buf_set(a, "disconnecting Google Drive")
+		bump_revision(a)
+	case .Cloud_Backup:
+		a.cloud_edit = .None
+		if a.transport == .Recording {
+			toast(a, "stop recording before backing up")
+			status_buf_set(a, "stop recording before backing up")
+			return
+		}
+		a.last_command = .Cloud_Backup
+		a.last_command_index = 0
+		emit(a, .Cloud_Backup)
+		status_buf_set(a, "preparing Google Drive backup")
+		bump_revision(a)
+	case .Cloud_Restore:
+		a.cloud_edit = .None
+		if a.cloud_project_count == 0 {
+			toast(a, "no cloud projects")
+			status_buf_set(a, "no cloud projects")
+			return
+		}
+		a.last_command = .Cloud_Restore
+		a.last_command_index = a.cloud_selected
+		emit(a, .Cloud_Restore, a.cloud_selected)
+		status_buf_set(a, "restoring cloud project")
+		bump_revision(a)
+	case .Cloud_List:
+		a.cloud_edit = .None
+		a.last_command = .Cloud_List
+		a.last_command_index = 0
+		emit(a, .Cloud_List)
+		status_buf_set(a, "refreshing cloud projects")
+		bump_revision(a)
+	case .Cloud_Save_Credentials:
+		a.last_command = .Cloud_Save_Credentials
+		a.last_command_index = 0
+		emit(a, .Cloud_Save_Credentials)
+		status_buf_set(a, "saving Google credentials")
 		bump_revision(a)
 	case .Recent:
 		if a.mode == .Recent {

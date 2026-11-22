@@ -117,13 +117,19 @@ or close the tab.
   folder and a11y choices persist in `~/.config/tracker/settings.json`.
   Launch with isolated `XDG_DATA_HOME`/`XDG_CONFIG_HOME` when testing settings;
   an explicit `--session` deliberately ignores saved settings.
+- Cloud: `g` opens the Drive project list; `u` backs up, `r` refreshes.
+  `Settings → CLOUD` holds the Drive folder name and OAuth client ID/secret.
+  Tokens are in `cloud.json` (0600). Do not add/remote-delete anything during
+  testing; the client intentionally has no Drive DELETE. Use
+  `tests/cloud/fake_drive.py` for transport tests and the real account only for
+  a deliberate manual round-trip.
 - Arming a track opens a capture-only input preview: the window stays busy
   (meter and history graph redraw) while armed and releases the input device
   when disarmed. A rising `frame` count is expected then; unarm before judging
   idle CPU.
 - Arm preview is miniaudio/PipeWire only. With `--jack` the input graph starts
   with the take; do not report it as a hang.
-- `make e2e` runs the 15 cases in `tests/ui/window.vt` headless and sandboxed
+- `make e2e` runs the 16 cases in `tests/ui/window.vt` headless and sandboxed
   through `vinland-ui/build/vui-test`; inspect `/tmp/tracker-e2e/report.html`.
 - Hardware recording evidence belongs in `odin/VERIFICATION.md`; the loopback
   checks are `cd odin && ./scripts/check.sh --hardware --jack --loopback`.

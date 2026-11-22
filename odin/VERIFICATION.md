@@ -10,14 +10,14 @@ intentional limits are in `ROADMAP.md`.
 |---|---|---|
 | clean build | `make clean && make build` | ≈0.8 s |
 | DSP | `odin test src/dsp` | **70 passed** |
-| engine / project / WAV / RF64 / takes / CLI / settings | `odin test src` | **106 passed** |
-| UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **60 passed** |
+| engine / project / WAV / RF64 / takes / CLI / settings / cloud | `odin test src` | **124 passed** |
+| UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **61 passed** |
 | vector renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
 | charts | level history + 5 FX response graphs | 17 screenshots inspected |
 | static checks | `odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
-Total: **236 unit tests**.
+Total: **255 unit tests**.
 
 ## Native UI harness
 
@@ -32,8 +32,8 @@ Total: **236 unit tests**.
 - Window-responsive zoom verified at 1440x900 (1.20x), 1920x1080 (1.52x),
   2536x986 (1.59x) and 3840x2160 (1.80x cap); the virtual frame never drops
   below 900x620
-- Window suite (`make e2e`): **15 cases**, including settings keyboard
-  selection, path edit, apply and close
+- Window suite (`make e2e`): **16 cases**, including settings keyboard
+  selection, path edit, apply, cloud settings and the cloud overlay
 
 ## Settings persistence (2026-11-21)
 
@@ -65,6 +65,48 @@ vui-ctl --port 7426 key enter           # apply
 `engine_apply_save_dir` refuses a folder that already contains `project.json`
 or `track1..4.wav`, so the picker and DEFAULT cannot silently overwrite another
 session.
+
+## Google Drive (2026-11-22)
+
+Setup: [`docs/cloud-setup.md`](../docs/cloud-setup.md). Scope is exactly
+`https://www.googleapis.com/auth/drive.file`; the visible Drive folder name is
+configured in Settings → CLOUD.
+
+### Fake-Drive round-trip
+
+`odin test src` starts `tests/cloud/fake_drive.py` and exercises the production
+transport, backup and restore code:
+
+| check | result |
+|---|---|
+| OAuth callback | loopback listener accepts `code` + matching `state`; PKCE URL uses S256 and `drive.file` |
+| client metadata | every Tracker folder/file carries `appProperties: {tracker: "1"}` |
+| backup | `project.json` + `track1.wav` uploaded into `Studio/...`; index written |
+| innocent file | a same-named `track1.wav` without the marker is seeded inside the project folder |
+| second backup | innocent file remains byte-identical; marked file updated instead |
+| restore | downloads only marked files; restores “MARKED”, never “INNOCENT” |
+| delete guard | fake server records **0** DELETE requests |
+| query scope | every list is anchored to `'<parent>' in parents`; no global name search |
+
+Additional unit guards cover `..`, `/`, `\`, NUL and empty restore names,
+refusal to reuse an existing local folder, and a source test that fails if a
+`DELETE` call or `os.remove_all(final)` is added.
+
+### Real-window check
+
+`vui-ctl` with isolated XDG dirs and fake credentials verified:
+
+- Settings → CLOUD scrolls to the Drive folder/Client ID/secret rows and
+  remembers the name (`Studio`) in `cloud.json`.
+- CONNECT with a missing secret reports `Set the Google Client ID and secret
+  first` without opening a browser.
+- `g` opens the Cloud projects overlay; disconnected and empty states are
+  readable; `Esc` closes it.
+- `unknown_classes: []`; the window idles after closing.
+
+**Pending:** a live Google account round-trip with the user’s OAuth client.
+The fake server covers the full transport/backup/restore/delete-safety path,
+but Google’s real OAuth consent and quota behavior still need one manual run.
 
 ## Real audio
 

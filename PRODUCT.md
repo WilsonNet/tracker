@@ -12,6 +12,8 @@ Solo musicians and audio recordists who want to capture multitrack recordings on
 
 A minimal multitrack audio recorder for the desktop. It provides the core recording workflow of a physical multitrack recorder (like the Zoom R4) — arm tracks, set levels, record, playback, overdub — with the speed and precision of Vim-style keyboard control. No timeline, no grid, no DAW complexity. Just record.
 
+Projects are self-contained folders, so they can move between computers. Google Drive backup/restore is an explicit transfer, not a live sync or collaboration surface.
+
 ## Brand Personality
 
 Functional. Precise. Keyboard-native.

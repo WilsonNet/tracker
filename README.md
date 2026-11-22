@@ -21,6 +21,9 @@ fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
   `x` FX rack, `,` settings, `:` command palette
 - **Project persistence** — atomic `project.json`, recent projects, undo/redo,
   native open/save dialogs
+- **Google Drive transfer** — back up a self-contained project and restore it
+  on another computer; visible, named Drive folder, `drive.file` scope only,
+  no remote delete
 - **Settings** — choose the project folder, input backend, latency and
   monitoring, plus high contrast and reduced motion; folder and accessibility
   choices persist in `settings.json`
@@ -39,7 +42,7 @@ git clone https://github.com/WilsonNet/vinland-ui ../vinland-ui
 
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 236 unit tests
+make test         # 255 unit tests
 make check        # tests + native UI tour + offline bounce
 
 ./bin/tracker-odin ui              # real window
@@ -50,6 +53,7 @@ Sessions default to `$XDG_DATA_HOME/tracker/session` (usually
 `~/.local/share/tracker/session`); press `,` and choose a
 project folder to change it (persisted in `~/.config/tracker/settings.json`),
 or pass `--session DIR` for an isolated run that ignores saved settings.
+For Google Drive transfer, follow [docs/cloud-setup.md](docs/cloud-setup.md).
 `make install` installs the binary, icons and desktop entry under `~/.local`.
 
 ## Verification
@@ -57,7 +61,7 @@ or pass `--session DIR` for an isolated run that ignores saved settings.
 ```sh
 cd odin
 make test          # DSP + engine/project/WAV + UI unit tests
-make e2e           # 15 headless vinland-ui cases (tests/ui/window.vt)
+make e2e           # 16 headless vinland-ui cases (tests/ui/window.vt)
 make check         # unit + 220-action UI tour + offline bounce + format checks
 ```
 

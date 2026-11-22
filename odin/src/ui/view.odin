@@ -8,6 +8,7 @@ package ui
 
 import "core:fmt"
 import "core:math"
+import "core:time"
 import vui "vinland:vui"
 import vui_icons "vinland:vui/icons"
 
@@ -45,6 +46,8 @@ View :: struct {
 	focus_rect:    vui.Rect, // module holding the keyboard focus (last frame)
 	last_focus:    int,
 	last_mode:     Mode,
+	settings_sel_last: Settings_Item,
+	settings_panel_h:  f32,
 	chain_w:       f32,
 }
 
@@ -173,7 +176,9 @@ view_frame :: proc(a: ^App, v: ^View) {
 		case .Recent:
 			view_recent(a)
 		case .Settings:
-			view_settings(a)
+			view_settings(a, v)
+		case .Cloud:
+			view_cloud(a)
 		case .Bounce:
 			view_bounce_overlay(a)
 		}
@@ -182,7 +187,7 @@ view_frame :: proc(a: ^App, v: ^View) {
 
 // Busy = the window should keep rendering (meters, clock, toast, pulse).
 view_busy :: proc(a: ^App) -> bool {
-	return a.transport != .Stopped || a.monitor || a.bounce_active || a.toast_time > 0 || a.mode == .Palette || a.mode == .Recent || a.demo || a.input_live
+	return a.transport != .Stopped || a.monitor || a.bounce_active || a.toast_time > 0 || a.mode == .Palette || a.mode == .Recent || a.demo || a.input_live || a.cloud_busy
 }
 
 @(private = "file")
@@ -276,6 +281,8 @@ status_mode :: proc(a: ^App) -> (string, string) {
 		return "RECENT", "bg-cue-bg text-cue"
 	case .Settings:
 		return "SETTINGS", "bg-cue-bg text-cue"
+	case .Cloud:
+		return "CLOUD", "bg-cue-bg text-cue"
 	}
 	return "NORMAL", "bg-sig-bg text-sig"
 }
@@ -1251,7 +1258,13 @@ view_status :: proc(a: ^App) {
 		case .Io:
 			hint = "click: select  esc: close"
 		case .Settings:
-			hint = "type: edit path  enter: apply  esc: cancel" if a.settings_path_edit else "j/k: select  enter: run  b: browse  esc: close"
+			if a.cloud_edit != .None {
+				hint = "type: edit credential  enter: save  esc: cancel"
+			} else {
+				hint = "type: edit path  enter: apply  esc: cancel" if a.settings_path_edit else "j/k: select  enter: run  b: browse  esc: close"
+			}
+		case .Cloud:
+			hint = "enter: restore  u: back up  r: refresh  esc: close"
 		}
 		vui.text(hint, "ml-2 whitespace-pre text-ink-muted")
 	}
@@ -1474,10 +1487,11 @@ settings_item_class :: proc(a: ^App, item: Settings_Item, base: string) -> strin
 // without redesigning the panel. Storage edits the project folder; audio and
 // accessibility mirror the transport / I/O controls.
 @(private = "file")
-view_settings :: proc(a: ^App) {
+view_settings :: proc(a: ^App, v: ^View) {
 	if vui.pressable(OVERLAY) {
 		close_on_backdrop(a)
 		if vui.pressable(vui.cx(PANEL, "max-h-[94%] w-[700px] gap-3 overflow-y-auto")) {
+			panel_id := vui.current_id()
 			if vui.div("flex items-baseline gap-3") {
 				vui.text("Settings", "text-[14px] font-semibold text-ink")
 				vui.text("Machine preferences", "text-[11px] text-ink-muted")
@@ -1570,7 +1584,225 @@ view_settings :: proc(a: ^App) {
 				vui.text("Reduced motion", "flex-1 text-[12px] text-ink")
 				settings_toggle(a, .Reduced_Motion, "ON" if a.reduced_motion else "OFF", a.reduced_motion, .Reduced_Motion)
 			}
+
+			// ── cloud ─────────────────────────────────────────────────
+			vui.text("CLOUD", SETTINGS_HEAD)
+			cloud_sel_rect: vui.Rect
+			folder_editing := a.cloud_edit == .Folder
+			folder_selected := a.settings_sel == .Cloud_Folder
+			if vui.div(vui.cx("flex items-center gap-2 rounded-[2px] border px-2 py-1", folder_editing || folder_selected ? "border-sig" : "border-line")) {
+				vui.text("Drive folder", "w-28 shrink-0 text-[11px] text-ink-dim")
+				if vui.div("flex min-w-0 flex-1 items-center gap-2") {
+					folder := app_cloud_folder(a)
+					vui.text(folder if folder != "" else "Tracker", vui.cx("flex-1 truncate text-[11px]", folder != "" ? "text-ink" : "text-ink-muted"))
+					if folder_editing {
+						vui.el("h-4 w-[2px] animate-pulse bg-sig")
+						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+					} else {
+						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
+					}
+				}
+				if vui.clicked() {
+					a.settings_sel = .Cloud_Folder
+					app_cloud_begin_edit(a, .Folder)
+				}
+				if a.settings_sel == .Cloud_Folder {
+					cloud_sel_rect = vui.prev_rect()
+				}
+			}
+			client_editing := a.cloud_edit == .Client_ID
+			client_selected := a.settings_sel == .Cloud_Client_ID
+			if vui.div(vui.cx("flex items-center gap-2 rounded-[2px] border px-2 py-1", client_editing || client_selected ? "border-sig" : "border-line")) {
+				vui.text("Client ID", "w-28 shrink-0 text-[11px] text-ink-dim")
+				if vui.div("flex min-w-0 flex-1 items-center gap-2") {
+					value := app_cloud_client_id(a)
+					vui.text(value if value != "" else "not set", vui.cx("flex-1 truncate text-[11px]", value != "" ? "text-ink" : "text-ink-muted"))
+					if client_editing {
+						vui.el("h-4 w-[2px] animate-pulse bg-sig")
+						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+					} else {
+						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
+					}
+				}
+				if vui.clicked() {
+					a.settings_sel = .Cloud_Client_ID
+					app_cloud_begin_edit(a, .Client_ID)
+				}
+				if a.settings_sel == .Cloud_Client_ID {
+					cloud_sel_rect = vui.prev_rect()
+				}
+			}
+			secret_editing := a.cloud_edit == .Client_Secret
+			secret_selected := a.settings_sel == .Cloud_Client_Secret
+			if vui.div(vui.cx("flex items-center gap-2 rounded-[2px] border px-2 py-1", secret_editing || secret_selected ? "border-sig" : "border-line")) {
+				vui.text("Client secret", "w-28 shrink-0 text-[11px] text-ink-dim")
+				if vui.div("flex min-w-0 flex-1 items-center gap-2") {
+					secret := app_cloud_client_secret(a)
+					display := secret if secret_editing else ("********" if secret != "" else "not set")
+					vui.text(display, vui.cx("flex-1 truncate text-[11px]", secret != "" ? "text-ink" : "text-ink-muted"))
+					if secret_editing {
+						vui.el("h-4 w-[2px] animate-pulse bg-sig")
+						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+					} else {
+						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
+					}
+				}
+				if vui.clicked() {
+					a.settings_sel = .Cloud_Client_Secret
+					app_cloud_begin_edit(a, .Client_Secret)
+				}
+				if a.settings_sel == .Cloud_Client_Secret {
+					cloud_sel_rect = vui.prev_rect()
+				}
+			}
+			if vui.div("flex items-center gap-2") {
+				vui.text("Google Drive", "flex-1 text-[12px] text-ink")
+				vui.text("Connected" if a.cloud_connected else "Not connected", vui.cx("text-[11px]", a.cloud_connected ? "text-cue" : "text-ink-muted"))
+				if vui.button("DISCONNECT" if a.cloud_connected else "CONNECT", settings_item_class(a, .Cloud_Connect, vui.cx(BBTN, "px-2 py-0.5 text-[10px]", a.cloud_connected ? "border-cue bg-cue-bg text-cue" : "border-line text-ink-dim hover:bg-panel-hover hover:text-ink"))) {
+					a.settings_sel = .Cloud_Connect
+					app_execute(a, .Cloud_Disconnect if a.cloud_connected else .Cloud_Connect)
+				}
+				if a.settings_sel == .Cloud_Connect {
+					cloud_sel_rect = vui.prev_rect()
+				}
+			}
+			if vui.div("flex items-center gap-2") {
+				if vui.button("BACK UP NOW", settings_item_class(a, .Cloud_Backup, vui.cx(BBTN, "border-line text-ink-dim hover:bg-panel-hover hover:text-ink"))) {
+					a.settings_sel = .Cloud_Backup
+					app_execute(a, .Cloud_Backup)
+				}
+				if vui.button("RESTORE…", settings_item_class(a, .Cloud_Restore, vui.cx(BBTN, "border-line text-ink-dim hover:bg-panel-hover hover:text-ink"))) {
+					a.settings_sel = .Cloud_Restore
+					app_execute(a, .Cloud_Open)
+				}
+				if a.settings_sel == .Cloud_Backup || a.settings_sel == .Cloud_Restore {
+					cloud_sel_rect = vui.prev_rect()
+				}
+				if a.cloud_project_count > 0 {
+					vui.text(fmt.tprintf("%d project%s", a.cloud_project_count, "" if a.cloud_project_count == 1 else "s"), "ml-auto text-[10px] text-ink-muted")
+				}
+			}
+			if a.cloud_busy || a.cloud_progress_total > 0 {
+				total := max(a.cloud_progress_total, 1)
+				done := clamp(a.cloud_progress_done, 0, total)
+				if vui.div("h-1 w-full overflow-hidden rounded-[1px] bg-panel-raised") {
+					vui.el("h-full bg-sig")
+					vui.last_style().width = vui.pct(f32(done) / f32(total) * 100)
+				}
+			}
+			if app_cloud_error(a) != "" {
+				vui.text(app_cloud_error(a), "text-[10px] text-rec-hi")
+			} else {
+				status := app_cloud_status(a)
+				if status == "" {
+					status = "Not connected · set credentials to enable Google Drive"
+				}
+				vui.text(status, "text-[10px] text-ink-muted")
+			}
+			vui.text("Tokens are stored in cloud.json with 0600 permissions · scope drive.file only.", "text-[10px] text-ink-muted")
 			vui.text("Stored in settings.json · audio and mix settings travel with the project.", "pt-1 text-[10px] text-ink-muted")
+
+			// Keep the keyboard-selected row visible when the panel scrolls or
+			// the window height changes.
+			panel_rect := vui.prev_rect()
+			resized := abs(v.settings_panel_h - panel_rect.h) > 1
+			if v.settings_sel_last != a.settings_sel || resized {
+				v.settings_sel_last = a.settings_sel
+				v.settings_panel_h = panel_rect.h
+				if int(a.settings_sel) >= int(Settings_Item.Cloud_Folder) && cloud_sel_rect.h > 0 {
+					vui.scroll_to(panel_id, max(cloud_sel_rect.y - panel_rect.y - 24, 0))
+				} else {
+					vui.scroll_to(panel_id, 0)
+				}
+			}
+		}
+	}
+}
+
+@(private = "file")
+cloud_size_text :: proc(bytes: u64) -> string {
+	if bytes >= 1 << 30 {
+		return fmt.tprintf("%.1f GB", f32(bytes) / f32(1 << 30))
+	}
+	if bytes >= 1 << 20 {
+		return fmt.tprintf("%.1f MB", f32(bytes) / f32(1 << 20))
+	}
+	if bytes >= 1 << 10 {
+		return fmt.tprintf("%.0f KB", f32(bytes) / f32(1 << 10))
+	}
+	return fmt.tprintf("%d B", bytes)
+}
+
+cloud_time_text :: proc(unix: i64) -> string {
+	if unix <= 0 {
+		return "never"
+	}
+	t := time.unix(unix, 0)
+	date: [16]u8
+	clock: [16]u8
+	return fmt.tprintf("%s %s", time.to_string_yyyy_mm_dd(t, date[:]), time.to_string_hms(t, clock[:]))
+}
+
+@(private = "file")
+view_cloud :: proc(a: ^App) {
+	if vui.pressable(OVERLAY) {
+		close_on_backdrop(a)
+		if vui.pressable(vui.cx(PANEL, "max-h-[82%] w-[640px] gap-3 overflow-y-auto")) {
+			if vui.div("flex items-baseline gap-3") {
+				vui.text("Cloud projects", "text-[14px] font-semibold text-ink")
+				vui.text("Google Drive · hidden app data", "text-[11px] text-ink-muted")
+				vui.text("ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
+			}
+			if !a.cloud_connected {
+				vui.text("Connect Google Drive in Settings before restoring.", "text-[12px] text-ink-dim")
+				if vui.button("OPEN SETTINGS", vui.cx(BBTN, "border-line-sig text-sig hover:bg-sig-bg")) {
+					app_execute(a, .Settings)
+				}
+			} else {
+				if a.cloud_busy {
+					vui.text(app_cloud_status(a), "text-[11px] text-ink-dim")
+					total := max(a.cloud_progress_total, 1)
+					done := clamp(a.cloud_progress_done, 0, total)
+					if vui.div("h-1 w-full overflow-hidden rounded-[1px] bg-panel-raised") {
+						vui.el("h-full bg-sig")
+						vui.last_style().width = vui.pct(f32(done) / f32(total) * 100)
+					}
+				}
+				if app_cloud_error(a) != "" {
+					vui.text(app_cloud_error(a), "text-[11px] text-rec-hi")
+				}
+				if !a.cloud_busy && a.cloud_project_count == 0 {
+					vui.text("No cloud projects yet.", "px-2 pt-3 text-[13px] text-ink-muted")
+					vui.text("Press u to back up the current project.", "px-2 pb-2 text-[11px] text-ink-dim")
+				}
+				if vui.div("flex max-h-[420px] flex-col overflow-y-auto") {
+					for i in 0 ..< a.cloud_project_count {
+						p := &a.cloud_projects[i]
+						sel := i == a.cloud_selected
+						vui.push_id(i)
+						if vui.button_box(vui.cx("flex items-center gap-3 rounded-[2px] px-2 py-2 text-[13px]", sel ? "bg-sig-bg text-ink" : "text-ink-dim hover:bg-panel-raised")) {
+							vui.el("size-1.5 shrink-0 rounded-full bg-sig" if sel else "size-1.5 shrink-0")
+							if vui.div("flex min-w-0 flex-1 flex-col") {
+								vui.text(cloud_view_name(p), "truncate font-medium")
+								vui.text(cloud_view_id(p), "truncate text-[10px] text-ink-muted")
+							}
+							if vui.div("flex shrink-0 flex-col items-end") {
+								vui.text(cloud_time_text(p.modified), "text-[10px] tabular-nums text-ink-muted")
+								vui.text(fmt.tprintf("%s · %d files", cloud_size_text(p.bytes), p.files), "text-[10px] text-ink-muted")
+							}
+							if vui.clicked() {
+								a.cloud_selected = i
+								app_execute(a, .Cloud_Restore)
+							}
+						}
+						vui.pop_id()
+					}
+				}
+				if a.cloud_project_count > 0 {
+					vui.text(fmt.tprintf("%d project%s · last backup %s", a.cloud_project_count, "" if a.cloud_project_count == 1 else "s", cloud_time_text(a.cloud_last_sync)), "text-[10px] text-ink-muted")
+				}
+			}
+			vui.text("ENTER restore   U back up   R refresh   ESC close", "whitespace-pre pt-1 text-[11px] text-ink-muted")
 		}
 	}
 }

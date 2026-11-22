@@ -37,7 +37,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | Comp regions + comp renderer | done | equal-power joins, CLI `comp` |
 | Whole-take comping in UI | done | palette “comp active take” |
 | Latency/a11y settings persisted | done | project fields + `settings.json` |
-| Settings overlay: project folder, audio, a11y | done | `vui-ctl`, settings tests, 15-case e2e |
+| Settings overlay: project folder, audio, a11y, cloud | done | `vui-ctl`, settings tests, 16-case e2e |
+| Google Drive backup/restore (`drive.file`, visible named folder) | done | fake-Drive round-trip, no-delete guard, `vui-ctl` |
 
 ## Native UI
 
@@ -48,7 +49,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | 4 track strips, master, meters, GR | done | 220-action tour |
 | Arm preview: live input meter + history before REC | done | `vui-ctl` screenshots, preview tests |
 | Reference density + design-token layers | done | `theme.odin`, geometry tests at 900/1180/1920 |
-| Window-responsive type/control zoom | done | `ui_zoom_for_window`, 1.0–1.8x, 60 UI tests |
+| Window-responsive type/control zoom | done | `ui_zoom_for_window`, 1.0–1.8x, 61 UI tests |
 | Cairo/Pango vector shell + charts | done | AA paths, Inter, level history, FX graphs |
 | Transport, timecode, BPM, click, monitor | done | tour |
 | FX rack (track + master) | done | knobs, bypass, ping-pong, focus |
@@ -73,8 +74,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **236** (70 DSP, 106 core/engine/project, 60 UI) |
-| UI e2e | 15 headless vinland-ui cases |
+| unit tests | **255** (70 DSP, 124 core/engine/project/cloud, 61 UI) |
+| UI e2e | 16 headless vinland-ui cases |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |
 | hardware capture | 96,000 frames / 2.000 s |

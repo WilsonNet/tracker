@@ -119,7 +119,7 @@ usage:
                   [--jack] [--a11y-log] [--latency-ms N] [--width W --height H]
                   [--control-port PORT]
   tracker-odin ui-shot --out FILE [--scale 1|1.25|1.5|2|3] [--width W --height H]
-                  [--fx [--master]|--palette|--io|--settings|--bounce] [--playing|--recording]
+                  [--fx [--master]|--palette|--io|--settings|--cloud|--bounce] [--playing|--recording]
                   [--three] [--click]
   tracker-odin ui-test --script FILE.json --out DIR [--scale 1|1.25|1.5|2|3]
   tracker-odin version

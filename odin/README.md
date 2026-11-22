@@ -32,6 +32,7 @@ for SDL3, JACK, zlib, Cairo and Pango. ALSA or PipeWire is
 needed at runtime. `make check` also needs `python3`; `sox` and `ffprobe` are
 optional format checks. Project open/save-as dialogs use `zenity` (falling back
 to `kdialog`); `--open FILE` and the recent-projects list work without them.
+Google Drive transfer needs `curl` and a browser opener (`xdg-open` or `gio`).
 
 Arch:
 
@@ -80,7 +81,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 236 unit tests
+make test         # 255 unit tests
 make check        # unit + native UI tour + offline end-to-end
 
 # 4. Run the app
@@ -109,9 +110,9 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | 236 unit tests: 70 DSP, 106 core/engine/project, 60 UI |
+| `test` | 255 unit tests: 70 DSP, 124 core/engine/project/cloud, 61 UI |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
-| `e2e` | 15 headless vinland-ui window cases (`tests/ui/window.vt`) |
+| `e2e` | 16 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
 | `ui-test` | run a harness script; `SCRIPT=... UI_OUT=...` |
@@ -153,15 +154,34 @@ directory is in `XDG_DATA_DIRS`.
   takes into it and leaves the old folder as a recovery copy. A folder that
   already contains `project.json` or `track1..4.wav` is refused, so applying
   cannot overwrite another session.
+- **Cloud projects:** Google Drive backup/restore. `Settings → CLOUD` holds
+  the Drive folder name, OAuth client ID/secret, connect/disconnect, back up
+  and restore. `g` opens the cloud-project list; `u` backs up, `r` refreshes.
+  Setup and the safety model are in [`../docs/cloud-setup.md`](../docs/cloud-setup.md).
 - **Playwright replacement:** `ui-test` (below) drives the exact same state
   machine headlessly.
 - **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `1–4` arm, `j/k`
   select, `J/K` level, `m` mute, `s` solo, `a` arm, `I` input, `x` FX,
   `c` click, `o` monitor, `y` JACK backend, `t`/`T` next/previous take,
   `u`/`U` undo/redo, `[`/`]` FX channel, `Tab`/`Shift+Tab` FX focus,
-  `,` settings, `:` command palette, `Esc` close. Recent projects and open/save-as live in
-  the palette; the dialogs use zenity or kdialog. Double-click resets a
-  fader/pan/knob.
+  `,` settings, `g` cloud projects, `:` command palette, `Esc` close. Recent
+  projects and open/save-as live in the palette; the dialogs use zenity or
+  kdialog. Double-click resets a fader/pan/knob.
+
+### Google Drive
+
+Setup is in [`../docs/cloud-setup.md`](../docs/cloud-setup.md). The short version:
+
+- Create a **Desktop app** OAuth client in Google Cloud with only the
+  `https://www.googleapis.com/auth/drive.file` scope and add your account as a
+  test user.
+- Enter the Client ID/secret and a Drive folder name in Settings → CLOUD.
+- Testing-mode refresh tokens last 7 days; reconnect weekly, or publish the app.
+- The folder is visible in My Drive, so you can delete it without Tracker.
+  Tracker has no Google Drive delete operation.
+- Every file/folder Tracker creates carries an `appProperties` marker; queries
+  and restores only see marked items. The fake-Drive test seeds an unrelated
+  same-named file and proves it is neither downloaded, overwritten, nor deleted.
 
 ### Design tokens
 
@@ -254,6 +274,7 @@ targets are unchanged); `ui-shot --scale N` does the same for a single frame.
 ./bin/tracker-odin ui-shot --out /tmp/ui.png --fx --master
 ./bin/tracker-odin ui-shot --out /tmp/ui@2x.png --scale 2 --fx --master
 ./bin/tracker-odin ui-shot --out /tmp/settings.png --settings
+./bin/tracker-odin ui-shot --out /tmp/cloud.png --cloud
 ```
 
 ## CLI
@@ -293,7 +314,7 @@ removes them.
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 106 core/engine/project + 60 UI = 236 tests
+make test        # 70 DSP + 124 core/engine/project/cloud + 61 UI = 255 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui
