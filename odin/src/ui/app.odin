@@ -6,6 +6,7 @@ package ui
 
 import "core:fmt"
 import "core:math"
+import "core:strings"
 
 MAX_TRACKS :: 4
 MAX_KNOBS :: 24
@@ -451,6 +452,7 @@ App :: struct {
 	cloud_client_secret_len: int,
 	cloud_edit:           Cloud_Edit,
 	edit_confirm:         bool,
+	edit_select_all:      bool,
 	cloud_projects:       [MAX_CLOUD_PROJECTS]Cloud_Project_View,
 	cloud_project_count:  int,
 	cloud_selected:       int,
@@ -988,6 +990,7 @@ app_settings_begin_edit :: proc(a: ^App) {
 	a.settings_path_edit = true
 	a.cloud_edit = .None
 	a.edit_confirm = false
+	a.edit_select_all = false
 	// Keep a candidate left over from a failed apply so the user can fix it;
 	// only seed an empty field from the applied folder.
 	if app_settings_path(a) == "" {
@@ -999,6 +1002,7 @@ app_settings_begin_edit :: proc(a: ^App) {
 app_settings_cancel_edit :: proc(a: ^App) {
 	a.settings_path_edit = false
 	a.edit_confirm = false
+	a.edit_select_all = false
 	settings_path_set(a, app_save_dir(a))
 	bump_revision(a)
 }
@@ -1008,6 +1012,10 @@ settings_path_append :: proc(a: ^App, ch: u8) {
 	if a.settings_path_len >= len(a.settings_path) {
 		return
 	}
+	if a.edit_select_all {
+		a.settings_path_len = 0
+		a.edit_select_all = false
+	}
 	a.settings_path[a.settings_path_len] = ch
 	a.settings_path_len += 1
 	a.edit_confirm = false
@@ -1015,6 +1023,18 @@ settings_path_append :: proc(a: ^App, ch: u8) {
 }
 
 // ---------------------------------------------------------------- cloud
+
+cloud_mask_secret :: proc(secret: string) -> string {
+	if secret == "" {
+		return ""
+	}
+	n := min(len(secret), 32)
+	stars, _ := strings.repeat("*", n, context.temp_allocator)
+	if len(secret) > 32 {
+		return fmt.tprintf("%s…", stars)
+	}
+	return stars
+}
 
 app_cloud_status :: proc(a: ^App) -> string { return string(a.cloud_status[:a.cloud_status_len]) }
 app_cloud_error :: proc(a: ^App) -> string { return string(a.cloud_error[:a.cloud_error_len]) }
@@ -1110,12 +1130,22 @@ app_cloud_begin_edit :: proc(a: ^App, field: Cloud_Edit) {
 	a.cloud_edit = field
 	a.settings_path_edit = false
 	a.edit_confirm = false
+	a.edit_select_all = false
 	bump_revision(a)
 }
 
 app_cloud_cancel_edit :: proc(a: ^App) {
 	a.cloud_edit = .None
 	a.edit_confirm = false
+	a.edit_select_all = false
+	bump_revision(a)
+}
+
+app_select_all_text :: proc(a: ^App) {
+	if a.mode != .Settings || (a.cloud_edit == .None && !a.settings_path_edit) {
+		return
+	}
+	a.edit_select_all = true
 	bump_revision(a)
 }
 
@@ -1135,6 +1165,10 @@ app_cloud_append :: proc(a: ^App, ch: u8) {
 		length = &a.cloud_client_secret_len
 	case .None:
 		return
+	}
+	if a.edit_select_all {
+		length^ = 0
+		a.edit_select_all = false
 	}
 	if length^ >= len(buf) {
 		return

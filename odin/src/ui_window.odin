@@ -225,6 +225,8 @@ window_on_event :: proc(va: ^vapp.App, ev: ^sdl.Event) -> bool {
 		if ui.app_text_editing(ws.a) && (ctrl_down || (shift_down && ev.key.key == sdl.K_INSERT)) {
 			if (ctrl_down && ev.key.key == sdl.K_V) || (shift_down && ev.key.key == sdl.K_INSERT) {
 				window_clipboard_paste(ws.a)
+			} else if ctrl_down && ev.key.key == sdl.K_A {
+				ui.app_select_all_text(ws.a)
 			}
 			// Swallow the rest of the edit shortcuts so Ctrl+C does not type
 			// a literal "c" into a field.
@@ -297,8 +299,12 @@ window_key :: proc(a: ^ui.App, key: ui.Key, ch: u8, shift: bool) {
 @(private)
 window_synthetic_keys :: proc(a: ^ui.App, ctx: ^vui.Context) {
 	in_ := &ctx.input
-	if .Ctrl in in_.mods && .V in in_.keys_pressed {
-		window_clipboard_paste(a)
+	if .Ctrl in in_.mods {
+		if .V in in_.keys_pressed {
+			window_clipboard_paste(a)
+		} else if .A in in_.keys_pressed {
+			ui.app_select_all_text(a)
+		}
 	}
 	for r in in_.text {
 		if r < 128 {

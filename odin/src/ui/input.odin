@@ -798,6 +798,19 @@ app_text_editing :: proc(a: ^App) -> bool {
 	return false
 }
 
+@(private)
+text_delete_last :: proc(buf: []u8, len_out: ^int) {
+	if len_out^ <= 0 {
+		return
+	}
+	i := len_out^ - 1
+	// Keep multi-byte UTF-8 paths intact.
+	for i > 0 && (buf[i] & 0xC0) == 0x80 {
+		i -= 1
+	}
+	len_out^ = i
+}
+
 // Single-line paste sanitizer. Paths keep spaces; credentials drop them.
 @(private)
 paste_sanitize :: proc(text: string, strip_spaces: bool) -> string {
@@ -857,12 +870,28 @@ app_paste_text :: proc(a: ^App, text: string) {
 		if a.cloud_edit != .None {
 			clean := paste_sanitize(text, a.cloud_edit != .Folder)
 			defer delete(clean)
+			if clean != "" && a.edit_select_all {
+				switch a.cloud_edit {
+				case .Folder:
+					a.cloud_folder_len = 0
+				case .Client_ID:
+					a.cloud_client_id_len = 0
+				case .Client_Secret:
+					a.cloud_client_secret_len = 0
+				case .None:
+				}
+				a.edit_select_all = false
+			}
 			for c in transmute([]u8)clean {
 				app_cloud_append(a, c)
 			}
 		} else if a.settings_path_edit {
 			clean := paste_sanitize(text, false)
 			defer delete(clean)
+			if clean != "" && a.edit_select_all {
+				a.settings_path_len = 0
+				a.edit_select_all = false
+			}
 			for c in transmute([]u8)clean {
 				settings_path_append(a, c)
 			}
@@ -885,30 +914,39 @@ app_settings_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
 			}
 		case .Enter:
 			a.edit_confirm = false
+			a.edit_select_all = false
 			a.cloud_edit = .None
 			app_execute(a, .Cloud_Save_Credentials)
 		case .Backspace:
 			a.edit_confirm = false
-			switch a.cloud_edit {
-			case .Folder:
-				if a.cloud_folder_len > 0 {
-					a.cloud_folder_len -= 1
-					bump_revision(a)
+			if a.edit_select_all {
+				switch a.cloud_edit {
+				case .Folder:
+					a.cloud_folder_len = 0
+				case .Client_ID:
+					a.cloud_client_id_len = 0
+				case .Client_Secret:
+					a.cloud_client_secret_len = 0
+				case .None:
 				}
-			case .Client_ID:
-				if a.cloud_client_id_len > 0 {
-					a.cloud_client_id_len -= 1
-					bump_revision(a)
+				a.edit_select_all = false
+				bump_revision(a)
+			} else {
+				switch a.cloud_edit {
+				case .Folder:
+					text_delete_last(a.cloud_folder[:], &a.cloud_folder_len)
+				case .Client_ID:
+					text_delete_last(a.cloud_client_id[:], &a.cloud_client_id_len)
+				case .Client_Secret:
+					text_delete_last(a.cloud_client_secret[:], &a.cloud_client_secret_len)
+				case .None:
 				}
-			case .Client_Secret:
-				if a.cloud_client_secret_len > 0 {
-					a.cloud_client_secret_len -= 1
-					bump_revision(a)
-				}
-			case .None:
+				bump_revision(a)
 			}
 		case .Space:
-			app_cloud_append(a, ' ')
+			if a.cloud_edit == .Folder {
+				app_cloud_append(a, ' ')
+			}
 		case .Char:
 			if ch >= 32 && ch <= 126 {
 				app_cloud_append(a, ch)
@@ -929,14 +967,18 @@ app_settings_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
 			}
 		case .Enter:
 			a.edit_confirm = false
+			a.edit_select_all = false
 			a.settings_path_edit = false
 			app_execute(a, .Apply_Save_Dir)
 		case .Backspace:
 			a.edit_confirm = false
-			if a.settings_path_len > 0 {
-				a.settings_path_len -= 1
-				bump_revision(a)
+			if a.edit_select_all {
+				a.settings_path_len = 0
+				a.edit_select_all = false
+			} else {
+				text_delete_last(a.settings_path[:], &a.settings_path_len)
 			}
+			bump_revision(a)
 		case .Space:
 			settings_path_append(a, ' ')
 		case .Char:

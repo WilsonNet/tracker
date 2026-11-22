@@ -11,13 +11,13 @@ intentional limits are in `ROADMAP.md`.
 | clean build | `make clean && make build` | ≈0.8 s |
 | DSP | `odin test src/dsp` | **70 passed** |
 | engine / project / WAV / RF64 / takes / CLI / settings / cloud | `odin test src` | **124 passed** |
-| UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **63 passed** |
+| UI state, layout, HiDPI, responsive zoom, PNG | `odin test src/ui` | **65 passed** |
 | vector renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
 | charts | level history + 5 FX response graphs | 17 screenshots inspected |
 | static checks | `odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
-Total: **257 unit tests**.
+Total: **259 unit tests**.
 
 ## Native UI harness
 
@@ -82,9 +82,14 @@ vui-ctl --port 7421 key v ctrl
 | SDL clipboard | returned an empty string on this Wayland session |
 | fallback | `vapp.clipboard_read` read the same text via `wl-paste`; `xclip`/`xsel` are also tried |
 | field insertion | Client ID showed the pasted client id; `unknown_classes: []` |
+| full input flow | `  old-client-ID  ` → paste, type `-X`, backspace twice, `Ctrl+A`, paste `new-client-id` → saved exactly |
+| secret masking | secret field showed `************` during EDIT; saved `cloud.json` held `super-secret`; plaintext never appeared in the tree |
+| spaces | Client ID/secret reject spaces; Drive folder preserved `My Studio` |
+| select all | `Ctrl+A` + paste/type/backspace replaces the whole field |
+| UTF-8 | path backspace removes a whole rune (`café` → `caf`) |
 | edit mode | selecting a field shows the `EDIT` chip |
 | discard guard | first `Esc` keeps EDIT and says `discard changes?`; second `Esc` cancels |
-| tests | `ui_paste_fills_cloud_and_project_fields`, `ui_paste_fills_palette_and_recent_filters`, `ui_settings_escape_cancels_path_edit` |
+| tests | paste cloud/project, paste palette/recent, select-all replace, credential spaces, UTF-8 backspace, secret mask, two-step escape, field-switch guard |
 | upstream | vinland-ui `536dce2` adds `clipboard_from_argv`/`clipboard_read` + regression test |
 
 The SDL read path was also fixed to clone the clipboard text **before**

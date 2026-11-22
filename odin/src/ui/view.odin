@@ -1602,7 +1602,7 @@ view_settings :: proc(a: ^App, v: ^View) {
 					vui.text(folder if folder != "" else "Tracker", vui.cx("flex-1 truncate text-[11px]", folder != "" ? "text-ink" : "text-ink-muted"))
 					if folder_editing {
 						vui.el("h-4 w-[2px] animate-pulse bg-sig")
-						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+						vui.text("ALL" if a.edit_select_all else "EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
 					} else {
 						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
 					}
@@ -1624,7 +1624,7 @@ view_settings :: proc(a: ^App, v: ^View) {
 					vui.text(value if value != "" else "not set", vui.cx("flex-1 truncate text-[11px]", value != "" ? "text-ink" : "text-ink-muted"))
 					if client_editing {
 						vui.el("h-4 w-[2px] animate-pulse bg-sig")
-						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+						vui.text("ALL" if a.edit_select_all else "EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
 					} else {
 						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
 					}
@@ -1643,11 +1643,11 @@ view_settings :: proc(a: ^App, v: ^View) {
 				vui.text("Client secret", "w-28 shrink-0 text-[11px] text-ink-dim")
 				if vui.div("flex min-w-0 flex-1 items-center gap-2") {
 					secret := app_cloud_client_secret(a)
-					display := secret if secret_editing else ("********" if secret != "" else "not set")
+					display := cloud_mask_secret(secret) if secret != "" else "not set"
 					vui.text(display, vui.cx("flex-1 truncate text-[11px]", secret != "" ? "text-ink" : "text-ink-muted"))
 					if secret_editing {
 						vui.el("h-4 w-[2px] animate-pulse bg-sig")
-						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+						vui.text("ALL" if a.edit_select_all else "EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
 					} else {
 						vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
 					}

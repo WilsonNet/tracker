@@ -42,7 +42,7 @@ git clone https://github.com/WilsonNet/vinland-ui ../vinland-ui
 
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 257 unit tests
+make test         # 259 unit tests
 make check        # tests + native UI tour + offline bounce
 
 ./bin/tracker-odin ui              # real window

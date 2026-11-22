@@ -1715,6 +1715,46 @@ ui_paste_fills_cloud_and_project_fields :: proc(t: ^testing.T) {
 }
 
 @(test)
+ui_cloud_edit_select_all_replaces_and_backspace_keeps_utf8 :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_save_dir(&a, "/tmp/café")
+	app_execute(&a, .Settings)
+
+	app_key(&a, .Enter)
+	testing.expect(t, app_settings_path(&a) == "/tmp/café", app_settings_path(&a))
+	app_key(&a, .Backspace)
+	testing.expectf(t, app_settings_path(&a) == "/tmp/caf", "utf8 backspace %q", app_settings_path(&a))
+	app_key(&a, .Escape)
+	app_key(&a, .Escape)
+
+	app_set_cloud_credentials(&a, "old-key", "old-secret", "Tracker")
+	a.settings_sel = .Cloud_Client_ID
+	app_key(&a, .Enter)
+	app_select_all_text(&a)
+	app_paste_text(&a, "new-key")
+	testing.expectf(t, app_cloud_client_id(&a) == "new-key", "replace %q", app_cloud_client_id(&a))
+	app_key(&a, .Space)
+	testing.expect(t, app_cloud_client_id(&a) == "new-key", "credentials reject spaces")
+	app_select_all_text(&a)
+	app_key(&a, .Backspace)
+	testing.expect(t, app_cloud_client_id(&a) == "", "select-all backspace clears")
+	app_select_all_text(&a)
+	app_key(&a, .Char, 'x')
+	testing.expect(t, app_cloud_client_id(&a) == "x", "typing replaces selection")
+}
+
+@(test)
+ui_secret_mask_never_returns_plaintext :: proc(t: ^testing.T) {
+	testing.expect(t, cloud_mask_secret("") == "", "empty")
+	testing.expect(t, cloud_mask_secret("secret") == "******", cloud_mask_secret("secret"))
+	long := cloud_mask_secret("abcdefghijklmnopqrstuvwxyz0123456789")
+	testing.expect(t, len(long) == 35, "mask caps at 32 + 3-byte ellipsis")
+	testing.expect(t, !strings.contains(long, "a"), "mask contains plaintext")
+}
+
+@(test)
 ui_paste_fills_palette_and_recent_filters :: proc(t: ^testing.T) {
 	a: App
 	app_init(&a, 1180, 760)
