@@ -74,7 +74,7 @@ VST, no external DSP crate.
 
 ## Verification
 
-- `cd odin && make test` — 264 tests across DSP, engine/project/WAV/settings/cloud and UI:
+- `cd odin && make test` — 265 tests across DSP, engine/project/WAV/settings/cloud and UI:
   filter magnitude responses, compressor transfer curve/makeup, reverb decay +
   stereo decorrelation, delay echo timing + feedback stability, widener
   mono-sum invariance, limiter ceiling, resampling, full mixdown, RF64/WAV

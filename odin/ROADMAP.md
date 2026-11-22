@@ -37,8 +37,9 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | Whole-take comping in UI | done | palette “comp active take” |
 | Latency/a11y settings persisted | done | project fields + `settings.json` |
 | Settings overlay: project folder, audio, a11y, cloud | done | `vui-ctl`, settings tests, 17-case e2e |
+| Folder picker starts with sibling projects visible | done | `dialog_start_dir` unit test |
 | Text fields: caret, selection, click/drag/double/triple, clipboard, undo | done | native `vui-ctl` geometry + 4 UI tests + e2e case |
-| Google Drive backup/restore (`drive.file`, visible named folder) | done | fake-Drive round-trip, no-delete guard, `vui-ctl` |
+| Google Drive backup/restore (`drive.file`, visible named folder) | done | live Google round-trip, innocent-file guard, fake-Drive no-delete tests |
 
 ## Native UI
 
@@ -74,7 +75,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **264** (70 DSP, 124 core/engine/project/cloud, 70 UI) |
+| unit tests | **265** (70 DSP, 125 core/engine/project/cloud, 70 UI) |
 | UI e2e | 17 headless vinland-ui cases |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |

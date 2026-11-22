@@ -68,6 +68,8 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         METHODS.append("POST")
         body = self._body()
+        if path == "/__echo":
+            return self._send(200, body)
         if path == "/__innocent":
             seed = json.loads(body or b"{}")
             fid = new_id("innocent")

@@ -122,6 +122,26 @@ cloud_fake_drive_roundtrip_never_touches_unrelated_files :: proc(t: ^testing.T) 
 	}
 	defer fake_stop(server)
 
+	// The curl helper must pass the body file path intact through `@path`;
+	// a block-scoped defer that frees the argument early corrupts the request.
+	payload := "grant_type=authorization_code&code=abc%2Fdef&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file"
+	temp_dir := cloud_temp_dir()
+	defer delete(temp_dir)
+	body_path := cloud_write_temp(temp_dir, "echo-body", transmute([]u8)payload)
+	testing.expect(t, body_path != "", "body fixture")
+	defer os.remove(body_path)
+	defer delete(body_path)
+	echo_url := fake_url(server, "/__echo")
+	defer delete(echo_url)
+	echo := cloud_curl_request(
+		"POST", echo_url,
+		[]string{"Content-Type: application/x-www-form-urlencoded"},
+		body_file = body_path, max_time = 30,
+	)
+	defer cloud_curl_destroy(&echo)
+	testing.expectf(t, echo.ok, "echo request failed: %s", string(echo.err))
+	testing.expectf(t, string(echo.out) == payload, "body round-trip: %q", string(echo.out))
+
 	old_api := cloud_api_base
 	old_upload := cloud_upload_base
 	cloud_api_base = fmt.aprintf("http://127.0.0.1:%d/drive/v3", server.port)

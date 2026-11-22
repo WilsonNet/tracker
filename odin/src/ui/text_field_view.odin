@@ -7,6 +7,8 @@
 
 package ui
 
+import "core:math"
+
 import vui "vinland:vui"
 
 TEXT_FIELD_FONT_SIZE :: 11
@@ -71,6 +73,16 @@ text_stop_plain_offset :: proc(value: string, masked: bool, offsets: []int, stop
 		return clamp(stop, 0, len(value))
 	}
 	return offsets[clamp(stop, 0, len(offsets) - 1)]
+}
+
+// Hard 0.53 s blink, like a native caret. Reduced motion keeps it steady.
+text_caret_visible :: proc(a: ^App) -> bool {
+	ctx := vui.ctx_get()
+	if ctx == nil || a == nil || a.reduced_motion {
+		return true
+	}
+	ctx.animating = true
+	return math.mod(ctx.time, 1.06) < 0.53
 }
 
 // Draws one editable field inside an already-open relative/flex parent.
@@ -157,8 +169,8 @@ text_field_view :: proc(a: ^App, index: int, value: string, masked, editing: boo
 	}
 	vui.last().flags += {.No_Hit}
 
-	if is_editing {
-		vui.el("absolute w-[2px] animate-pulse bg-sig")
+	if is_editing && text_caret_visible(a) {
+		vui.el("absolute w-[2px] bg-sig")
 		cs := vui.last_style()
 		cs.width = vui.px(2)
 		cs.height = vui.px(TEXT_FIELD_CARET_H)

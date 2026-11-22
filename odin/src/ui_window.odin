@@ -607,7 +607,7 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 		case .Settings:
 			// The mode transition is pure App state; nothing to do here.
 		case .Choose_Save_Dir:
-			path, picked := pick_save_dir()
+			path, picked := pick_save_dir(ui.app_settings_path(a))
 			if picked {
 				_ = window_apply_save_dir(a, e, path, recent_store)
 				delete(path)

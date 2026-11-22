@@ -10,7 +10,7 @@ complete; details and intentional limits are in `ROADMAP.md`.
 |---|---|---|
 | clean build | `make clean && make build` | ≈0.8 s |
 | DSP | `odin test src/dsp` | **70 passed** |
-| engine / project / WAV / RF64 / takes / CLI / settings / cloud | `odin test src` | **124 passed** |
+| engine / project / WAV / RF64 / takes / CLI / settings / cloud | `odin test src` | **125 passed** |
 | UI state, layout, HiDPI, harness zoom, PNG | `odin test src/ui` | **70 passed** |
 | native renderer | vinland-ui SDL3 + Vulkan/GL | JetBrains Mono, canvas charts, `vui-ctl` screenshots |
 | harness renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
@@ -18,7 +18,7 @@ complete; details and intentional limits are in `ROADMAP.md`.
 | static checks | `odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
-Total: **264 unit tests**.
+Total: **265 unit tests**.
 
 ## Headless UI harness
 
@@ -35,7 +35,9 @@ Total: **264 unit tests**.
   drops below 900x620. The native e2e window is exercised at 900x620 and
   1180x760 with SDL density and the flexible layout.
 - Window suite (`make e2e`): **17 cases**, including settings path edit and
-  apply, text selection/caret, secret masking, and the cloud settings/overlay
+  apply, text selection/caret, secret masking, and the cloud settings/overlay.
+  The suite asserts the I/O overlay text but does not baseline its live device
+  list: enumeration order is PipeWire/compositor-dependent.
 
 ## Settings persistence (2026-11-21)
 
@@ -60,6 +62,7 @@ vui-ctl --port 7426 key enter           # apply
 | Project folder | `/tmp/opencode/final2/data/tracker/session/kb2` created with `project.json` |
 | settings.json | `saveDir` updated, `highContrast` toggled via keyboard |
 | visuals | 1180×760 and 900×620 screenshots inspected; `unknown_classes: []` |
+| folder picker | BROWSE starts in the parent of the current project folder (`dialog_start_dir`) so sibling projects are one click away |
 | restart | opens the saved project, keeps high contrast and the folder |
 | idle | frame count 489 → 496 over 3 s after closing the overlay |
 | isolation | explicit `--session` ignores and never writes the real config |
@@ -109,6 +112,8 @@ be asserted, not just seen in a screenshot.
 
 | check | result |
 |---|---|
+| mouse cursor | the four settings rows and their value containers carry `cursor-text`; palette/recent query bars do too |
+| caret blink | a hard 0.53 s on/off caret; four native snapshots alternated present/present/absent/absent; Reduced motion keeps it steady |
 | click caret | clicking the path field placed the 2x14 px caret at the pointer x (503 for click x=500) |
 | drag selection | drag from x=360 to 620 selected 224 px / 34 characters; amber selection box behind the text |
 | shift-click | shift-click at x=390 selected 9 secret stars from the caret anchor |
@@ -172,9 +177,25 @@ refusal to reuse an existing local folder, and a source test that fails if a
   readable; `Esc` closes it.
 - `unknown_classes: []`; the window idles after closing.
 
-**Pending:** a live Google account round-trip with the user’s OAuth client.
-The fake server covers the full transport/backup/restore/delete-safety path,
-but Google’s real OAuth consent and quota behavior still need one manual run.
+### Live Google account round-trip (2026-11-22)
+
+The real Desktop OAuth client was connected through Google’s consent screen
+with only `https://www.googleapis.com/auth/drive.file`:
+
+| check | result |
+|---|---|
+| consent | loopback callback accepted the code/state; Settings showed `Google Drive connected` |
+| Drive layout | visible `Tracker/` with `index.json`, `projects/untitled-umnNNw/`; every item carried `appProperties.tracker=1` |
+| backup | `project.json`, `track1.wav` and `.tracker-cloud-id` uploaded; `cloud.json`/`settings.json` were not uploaded |
+| repeated backup | marked files updated in place instead of creating a second project folder |
+| innocent file | an app-created, same-named `track1.wav` without the marker (18 B, `INNOCENT-LIVE-TEST`) stayed byte-identical while the marked `track1.wav` was updated |
+| restore | downloaded into a fresh `untitled-umnNNw` folder; `project.json` and `track1.wav` SHA-256 matched the originals |
+| delete guard | the app performed no Drive DELETE; the test-only innocent fixture was removed by the verification script afterwards |
+| fonts/UI | the window stayed responsive; `unknown_classes: []` |
+
+This run exposed two lifetime bugs: the curl body-file argument and the existing
+`index.json` ID were freed by a block-scoped `defer` before the request. Both
+are fixed, and the fake-Drive test now asserts an exact form-body round-trip.
 
 ## Real audio
 

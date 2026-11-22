@@ -78,7 +78,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 264 unit tests
+make test         # 265 unit tests
 make check        # unit + headless UI tour + offline end-to-end
 
 # 4. Run the app
@@ -107,7 +107,7 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | 264 unit tests: 70 DSP, 124 core/engine/project/cloud, 70 UI |
+| `test` | 265 unit tests: 70 DSP, 125 core/engine/project/cloud, 70 UI |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
 | `e2e` | 17 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
@@ -144,7 +144,8 @@ directory is in `XDG_DATA_DIRS`.
 - **I/O panel:** live PipeWire/JACK source list, JACK-backend toggle, latency
   ± controls, rescan and device selection.
 - **Settings:** `,` or the SET button. Edits the project folder (type, BROWSE…,
-  APPLY, DEFAULT), shows the input device/backends, latency and monitoring, and
+  APPLY, DEFAULT); BROWSE starts in the parent of the current project so
+  sibling projects are visible. Shows the input device/backends, latency and monitoring, and
   toggles high contrast and reduced motion. `j/k` selects a row and `Enter`
   runs it. Clicking a text field enters EDIT with a real caret: click/drag or
   Shift+click select, double-click selects a word, triple-click selects all,
@@ -185,6 +186,9 @@ Setup is in [`../docs/cloud-setup.md`](../docs/cloud-setup.md). The short versio
 - Every file/folder Tracker creates carries an `appProperties` marker; queries
   and restores only see marked items. The fake-Drive test seeds an unrelated
   same-named file and proves it is neither downloaded, overwritten, nor deleted.
+- A live Google account round-trip verified the visible `Tracker/` hierarchy,
+  repeated backup, an innocent same-named `track1.wav`, and byte-identical
+  restore into a fresh local folder (see `VERIFICATION.md`).
 
 ### Design tokens
 
@@ -319,7 +323,7 @@ removes them.
 ## Tests and verification
 
 ```sh
-make test        # 70 DSP + 124 core/engine/project/cloud + 70 UI = 264 tests
+make test        # 70 DSP + 125 core/engine/project/cloud + 70 UI = 265 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui

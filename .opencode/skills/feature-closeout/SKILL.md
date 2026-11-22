@@ -212,6 +212,20 @@ message state:
   absent from `vui-ctl tree`. e2e must pass an explicit `--session`, and the
   window must store `cloud.json` beside that session, never in the user's real
   `~/.config/tracker`.
+- Hovering an input must change the OS cursor: put `cursor-text` on the field
+  row and its clipped value container. Blink the caret with a hard on/off
+  timer (`ctx.animating = true`) instead of `animate-pulse`; omit the caret
+  node in the off phase so screenshots cannot catch a half-faded bar.
+- Do not baseline screenshots containing live hardware enumeration. Device
+  lists reorder between PipeWire restarts; assert their text instead.
+- Project folders live side by side. `BROWSE…` must start in `parent_dir(current
+  project)`, not inside the current project; `dialog_start_dir` is unit-tested
+  so the parent, root and empty-folder cases stay correct.
+- **`defer` is block-scoped in Odin.** Never write `defer delete(x)` inside an
+  `if`/`for` block and then use `x` after the block: it frees `x` immediately.
+  This silently corrupted the curl body-file argument and the existing
+  `index.json` update ID. Declare the `defer` in the function scope or after the
+  block, and regression-test uploads/repeat backups, not just first uploads.
 
 ### Google Drive transfer (2026-11-22)
 

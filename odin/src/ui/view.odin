@@ -1343,7 +1343,7 @@ view_palette :: proc(a: ^App) {
 				vui.text("Commands", "text-[14px] font-semibold text-ink")
 				vui.text("ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
 			}
-			if vui.div("flex items-center gap-2 rounded-[2px] border border-sig-dim bg-canvas px-3 py-2 text-[13px]") {
+			if vui.div("flex cursor-text items-center gap-2 rounded-[2px] border border-sig-dim bg-canvas px-3 py-2 text-[13px]") {
 				vui.text(":", "font-bold text-sig")
 				vui.text(string(a.palette_buf[:a.palette_len]), "text-ink")
 				vui.el("h-4 w-[2px] animate-pulse bg-sig")
@@ -1441,7 +1441,7 @@ view_recent :: proc(a: ^App) {
 				vui.text("Recent projects", "text-[14px] font-semibold text-ink")
 				vui.text("ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
 			}
-			if vui.div("flex items-center gap-2 rounded-[2px] border border-sig-dim bg-canvas px-3 py-2 text-[13px]") {
+			if vui.div("flex cursor-text items-center gap-2 rounded-[2px] border border-sig-dim bg-canvas px-3 py-2 text-[13px]") {
 				vui.text("/", "font-bold text-sig")
 				vui.text(string(a.recent_query_buf[:a.recent_query_len]), "text-ink")
 				vui.el("h-4 w-[2px] animate-pulse bg-sig")
@@ -1512,9 +1512,9 @@ view_settings :: proc(a: ^App, v: ^View) {
 			// A plain box, not a focusable button: the window consumes real
 			// keys, but vui-ctl's synthetic Enter would otherwise activate the
 			// focused field and re-enter edit mode after APPLY.
-			if vui.div(vui.cx("flex w-full items-center gap-2 rounded-[2px] border bg-canvas px-3 py-2 text-left", editing ? "border-sig" : path_selected ? "border-sig ring-2 ring-sig" : "border-line hover:border-sig-dim")) {
+			if vui.div(vui.cx("flex w-full cursor-text items-center gap-2 rounded-[2px] border bg-canvas px-3 py-2 text-left", editing ? "border-sig" : path_selected ? "border-sig ring-2 ring-sig" : "border-line hover:border-sig-dim")) {
 				vui.text("$", "text-[12px] font-bold text-sig")
-				if vui.div("relative min-w-0 flex-1 overflow-hidden") {
+				if vui.div("relative min-w-0 flex-1 cursor-text overflow-hidden") {
 					text_field_view(a, 0, app_settings_path(a), false, editing, "not set", vui.prev_rect())
 				}
 				editing = a.settings_path_edit
@@ -1596,9 +1596,9 @@ view_settings :: proc(a: ^App, v: ^View) {
 			cloud_sel_rect: vui.Rect
 			folder_editing := a.cloud_edit == .Folder
 			folder_selected := a.settings_sel == .Cloud_Folder
-			if vui.div(vui.cx("flex items-center gap-2 rounded-[2px] border px-2 py-1", folder_editing || folder_selected ? "border-sig" : "border-line")) {
+			if vui.div(vui.cx("flex cursor-text items-center gap-2 rounded-[2px] border px-2 py-1", folder_editing || folder_selected ? "border-sig" : "border-line")) {
 				vui.text("Drive folder", "w-28 shrink-0 text-[11px] text-ink-dim")
-				if vui.div("relative min-w-0 flex-1 overflow-hidden") {
+				if vui.div("relative min-w-0 flex-1 cursor-text overflow-hidden") {
 					text_field_view(a, 1, app_cloud_folder(a), false, folder_editing, "Tracker", vui.prev_rect())
 				}
 				folder_editing = a.cloud_edit == .Folder
@@ -1619,9 +1619,9 @@ view_settings :: proc(a: ^App, v: ^View) {
 			}
 			client_editing := a.cloud_edit == .Client_ID
 			client_selected := a.settings_sel == .Cloud_Client_ID
-			if vui.div(vui.cx("flex items-center gap-2 rounded-[2px] border px-2 py-1", client_editing || client_selected ? "border-sig" : "border-line")) {
+			if vui.div(vui.cx("flex cursor-text items-center gap-2 rounded-[2px] border px-2 py-1", client_editing || client_selected ? "border-sig" : "border-line")) {
 				vui.text("Client ID", "w-28 shrink-0 text-[11px] text-ink-dim")
-				if vui.div("relative min-w-0 flex-1 overflow-hidden") {
+				if vui.div("relative min-w-0 flex-1 cursor-text overflow-hidden") {
 					text_field_view(a, 2, app_cloud_client_id(a), false, client_editing, "not set", vui.prev_rect())
 				}
 				client_editing = a.cloud_edit == .Client_ID
@@ -1642,9 +1642,9 @@ view_settings :: proc(a: ^App, v: ^View) {
 			}
 			secret_editing := a.cloud_edit == .Client_Secret
 			secret_selected := a.settings_sel == .Cloud_Client_Secret
-			if vui.div(vui.cx("flex items-center gap-2 rounded-[2px] border px-2 py-1", secret_editing || secret_selected ? "border-sig" : "border-line")) {
+			if vui.div(vui.cx("flex cursor-text items-center gap-2 rounded-[2px] border px-2 py-1", secret_editing || secret_selected ? "border-sig" : "border-line")) {
 				vui.text("Client secret", "w-28 shrink-0 text-[11px] text-ink-dim")
-				if vui.div("relative min-w-0 flex-1 overflow-hidden") {
+				if vui.div("relative min-w-0 flex-1 cursor-text overflow-hidden") {
 					text_field_view(a, 3, app_cloud_client_secret(a), true, secret_editing, "not set", vui.prev_rect())
 				}
 				secret_editing = a.cloud_edit == .Client_Secret
@@ -1703,7 +1703,7 @@ view_settings :: proc(a: ^App, v: ^View) {
 			} else {
 				status := app_cloud_status(a)
 				if status == "" {
-					status = "Not connected · set credentials to enable Google Drive"
+					status = "Google Drive connected" if a.cloud_connected else "Not connected · set credentials to enable Google Drive"
 				}
 				vui.text(status, "text-[10px] text-ink-muted")
 			}

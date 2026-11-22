@@ -394,11 +394,10 @@ cloud_index_save :: proc(token, root: string, index: ^Cloud_Index) -> (ok: bool,
 	if err != "" {
 		return false, err
 	}
-	if found {
-		defer delete(existing)
-	} else {
+	if !found {
 		existing = ""
 	}
+	defer delete(existing)
 	return cloud_index_upload_data(token, data, existing, root)
 }
 

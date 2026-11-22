@@ -91,7 +91,6 @@ test "io overlay"
   click I/O
   expect-text "Input devices"
   expect-text RESCAN
-  screenshot io
   key escape
   expect-no-text "Input devices"
 
@@ -153,6 +152,7 @@ test "settings text field selection and secret mask"
   key down
   key down
   click-text "Client ID"
+  expect-class "Client ID" cursor-text
   type "alpha-beta"
   # Keyboard selection replaces exactly the selected word.
   key home

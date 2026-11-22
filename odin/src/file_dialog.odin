@@ -110,21 +110,31 @@ pick_project_save :: proc() -> (string, bool) {
 	return path, true
 }
 
+// Project folders normally live side by side. Start the directory picker in
+// their parent, not inside the current project, so siblings are visible.
+dialog_start_dir :: proc(current, home: string) -> string {
+	if current == "" {
+		return home if home != "" else "."
+	}
+	return parent_dir(current)
+}
+
 // Opens a session directory. Returns an owned string.
 pick_session_open :: proc() -> (string, bool) {
-	return pick_directory("Open Tracker Session")
+	home := os.get_env("HOME", context.allocator)
+	defer delete(home)
+	return pick_directory("Open Tracker Session", home if home != "" else ".")
 }
 
 // Chooses the folder where project.json, takes and bounces are written.
-pick_save_dir :: proc() -> (string, bool) {
-	return pick_directory("Choose Tracker Project Folder")
+pick_save_dir :: proc(current: string) -> (string, bool) {
+	home := os.get_env("HOME", context.allocator)
+	defer delete(home)
+	return pick_directory("Choose Tracker Project Folder", dialog_start_dir(current, home))
 }
 
 @(private)
-pick_directory :: proc(title: string) -> (string, bool) {
-	home := os.get_env("HOME", context.allocator)
-	defer delete(home)
-	start := home if home != "" else "."
+pick_directory :: proc(title, start: string) -> (string, bool) {
 	argv: []string
 	if zenity_available() {
 		argv = []string{

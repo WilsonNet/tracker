@@ -118,7 +118,7 @@ cover it.
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — 264 unit tests (DSP + core/engine/project/cloud + UI)
+- `make test` — 265 unit tests (DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
@@ -159,7 +159,7 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 70 DSP + 124 core/engine/project/WAV/settings/cloud + 70 UI tests.
+- `make test` — 70 DSP + 125 core/engine/project/WAV/settings/cloud + 70 UI tests.
 - `make e2e` — 17 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay).
 - The Cairo/Pango harness (`ui-test`, `ui-shot`) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.

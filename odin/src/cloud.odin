@@ -337,9 +337,12 @@ cloud_curl_request :: proc(
 	append(&args, "-X", method)
 	append(&args, "--header", header_arg)
 	append(&args, "--dump-header", dump_path)
+	body_arg: string
 	if body_file != "" {
-		body_arg := fmt.aprintf("@%s", body_file)
-		defer delete(body_arg)
+		body_arg = fmt.aprintf("@%s", body_file)
+	}
+	defer delete(body_arg)
+	if body_arg != "" {
 		append(&args, "--data-binary", body_arg)
 	}
 	if upload_file != "" {
