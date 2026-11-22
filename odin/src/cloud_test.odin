@@ -182,6 +182,16 @@ cloud_restore_never_reuses_an_existing_folder :: proc(t: ^testing.T) {
 	second := cloud_partial_dir(first)
 	defer delete(second)
 	testing.expect(t, second != "" && second != partial && !os.exists(second), second)
+
+	// Exhaust the -2..-99 suffixes; the timestamp fallback must not use a
+	// freed base path or return an existing directory.
+	for i in 3 ..= 99 {
+		_ = os.make_directory_all(fmt.tprintf("/tmp/tracker-odin-restore-safety/Night-%d", i))
+	}
+	fallback := cloud_unique_dir(root, "Night")
+	defer delete(fallback)
+	testing.expect(t, fallback != "" && !os.exists(fallback), fallback)
+	testing.expect(t, strings.has_prefix(fallback, "/tmp/tracker-odin-restore-safety/Night-"), fallback)
 }
 
 @(test)

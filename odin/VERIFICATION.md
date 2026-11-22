@@ -190,7 +190,12 @@ with only `https://www.googleapis.com/auth/drive.file`:
 | repeated backup | marked files updated in place instead of creating a second project folder |
 | innocent file | an app-created, same-named `track1.wav` without the marker (18 B, `INNOCENT-LIVE-TEST`) stayed byte-identical while the marked `track1.wav` was updated |
 | restore | downloaded into a fresh `untitled-umnNNw` folder; `project.json` and `track1.wav` SHA-256 matched the originals |
-| delete guard | the app performed no Drive DELETE; the test-only innocent fixture was removed by the verification script afterwards |
+| local folder collision | a pre-created `untitled-umnNNw/DO-NOT-TOUCH.txt` made restore choose `untitled-umnNNw-2`; the dummy folder stayed untouched; the unit test also exhausts `-2..-99` and checks the timestamp fallback |
+| delete + restore | deleted the restored local folder and restored again; `project.json` and `track1.wav` SHA-256 matched the previous restore |
+| Drive folder collision | an unmarked `untitled-umnNNw` folder in `projects/` stayed empty; backup used the marked Tracker folder |
+| Drive file collision | an unmarked `track1.wav` stayed `INNOCENT-AGGRESSIVE`; the marked `track1.wav` was updated and hash-matched the local file |
+| duplicate marked names | `cloud_drive_find` rejects multiple marked files with the same name instead of choosing one |
+| delete guard | the app performed no Drive DELETE; the test-only innocent fixtures were removed by the verification script afterwards |
 | fonts/UI | the window stayed responsive; `unknown_classes: []` |
 
 This run exposed two lifetime bugs: the curl body-file argument and the existing

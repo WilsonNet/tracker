@@ -90,6 +90,30 @@ Drive when you want it gone. Revoke access at
 <https://myaccount.google.com/permissions> or
 <https://drive.google.com/drive/settings> → **Manage apps**.
 
+## Resume on another computer
+
+1. Install Tracker on the new machine. You do **not** need the old project
+   folder or `cloud.json`.
+2. Open **Settings → CLOUD**, enter the same Client ID/secret and Drive folder
+   name, then `CONNECT` and approve the browser consent.
+3. Press `g` to open **Cloud projects**. Pick the project and press `Enter`.
+4. Tracker restores it into a fresh folder next to the current project folder:
+   the parent of `~/.local/share/tracker/session` by default, or the parent of
+   whatever project folder is configured in Settings. The folder is named
+   `<project name>-<short cloud id>`, e.g.
+   `~/.local/share/tracker/My-Song-a1b2c3`.
+5. If that folder already exists, Tracker uses `-2`, `-3`, … and leaves the
+   existing folder untouched. Restore never overwrites an existing project.
+6. The restored project opens automatically. Press `PLAY` to audition it, or
+   `R` to continue recording. New takes are written into the restored folder.
+7. The restored folder does not contain `cloud.json`; credentials stay
+   machine-local. The next `u`/BACK UP NOW updates the same cloud project using
+   the restored `.tracker-cloud-id`.
+
+If the project has no `.tracker-cloud-id` (for example, an older copy), the
+first backup creates a new cloud identity and therefore a separate Drive
+project. Keep the restored folder together when moving a project by hand.
+
 ## Local token storage
 
 `~/.config/tracker/cloud.json` (or `$XDG_CONFIG_HOME/tracker/cloud.json`) holds

@@ -161,7 +161,8 @@ directory is in `XDG_DATA_DIRS`.
 - **Cloud projects:** Google Drive backup/restore. `Settings → CLOUD` holds
   the Drive folder name, OAuth client ID/secret, connect/disconnect, back up
   and restore. `g` opens the cloud-project list; `u` backs up, `r` refreshes.
-  Setup and the safety model are in [`../docs/cloud-setup.md`](../docs/cloud-setup.md).
+  Setup, the new-machine restore path and the safety model are in
+  [`../docs/cloud-setup.md`](../docs/cloud-setup.md).
 - **Headless UI harness:** `ui-test` (below) drives the exact same state
   machine without a browser or window.
 - **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `1–4` arm, `j/k`

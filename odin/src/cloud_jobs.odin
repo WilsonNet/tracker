@@ -566,6 +566,14 @@ cloud_job_restore :: proc(c: ^Cloud, task: ^Cloud_Task) {
 		cloud_set_error(c, "cloud project has no project.json")
 		return
 	}
+	for f, i in files {
+		for other in files[i + 1:] {
+			if f.name == other.name {
+				cloud_set_error(c, fmt.tprintf("cloud project has duplicate file names: %s", f.name))
+				return
+			}
+		}
+	}
 
 	name := cloud_sanitize_name(entry.name)
 	defer delete(name)

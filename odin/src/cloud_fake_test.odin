@@ -278,6 +278,15 @@ cloud_fake_drive_roundtrip_never_touches_unrelated_files :: proc(t: ^testing.T) 
 		}
 	}
 
+	// Two marked files with the same name must fail loudly instead of letting
+	// backup/restore pick one nondeterministically.
+	dup_path := fmt.tprintf("%s/track1.wav", session)
+	dup_err := ""
+	dup_ok, dup_upload_err := cloud_drive_upload(token, dup_path, "track1.wav", entry.folder_id, "", nil)
+	testing.expect(t, dup_ok, dup_upload_err)
+	_, dup_found := cloud_drive_find(token, entry.folder_id, "track1.wav", false, &dup_err)
+	testing.expect(t, !dup_found && strings.contains(dup_err, "multiple Tracker items"), dup_err)
+
 	stats_data, stats_ok := fake_get_json(server, "/__stats")
 	testing.expect(t, stats_ok, "stats")
 	defer delete(stats_data)

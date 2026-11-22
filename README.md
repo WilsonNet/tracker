@@ -55,7 +55,8 @@ Sessions default to `$XDG_DATA_HOME/tracker/session` (usually
 `~/.local/share/tracker/session`); press `,` and choose a
 project folder to change it (persisted in `~/.config/tracker/settings.json`),
 or pass `--session DIR` for an isolated run that ignores saved settings.
-For Google Drive transfer, follow [docs/cloud-setup.md](docs/cloud-setup.md).
+For Google Drive transfer, follow [docs/cloud-setup.md](docs/cloud-setup.md)
+(includes the new-machine restore path).
 `make install` installs the binary, icons and desktop entry under `~/.local`.
 
 ## Verification

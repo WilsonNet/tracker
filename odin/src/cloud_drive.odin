@@ -156,13 +156,17 @@ cloud_drive_find :: proc(token, parent, name: string, folder: bool, err: ^string
 	next := fmt.aprintf("%s and %s", suffix, CLOUD_APP_QUERY)
 	delete(suffix)
 	suffix = next
-	files, lerr := cloud_drive_list(token, parent, suffix, 1)
+	files, lerr := cloud_drive_list(token, parent, suffix, 2)
 	if lerr != "" {
 		err^ = lerr
 		return "", false
 	}
 	defer cloud_drive_files_destroy(files)
 	if len(files) == 0 {
+		return "", false
+	}
+	if len(files) > 1 {
+		err^ = fmt.tprintf("multiple Tracker items named '%s'; remove duplicates in Drive", name)
 		return "", false
 	}
 	return strings.clone(files[0].id), true
@@ -600,16 +604,17 @@ cloud_unique_dir :: proc(root, name: string) -> string {
 		}
 		delete(candidate)
 	}
-	delete(base)
 	// Never fall back to a path that may already exist: the restore path is
 	// allowed to fail, but it must not replace an unrelated local folder.
 	for i in 0 ..< 1000 {
 		candidate := fmt.aprintf("%s-%d-%d", base, time.to_unix_seconds(time.now()), i)
 		if !os.exists(candidate) {
+			delete(base)
 			return candidate
 		}
 		delete(candidate)
 	}
+	delete(base)
 	return ""
 }
 
