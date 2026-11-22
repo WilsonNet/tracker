@@ -33,6 +33,7 @@ Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent, Settings, Cloud, Render 
 // External render settings. All formats are WAV; the choice is the sample
 // encoding. The mix itself always runs through the f32 engine chain.
 Render_Format :: enum u8 { Wav_F32, Wav_PCM24, Wav_PCM16 }
+Render_Handle :: enum u8 { None, From, To }
 
 RENDER_FORMAT_COUNT :: int(Render_Format.Wav_PCM16) + 1
 RENDER_STEP_SECONDS :: f32(0.5)
@@ -440,6 +441,8 @@ App :: struct {
 	render_duration: f32,
 	render_format:   Render_Format,
 	render_sel:      int,
+	render_drag:     Render_Handle,
+	render_grab:     f32, // pointer-to-handle offset while dragging
 	demo:         bool,
 	// True while the arm preview capture is feeding live input levels, so the
 	// window keeps redrawing the meters without waiting for an event.
@@ -2063,6 +2066,8 @@ app_render_open :: proc(a: ^App) {
 	a.render_from = 0
 	a.render_to = 0
 	a.render_duration = 0
+	a.render_drag = .None
+	a.render_grab = 0
 	status_buf_set(a, "render range: full mix")
 	bump_revision(a)
 }
@@ -2072,6 +2077,8 @@ app_render_close :: proc(a: ^App) {
 		return
 	}
 	a.mode = .Normal
+	a.render_drag = .None
+	a.render_grab = 0
 	bump_revision(a)
 }
 
@@ -2113,6 +2120,26 @@ app_render_cycle_format :: proc(a: ^App, direction: int) {
 	app_render_set_format(a, Render_Format(next))
 }
 
+// Clamps one hand and updates the dialog status. `seconds` is absolute in the
+// mix; FROM cannot pass TO and TO cannot pass FROM.
+app_render_set_handle_time :: proc(a: ^App, handle: Render_Handle, seconds: f32) {
+	if a.mode != .Render || a.render_duration <= 0 {
+		return
+	}
+	switch handle {
+	case .From:
+		upper := max(a.render_to - 0.1, 0)
+		a.render_from = clamp(seconds, 0, upper)
+	case .To:
+		lower := min(a.render_from + 0.1, a.render_duration)
+		a.render_to = clamp(seconds, lower, a.render_duration)
+	case .None:
+		return
+	}
+	status_buf_set(a, fmt.tprintf("render range %s → %s", render_time_text(a.render_from), render_time_text(a.render_to)))
+	bump_revision(a)
+}
+
 app_render_adjust :: proc(a: ^App, direction: int, shift: bool) {
 	if direction == 0 || a.mode != .Render {
 		return
@@ -2122,18 +2149,37 @@ app_render_adjust :: proc(a: ^App, direction: int, shift: bool) {
 		return
 	}
 	step := RENDER_COARSE_STEP_SECONDS if shift else RENDER_STEP_SECONDS
-	switch a.render_sel {
-	case 0:
-		upper := max(a.render_to - 0.1, 0)
-		a.render_from = clamp(a.render_from + f32(direction) * step, 0, upper)
-	case 1:
-		lower := a.render_from + 0.1
-		upper := max(a.render_duration, lower)
-		a.render_to = clamp(a.render_to + f32(direction) * step, lower, upper)
-	case:
+	if a.render_sel == 0 {
+		app_render_set_handle_time(a, .From, a.render_from + f32(direction) * step)
+	} else {
+		app_render_set_handle_time(a, .To, a.render_to + f32(direction) * step)
 	}
-	status_buf_set(a, fmt.tprintf("render range %s → %s", render_time_text(a.render_from), render_time_text(a.render_to)))
+}
+
+// Starts a pointer drag on one hand. `pointer_seconds` is the mix time under
+// the cursor; storing the offset keeps the hand from jumping when grabbed
+// away from its center.
+app_render_drag_start :: proc(a: ^App, handle: Render_Handle, pointer_seconds: f32) {
+	if a.mode != .Render || a.render_duration <= 0 || handle == .None {
+		return
+	}
+	current := a.render_from if handle == .From else a.render_to
+	a.render_sel = 0 if handle == .From else 1
+	a.render_drag = handle
+	a.render_grab = current - pointer_seconds
 	bump_revision(a)
+}
+
+app_render_drag_update :: proc(a: ^App, pointer_seconds: f32) {
+	if a.render_drag == .None {
+		return
+	}
+	app_render_set_handle_time(a, a.render_drag, pointer_seconds + a.render_grab)
+}
+
+app_render_drag_end :: proc(a: ^App) {
+	a.render_drag = .None
+	a.render_grab = 0
 }
 
 // ---------------------------------------------------------------- tick

@@ -1278,7 +1278,7 @@ view_status :: proc(a: ^App) {
 		case .Cloud:
 			hint = "enter: restore  u: back up  r: refresh  esc: close"
 		case .Render:
-			hint = "j/k: row  h/l: adjust  shift: 5s  enter: render  esc: close"
+			hint = "drag: trim  j/k: row  h/l: nudge  enter: render  esc: close"
 		}
 		vui.text(hint, "ml-2 whitespace-pre text-ink-muted")
 	}
@@ -1834,7 +1834,104 @@ view_cloud :: proc(a: ^App) {
 }
 
 @(private = "file")
-RSTEP :: "flex size-6 shrink-0 items-center justify-center rounded-[2px] border border-line text-[13px] leading-none text-ink-dim transition-colors duration-150 hover:border-sig-dim hover:text-ink"
+Render_Track_Draw :: struct {
+	a: ^App,
+}
+
+@(private = "file")
+render_handle_x :: proc(track: vui.Rect, seconds, duration: f32) -> f32 {
+	if duration <= 0 {
+		return track.x
+	}
+	return track.x + track.w * clamp(seconds / duration, 0, 1)
+}
+
+@(private = "file")
+render_draw_handle :: proc(ctx: ^vui.Context, x, cy: f32, selected, dragging: bool) {
+	sig := tok("sig")
+	sig_hi := tok("sig-hi")
+	surface := tok("panel")
+	canvas := tok("canvas")
+	if selected || dragging {
+		vui.draw_rect(ctx, {x - 9, cy - 15, 18, 30}, vui.with_alpha(sig, 0.16), 4)
+		vui.draw_rect(ctx, {x - 7, cy - 14, 14, 28}, sig_hi, 3)
+		vui.draw_rect(ctx, {x - 5, cy - 12, 10, 24}, sig, 2)
+		vui.draw_rect(ctx, {x - 1.5, cy - 6, 1, 12}, vui.with_alpha(canvas, 0.9), 0.5)
+		vui.draw_rect(ctx, {x + 1.5, cy - 6, 1, 12}, vui.with_alpha(canvas, 0.9), 0.5)
+	} else {
+		vui.draw_rect(ctx, {x - 7, cy - 14, 14, 28}, vui.with_alpha(sig, 0.7), 3)
+		vui.draw_rect(ctx, {x - 6, cy - 13, 12, 26}, surface, 2)
+		vui.draw_rect(ctx, {x - 1, cy - 6, 1, 12}, vui.with_alpha(sig, 0.85), 0.5)
+		vui.draw_rect(ctx, {x + 2, cy - 6, 1, 12}, vui.with_alpha(sig, 0.85), 0.5)
+	}
+}
+
+// Custom-drawn dual-handle range track. The canvas owns drag hit-testing so
+// the visual track and the pointer geometry cannot drift apart.
+@(private = "file")
+render_range_draw :: proc(ctx: ^vui.Context, rect: vui.Rect, data: rawptr) {
+	a := (cast(^Render_Track_Draw)data).a
+	sig := tok("sig")
+	line := tok("line")
+	surface := tok("panel-raised")
+	cy := rect.y + rect.h * 0.5
+	pad := f32(9)
+	track := vui.Rect{rect.x + pad, cy - 3, rect.w - pad * 2, 6}
+	if a.render_duration <= 0 {
+		vui.draw_rect(ctx, track, vui.with_alpha(line, 0.8), 3)
+		return
+	}
+
+	mx := ctx.input.mouse[0]
+	my := ctx.input.mouse[1]
+	from_x := render_handle_x(track, a.render_from, a.render_duration)
+	to_x := render_handle_x(track, a.render_to, a.render_duration)
+	t_at :: proc(mx: f32, track: vui.Rect, duration: f32) -> f32 {
+		return clamp((mx - track.x) / max(track.w, 1), 0, 1) * duration
+	}
+	inside := my >= rect.y && my <= rect.y + rect.h && mx >= rect.x && mx <= rect.x + rect.w
+	hit := f32(11)
+	on_from := abs(mx - from_x) <= hit && abs(my - cy) <= 18
+	on_to := abs(mx - to_x) <= hit && abs(my - cy) <= 18
+
+	if inside && .Left in ctx.input.pressed {
+		handle: Render_Handle
+		if on_from || on_to {
+			// At the 0.1 s clamp the grips overlap; split the pair at its
+			// midpoint so both ends stay reachable.
+			handle = .From if mx <= (from_x + to_x) * 0.5 else .To
+		} else {
+			handle = .From if abs(mx - from_x) <= abs(mx - to_x) else .To
+			app_render_set_handle_time(a, handle, t_at(mx, track, a.render_duration))
+		}
+		app_render_drag_start(a, handle, t_at(mx, track, a.render_duration))
+	}
+	if a.render_drag != .None {
+		if .Left in ctx.input.buttons {
+			app_render_drag_update(a, t_at(mx, track, a.render_duration))
+		} else {
+			app_render_drag_end(a)
+		}
+	}
+
+	// Track, selected span, then handles. The selected hand is
+	// drawn last so an overlap still leaves the active grip on top.
+	vui.draw_rect(ctx, track, surface, 3)
+	if to_x > from_x {
+		vui.draw_rect(ctx, {from_x, track.y, to_x - from_x, track.h}, vui.with_alpha(sig, 0.9), 3)
+	}
+	from_selected := a.render_sel == 0
+	to_selected := a.render_sel == 1
+	dragging_from := a.render_drag == .From
+	dragging_to := a.render_drag == .To
+	if from_selected || dragging_from {
+		render_draw_handle(ctx, to_x, cy, to_selected, dragging_to)
+		render_draw_handle(ctx, from_x, cy, from_selected, dragging_from)
+	} else {
+		render_draw_handle(ctx, from_x, cy, from_selected, dragging_from)
+		render_draw_handle(ctx, to_x, cy, to_selected, dragging_to)
+	}
+}
 
 @(private = "file")
 view_render :: proc(a: ^App) {
@@ -1847,25 +1944,18 @@ view_render :: proc(a: ^App) {
 				vui.text("ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
 			}
 
-			vui.text("RANGE", "text-[10px] font-semibold tracking-[0.08em] text-ink-muted")
-			values := [2]f32{a.render_from, a.render_to}
-			labels := [2]string{"FROM", "TO"}
-			for row in 0 ..< 2 {
-				selected := a.render_sel == row
-				vui.push_id(row)
-				if vui.div(vui.cx("flex items-center gap-2 rounded-[2px] border px-2 py-1.5", selected ? "border-line-sig bg-sig-bg" : "border-line-subtle")) {
-					vui.text(labels[row], vui.cx("w-10 text-[10px] font-semibold tracking-[0.08em]", selected ? "text-sig" : "text-ink-muted"))
-					if vui.button("−", RSTEP) {
-						app_render_select(a, row)
-						app_render_adjust(a, -1, false)
-					}
-					vui.text(render_time_text(values[row]), "flex-1 text-center text-[13px] tabular-nums text-ink")
-					if vui.button("+", RSTEP) {
-						app_render_select(a, row)
-						app_render_adjust(a, 1, false)
-					}
-				}
-				vui.pop_id()
+			if vui.div("flex items-baseline") {
+				vui.text("RANGE", "text-[10px] font-semibold tracking-[0.08em] text-ink-muted")
+				vui.text("drag either handle", "ml-auto text-[10px] text-ink-muted")
+			}
+			d := new(Render_Track_Draw, context.temp_allocator)
+			d.a = a
+			vui.canvas("h-11 w-full cursor-ew-resize", render_range_draw, d)
+			if vui.div("flex items-baseline justify-between gap-3") {
+				from_sel := a.render_sel == 0
+				to_sel := a.render_sel == 1
+				vui.text(fmt.tprintf("FROM %s", render_time_text(a.render_from)), vui.cx("text-[11px] tabular-nums", from_sel ? "font-semibold text-sig" : "text-ink-dim"))
+				vui.text(fmt.tprintf("TO %s", render_time_text(a.render_to)), vui.cx("text-[11px] tabular-nums", to_sel ? "font-semibold text-sig" : "text-ink-dim"))
 			}
 
 			format_selected := a.render_sel == 2
@@ -1898,7 +1988,7 @@ view_render :: proc(a: ^App) {
 				}
 				vui.text("non-destructive · takes stay untouched", "ml-auto text-[10px] text-ink-muted")
 			}
-			vui.text("J/K row   H/L adjust (SHIFT 5s)   ENTER render   ESC close", "whitespace-pre text-[11px] text-ink-muted")
+			vui.text("J/K row   H/L nudge (SHIFT 5s)   ENTER render   ESC close", "whitespace-pre text-[11px] text-ink-muted")
 		}
 	}
 }

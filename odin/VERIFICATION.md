@@ -43,20 +43,27 @@ Total: **269 unit tests**.
 ## External mix render (2026-11-22)
 
 `RENDER…` in the mix row (or `B`) opens an in-app range/format dialog, then the
-native WAV save dialog. The dialog selects FROM/TO in 0.5 s steps (Shift: 5 s)
-and 32-bit float, 24-bit PCM or 16-bit PCM. Rendering is always stereo at the
-project rate, applies the full FX/master chain, and never modifies takes or
-`bounce.wav`. The range is applied to the already-rendered mix, so reverb and
-filter state stay continuous; `TO` defaults to the full rendered length
-including the tail, and `TO <= 0` means the end.
+native WAV save dialog. The range is a dual-handle track: drag either end, or
+click the track to move the nearest hand. `j/k` selects FROM/TO/FORMAT and
+`h/l` nudges by 0.5 s (Shift: 5 s). Formats are 32-bit float, 24-bit PCM and
+16-bit PCM. Rendering is always stereo at the project rate, applies the full
+FX/master chain, and never modifies takes or `bounce.wav`. The range is applied
+to the already-rendered mix, so reverb and filter state stay continuous; `TO`
+defaults to the full rendered length including the tail, and `TO <= 0` means
+the end. Handles clamp 0.1 s apart.
 
 | check | result |
 |---|---|
-| dialog layout | 1180×760 and 900×620; `unknown_classes: []`, frame 4.9–5.3 ms |
+| dialog layout | 1180×760 and 900×620; `unknown_classes: []`, frame 4.0–5.3 ms |
+| drag FROM | dragged 1/3 of a 3.000 s mix; label changed `FROM 0:00.0` → `FROM 0:01.0`, TO stayed `0:03.0` |
+| drag TO | dragged the right hand left; `TO 0:03.0` → `TO 0:02.2`, FROM stayed `0:01.0` |
+| click track | click between hands moved the nearest hand; `FROM 0:01.0` from a track click |
 | keyboard | `j/k` rows, `h/l` ±0.5 s, Shift ±5 s, `f`/arrows cycle format, Enter renders |
-| full mix, 16-bit | 3.000 s stereo `pcm_s16le` at 48 kHz, 480,044 bytes for a 2.5 s sub-range |
+| grab offset | unit test: grabbing a hand away from its centre preserves the offset; crossing clamps at 0.1 s |
+| full mix, 16-bit | 3.000 s stereo `pcm_s16le` at 48 kHz; 2.5 s sub-range was 480,044 bytes |
 | full mix, 24-bit | 3.000 s stereo `pcm_s24le` (24-bit) at 48 kHz, 864,044 bytes |
 | sub-range | `0:00.5 → 0:02.0` produced exactly 1.500 s, 432,044 bytes |
+| drag → render | dragged `0:00.0 → 0:03.0` to `0:01.0 → 0:02.2`, chose 24-bit, rendered 1.164 s `pcm_s24le`, 335,276 bytes |
 | 32-bit float | 3.000 s `pcm_f32le` at 48 kHz, 768,058 bytes (earlier round) |
 | save dialog | fake zenity captured `--title=Render Mix to WAV`, `--filename=<session>/mix.wav`, `*.wav` filter |
 | non-destructive | no `bounce.wav` created; source takes untouched |

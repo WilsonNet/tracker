@@ -15,7 +15,7 @@ fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
 - **Overdub** — hear the existing mix while recording the next part
 - **Native effects** — 3-band EQ and compressor per track, shared FDN reverb and
   ping-pong delay sends, master compressor, widener and lookahead limiter
-- **Bounce / render** — write the canonical project `bounce.wav`, or `RENDER…` the current mix to an external WAV with a time range and 32-bit float / 24-bit / 16-bit format, including reverb tails
+- **Bounce / render** — write the canonical project `bounce.wav`, or `RENDER…` the current mix to an external WAV with a dual-handle time range and 32-bit float / 24-bit / 16-bit format, including reverb tails
 - **Live metering** — peak/RMS per track plus compressor gain reduction
 - **Keyboard-first** — Vim navigation, `1`–`4` arm, `Space` play/stop, `R` record,
   `x` FX rack, `,` settings, `:` command palette

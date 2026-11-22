@@ -136,9 +136,10 @@ directory is in `XDG_DATA_DIRS`.
   whole-take comping from the palette, and arbitrary comp regions through the
   `comp` CLI. `BOUNCE` writes the canonical `bounce.wav`; `RENDER…` opens a
   range/format dialog and writes the same full-chain stereo mix to an external
-  WAV. Range defaults to the full mix, adjusts in 0.5 s steps (Shift: 5 s), and
-  offers 32-bit float, 24-bit PCM and 16-bit PCM. Projects keep the legacy
-  `file` plus the full take/comp list.
+  WAV. Drag either end of the range track (or click the track to move the
+  nearest hand); `j/k` selects FROM/TO/FORMAT and `h/l` nudges by 0.5 s
+  (Shift: 5 s). Formats are 32-bit float, 24-bit PCM and 16-bit PCM. Projects
+  keep the legacy `file` plus the full take/comp list.
 - **HiDPI + responsive density:** the window lays out in logical pixels at the
   compositor's density (1×–3×). The native window expands or compresses the
   flexible layout; the headless harness scales the whole virtual frame up to
@@ -162,11 +163,13 @@ directory is in `XDG_DATA_DIRS`.
   takes into it and leaves the old folder as a recovery copy. A folder that
   already contains `project.json` or `track1..4.wav` is refused, so applying
   cannot overwrite another session.
-- **Render dialog:** `B` or `RENDER…` opens Range + Format. `j/k` select FROM,
-  TO or FORMAT; `h/l` adjust (Shift moves 5 s); the format chips choose
-  32-bit float, 24-bit PCM or 16-bit PCM; `Enter` opens the save dialog.
-  Rendering is non-destructive and always stereo at the project rate. Range
-  ends beyond the mix clamp to the full render; an empty range is refused.
+- **Render dialog:** `B` or `RENDER…` opens Range + Format around a
+  dual-handle track. Drag either handle to trim; clicking the track moves the
+  nearest handle there. `j/k` select FROM/TO/FORMAT, `h/l` nudge by 0.5 s
+  (Shift: 5 s), and the format chips choose 32-bit float, 24-bit PCM or 16-bit
+  PCM. `Enter` opens the save dialog. Rendering is non-destructive and always
+  stereo at the project rate. Handles clamp at 0.1 s apart and at the mix
+  bounds; an empty range is refused.
 - **Cloud projects:** Google Drive backup/restore. `Settings → CLOUD` holds
   the Drive folder name, OAuth client ID/secret, connect/disconnect, back up
   and restore. `g` opens the cloud-project list; `u` backs up, `r` refreshes.

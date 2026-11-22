@@ -931,11 +931,28 @@ draw_cloud :: proc(a: ^App, c: ^Canvas) {
 }
 
 @(private)
+draw_render_handle :: proc(c: ^Canvas, x, cy: f32, selected, dragging: bool) {
+	T := ACTIVE_TOKENS
+	if selected || dragging {
+		canvas_fill_round(c, Rect{x - 9, cy - 15, 18, 30}, 4, with_alpha(T.color.amber, 0x28))
+		canvas_fill_round(c, Rect{x - 7, cy - 14, 14, 28}, 3, T.color.amber_bright)
+		canvas_fill_round(c, Rect{x - 5, cy - 12, 10, 24}, 2, T.color.amber)
+		canvas_fill_round(c, Rect{x - 1.5, cy - 6, 1, 12}, 0.5, with_alpha(T.color.bg, 0xD0))
+		canvas_fill_round(c, Rect{x + 1.5, cy - 6, 1, 12}, 0.5, with_alpha(T.color.bg, 0xD0))
+	} else {
+		canvas_fill_round(c, Rect{x - 7, cy - 14, 14, 28}, 3, with_alpha(T.color.amber, 0xB0))
+		canvas_fill_round(c, Rect{x - 6, cy - 13, 12, 26}, 2, T.color.surface)
+		canvas_fill_round(c, Rect{x - 1, cy - 6, 1, 12}, 0.5, with_alpha(T.color.amber, 0xD0))
+		canvas_fill_round(c, Rect{x + 2, cy - 6, 1, 12}, 0.5, with_alpha(T.color.amber, 0xD0))
+	}
+}
+
+@(private)
 draw_render :: proc(a: ^App, c: ^Canvas) {
 	T := ACTIVE_TOKENS
 	canvas_fill(c, Rect{0, 0, f32(a.width), f32(a.height)}, with_alpha(T.color.bg, 0xD0))
 	w: f32 = 560
-	h: f32 = 300
+	h: f32 = 270
 	r := Rect{(f32(a.width) - w) * 0.5, (f32(a.height) - h) * 0.5, w, h}
 	canvas_shadow(c, r, T.radius.xl, 16, with_alpha(T.color.black, 0x66))
 	canvas_fill_round(c, r, T.radius.xl, T.color.surface)
@@ -946,22 +963,29 @@ draw_render :: proc(a: ^App, c: ^Canvas) {
 
 	y := r.y + 60
 	canvas_text_px(c, r.x + 24, y, "RANGE", T.color.ink_muted, T.type.caption, .SemiBold)
-	y += 20
-	labels := [2]string{"FROM", "TO"}
-	values := [2]f32{a.render_from, a.render_to}
-	for row in 0 ..< 2 {
-		row_r := Rect{r.x + 24, y + f32(row) * 34, r.w - 48, 29}
-		sel := a.render_sel == row
-		if sel {
-			canvas_fill_round(c, row_r, T.radius.sm, T.color.amber_bg)
-			canvas_stroke_round(c, row_r, T.radius.sm, T.color.amber_dim, 1)
-		}
-		canvas_text_px(c, row_r.x + 10, row_r.y + 7, labels[row], T.color.amber if sel else T.color.ink_muted, T.type.caption, .SemiBold)
-		draw_button(c, Rect{row_r.x + 66, row_r.y + 2, 24, 25}, "-", false, false, true, T.color.ink_dim)
-		canvas_text_px_center(c, row_r.x + row_r.w * 0.5, row_r.y + 7, render_time_text(values[row]), T.color.ink, T.type.body, .Mono)
-		draw_button(c, Rect{row_r.x + row_r.w - 90, row_r.y + 2, 24, 25}, "+", false, false, true, T.color.ink_dim)
+	canvas_text_px_right(c, r.x + r.w - 24, y, "drag either handle", T.color.ink_muted, T.type.caption, .Regular)
+	track := Rect{r.x + 33, y + 30, r.w - 66, 6}
+	canvas_fill_round(c, track, 3, T.color.surface_high)
+	from_x := track.x if a.render_duration <= 0 else track.x + track.w * clamp(a.render_from / a.render_duration, 0, 1)
+	to_x := track.x if a.render_duration <= 0 else track.x + track.w * clamp(a.render_to / a.render_duration, 0, 1)
+	if a.render_duration > 0 && to_x > from_x {
+		canvas_fill_round(c, Rect{from_x, track.y, to_x - from_x, track.h}, 3, with_alpha(T.color.amber, 0xE6))
 	}
-	y += 76
+	cy := track.y + track.h * 0.5
+	if a.render_duration > 0 {
+		if a.render_sel == 0 || a.render_drag == .From {
+			draw_render_handle(c, to_x, cy, a.render_sel == 1, a.render_drag == .To)
+			draw_render_handle(c, from_x, cy, a.render_sel == 0, a.render_drag == .From)
+		} else {
+			draw_render_handle(c, from_x, cy, a.render_sel == 0, a.render_drag == .From)
+			draw_render_handle(c, to_x, cy, a.render_sel == 1, a.render_drag == .To)
+		}
+	}
+	y += 54
+	canvas_text_px(c, r.x + 24, y, fmt.tprintf("FROM %s", render_time_text(a.render_from)), T.color.amber if a.render_sel == 0 else T.color.ink_dim, T.type.caption, .SemiBold if a.render_sel == 0 else .Regular)
+	canvas_text_px_right(c, r.x + r.w - 24, y, fmt.tprintf("TO %s", render_time_text(a.render_to)), T.color.amber if a.render_sel == 1 else T.color.ink_dim, T.type.caption, .SemiBold if a.render_sel == 1 else .Regular)
+
+	y += 20
 	sel := a.render_sel == 2
 	format_row := Rect{r.x + 24, y, r.w - 48, 29}
 	if sel {
@@ -988,7 +1012,7 @@ draw_render :: proc(a: ^App, c: ^Canvas) {
 	canvas_hline(c, r.x + 24, r.x + r.w - 24, by - 12, T.color.line_subtle)
 	draw_button(c, Rect{r.x + 24, by, 100, 28}, "RENDER...", false, false, true, T.color.amber)
 	draw_button(c, Rect{r.x + 132, by, 88, 28}, "CANCEL", false, false, true, T.color.ink_dim)
-	canvas_text_px(c, r.x + 24, r.y + h - 30, "J/K row   H/L adjust (SHIFT 5s)   ENTER render   ESC close", T.color.ink_muted, T.type.caption, .Regular)
+	canvas_text_px(c, r.x + 24, r.y + h - 30, "J/K row   H/L nudge (SHIFT 5s)   ENTER render   ESC close", T.color.ink_muted, T.type.caption, .Regular)
 }
 
 @(private)

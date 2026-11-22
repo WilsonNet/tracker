@@ -213,6 +213,26 @@ ui_render_dialog_range_and_formats :: proc(t: ^testing.T) {
 	testing.expect(t, a.render_to >= a.render_from + 0.099, "to stays after from")
 	testing.expect(t, a.render_to <= 12.4, "to stays within the mix")
 
+	// Dragging keeps the grab offset instead of snapping the hand to the
+	// pointer, then clamps at the other hand.
+	app_render_set_handle_time(&a, .From, 0)
+	app_render_set_handle_time(&a, .To, 12.4)
+	app_render_drag_start(&a, .From, 2.0)
+	testing.expect(t, a.render_sel == 0 && a.render_drag == .From, "from drag starts")
+	testing.expect(t, abs(a.render_grab + 2.0) < 0.001, "grab offset")
+	app_render_drag_update(&a, 4.0)
+	testing.expect(t, abs(a.render_from - 2.0) < 0.001, "drag moves from")
+	app_render_drag_end(&a)
+	testing.expect(t, a.render_drag == .None, "drag ends")
+	app_render_set_handle_time(&a, .To, 12.4)
+	app_render_drag_start(&a, .To, 12.4)
+	app_render_drag_update(&a, 8.0)
+	testing.expect(t, abs(a.render_to - 8.0) < 0.001, "drag moves to")
+	app_render_drag_update(&a, 20.0)
+	testing.expect(t, a.render_to <= 12.4, "drag clamps to full mix")
+	app_render_set_handle_time(&a, .From, 20.0)
+	testing.expect(t, a.render_from <= a.render_to - 0.099, "from cannot cross to")
+
 	app_key(&a, .Char, 'j')
 	testing.expect(t, a.render_sel == 2, "FORMAT row selected")
 	app_key(&a, .Right)

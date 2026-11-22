@@ -262,11 +262,18 @@ message state:
   inspect the file with `ffprobe`/`soxi`.
 - Screenshots with a live device list are unstable; the render baselines are
   fine because they only gained a button.
-- The render panel is pure App state: FROM/TO seconds, a format enum and a
-  selected row. The window supplies the measured mix length after
-  `.Render_Mix`; Enter emits `.Render_File`, which is where the save dialog and
-  engine call live. Keeping those phases separate makes the dialog fully
-  unit-testable and keeps `ui-shot` engine-free.
+- The render panel is pure App state: FROM/TO seconds, a format enum, a
+  selected row and a drag handle. The window supplies the measured mix length
+  after `.Render_Mix`; Enter emits `.Render_File`, which is where the save
+  dialog and engine call live. Keeping those phases separate makes the dialog
+  fully unit-testable and keeps `ui-shot` engine-free.
+- The dual-handle track is a `vui.canvas`; do hit-testing and drag against the
+  same `Rect` used to paint it. Press starts the drag from
+  `ctx.input.pressed`, motion follows `ctx.input.buttons`, and release clears
+  the drag. Store the grab offset in the model so a handle does not snap to the
+  pointer. Draw the active handle last so overlapping ends still leave the
+  selected grip on top. Canvas focus is separate from the App's `render_sel`;
+  `j/k` must keep working without a pointer.
 - Integer PCM is written at the file boundary only; the engine, FX chain and
   range slicing stay f32. Test 16/24-bit with `wav_read` plus `ffprobe`/`soxi`.
 
