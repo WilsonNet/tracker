@@ -22,7 +22,7 @@ make build                 # must be green (the vui.init stack warning is known)
 make test-dsp              # DSP only
 make test-core             # engine / project / WAV / CLI
 make test-ui               # UI state, layout, HiDPI, PNG
-make test                  # all 269 unit tests (counts live in README/VERIFICATION)
+make test                  # all 271 unit tests (counts live in README/VERIFICATION)
 make e2e                   # 18 headless vinland-ui window cases
 make check                 # tests + 220-action UI tour + offline bounce + format checks
 ```
@@ -277,6 +277,27 @@ message state:
 - Integer PCM is written at the file boundary only; the engine, FX chain and
   range slicing stay f32. Test 16/24-bit with `wav_read` plus `ffprobe`/`soxi`.
 
+### Audit fixes (2026-11-22)
+
+- `engine_load_tracks` owns the project-rate handoff: every caller (startup,
+  palette Load, open-project) gets `e.sample_rate` from `a.sample_rate`. Do not
+  load takes before syncing the rate or 44.1 kHz projects silently mix at 48 k.
+- Finalize an open take before clearing take lists. `engine_destroy` stops the
+  take first; window close stops/syncs/saves, and take stop/selection call
+  `window_save_project`. This prevents the old canonical WAV being replaced
+  while `project.json` still points at it.
+- `engine_save_as_to` refuses an occupied destination (`project.json` or
+  `trackN.wav`); Save As must not merge two sessions.
+- A malformed `project.json` is renamed to `project.json.corrupt-<pid>` and the
+  canonical takes are recovered. Do not silently open an empty project and let
+  the next save overwrite the original.
+- Swallow Ctrl/Alt/Super chords outside text editing. `app_key` only sees the
+  character, so without the guard Ctrl+S toggles Solo, Ctrl+R records, etc.
+- RIFF/PCM WAV writes go through `write_file_atomic`; a failed write must not
+  truncate the previous take/bounce.
+- `bounce` requires `--session`; it must never silently overwrite the default
+  session's `bounce.wav`.
+
 ### Window visibility (2026-11-21)
 
 - A Hyprland `workspace = "special:tracker silent"` rule made every `tracker`
@@ -285,6 +306,32 @@ message state:
 - Before debugging "no window", check `hyprctl clients` for the class and
   workspace, then the window rules — not the renderer logs.
 - The app is `tracker-odin`; `tracker` is not a command.
+
+### Background driving without stealing input (2026-11-22)
+
+- `vui-ctl` input is synthetic and in-process; it never warps/clicks the OS
+  pointer. For a visible run that must not disturb the user, start the app with
+  `VUI_BACKGROUND=1` (or `make ui-bg`). The window is created with
+  `SDL_WINDOW_NOT_FOCUSABLE` and `SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN=0`; X11
+  window managers honor the hint, but Wayland has no togglable focus flag, so
+  the compositor still decides. `VUI_HIDDEN=1` is the only hard
+  no-desktop-contact guarantee; a compositor no-focus rule is the visible-Wayland
+  option.
+- Guard the SDL side effects, not just the input events: `SDL_ShowCursor` /
+  `SDL_SetCursor` on X11 apply to every window in the process, and
+  `SDL_StartTextInput` is only valid for a focused window. Gate them on real
+  pointer/focus state and skip while the last pointer event was synthetic;
+  otherwise a script can leave the app's cursor hidden or start IME on a window
+  the user never focused.
+- `vui-ctl foreground` is the explicit escape hatch for native dialogs, IME or
+  human takeover; `vui-ctl background` returns. Wayland may refuse to make an
+  existing surface focusable (`SDL_SetWindowFocusable` fails for non-popup
+  windows); report the failure and restart without `VUI_BACKGROUND=1` rather
+  than pretending it worked.
+- Proven by `vinland-ui/scripts/check-background.sh` under Xvfb + openbox:
+  pointer position unchanged across `vui-ctl click-text`, `info` reports
+  `background:true`/`focusable:false`, and the foreground/background toggle
+  round-trips. Tracker e2e (18) and showroom e2e (6) stay green.
 
 ### Repo cleanup (2026-11-21)
 

@@ -78,7 +78,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 269 unit tests
+make test         # 271 unit tests
 make check        # unit + headless UI tour + offline end-to-end
 
 # 4. Run the app
@@ -107,7 +107,7 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | 269 unit tests: 71 DSP, 127 core/engine/project/cloud, 71 UI |
+| `test` | 271 unit tests: 71 DSP, 129 core/engine/project/cloud, 71 UI |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
 | `e2e` | 18 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
@@ -329,14 +329,22 @@ and a region that does not fit its take is rejected.
 `bounce` reads `project.json` (if present), loads the session tracks (active
 takes or comp regions), resamples mixed-rate files to the project rate, renders
 through the full chain and writes stereo 32-bit float (RF64 automatically for
-files over the RIFF limit). `comp --list` shows takes/regions; `--select`
-changes the active take; `--take/--start/--end` adds a region; `--clear`
-removes them.
+files over the RIFF limit). It requires an explicit `--session`; the command no
+longer writes the default session's `bounce.wav`. `comp --list` shows
+takes/regions; `--select` changes the active take; `--take/--start/--end` adds
+a region; `--clear` removes them.
+
+Save As refuses a folder that already contains a Tracker project or
+`trackN.wav`, so it cannot merge two sessions. Closing the window during REC
+finalizes the take (the previous active take is stabilized to its take file
+first) and writes `project.json`; take stop/selection and a clean close also
+persist the project. A malformed `project.json` is renamed to
+`project.json.corrupt-<pid>` before the recovered takes are shown.
 
 ## Tests and verification
 
 ```sh
-make test        # 71 DSP + 127 core/engine/project/cloud + 71 UI = 269 tests
+make test        # 71 DSP + 129 core/engine/project/cloud + 71 UI = 271 tests
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui
@@ -417,6 +425,20 @@ vui-ctl --port 7421 type x          # open the FX rack
 vui-ctl --port 7421 click-text MST
 ```
 
+`vui-ctl` pointer/key commands are injected inside the app: they never move the
+real OS pointer, raise the window or request focus. To keep a visible window
+while the user plays a game or works in another app, start it with
+`VUI_BACKGROUND=1` (or `make ui-bg`): the window is mapped without activation and
+with SDL's non-focusable hint. X11 window managers honor the hint; Wayland leaves
+focus policy to the compositor, so use a no-focus rule there or `VUI_HIDDEN=1`
+for the hard no-desktop-contact guarantee. `vui-ctl info` reports `background`,
+`focusable`, `keyboard_focus`, `mouse_inside`, `pointer_synthetic` and
+`video_driver`. When a native dialog, IME or human takeover genuinely needs the
+OS window, `vui-ctl foreground` is the explicit escape hatch (and
+`vui-ctl background` returns to the safe mode); on Wayland the compositor may
+refuse to make an existing surface focusable, so restart without
+`VUI_BACKGROUND=1` for that flow.
+
 The Cairo/Pango renderer below remains for `ui-shot` / `ui-test` (headless,
 pixel-stable regression tests).
 
@@ -490,8 +512,9 @@ high-DPI guidance, and the JetBrains Mono/Inter/Noto font licences.
   or 16-bit PCM. There is no compressed format (MP3/FLAC) and no stem export.
   Integer exports stay RIFF; a >4 GB 16/24-bit mix is refused.
 - The Cairo/Pango harness remains the pixel-stable regression surface. The
-  vinland window is exercised through `vui-test`/`vui-ctl`, not OS-level pointer
-  injection; `ui-test` pointer coordinates are logical.
+  vinland window is exercised through `vui-test`/`vui-ctl`; pointer input is
+  synthetic by default and never touches the OS pointer. Real OS focus is an
+  explicit `vui-ctl foreground` escape hatch, not the default.
 - HiDPI density is sampled from the compositor's window/pixel ratio; densities
   outside 1–3× are clamped. `--ui-scale` is limited to the tested
   1/1.25/1.5/2/3 set.

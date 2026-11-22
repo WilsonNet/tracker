@@ -195,11 +195,15 @@ engine_init :: proc(e: ^Engine, args: []string) -> bool {
 engine_destroy :: proc(e: ^Engine) {
 	engine_preview_stop(e)
 	engine_stop_playback(e)
+	// Finalize an open take before dropping the take lists: the split needs the
+	// previous active take metadata to stabilize the old canonical WAV, otherwise
+	// the new partial capture overwrites the take project.json still points at.
+	if e.rec.active || jack_session_is_running(&e.jack) {
+		_ = engine_record_stop(e, nil)
+	}
 	jack_session_destroy(&e.jack)
 	engine_takes_clear(e)
-	if e.rec.active {
-		engine_record_stop(e, nil)
-	} else if e.rec.device_open || e.rec.ctx_open || e.rec.raw != nil || e.rec.writer != nil {
+	if e.rec.device_open || e.rec.ctx_open || e.rec.raw != nil || e.rec.writer != nil {
 		sync.atomic_store(&e.rec.stop, 1)
 		recorder_join_writer(e)
 		recorder_release(e, true, true)
@@ -1277,6 +1281,12 @@ playback_callback :: proc "c" (device: ^ma.device, output, input: rawptr, frame_
 }
 
 engine_load_tracks :: proc(e: ^Engine, a: ^ui.App) -> bool {
+	// The project's rate is authoritative when loading takes. Callers used to
+	// forget this on startup/palette load, leaving a 44.1 kHz project mixing at
+	// the engine default 48 kHz.
+	if a != nil && a.sample_rate != 0 {
+		e.sample_rate = clamp(a.sample_rate, 8_000, 384_000)
+	}
 	engine_takes_ensure(e)
 	any := false
 	for i in 0 ..< MAX_ENGINE_TRACKS {

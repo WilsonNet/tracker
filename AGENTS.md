@@ -106,6 +106,19 @@ cover it.
   `screenshot`, `tree`, `click-text`, `type`, `key`, `resize`, `dark`, `quit`),
   and read the PNG back. `VUI_HIDDEN_GPU` is only for a benchmark wrapped in
   `vinland-ui/tools/gpu-guard.sh`.
+- `vui-ctl` input is synthetic and in-process: it never moves the real pointer,
+  raises the window or asks for focus. For a **visible** run that must not
+  disturb the user (gaming, calls), use `VUI_BACKGROUND=1` (or `make ui-bg`):
+  the window is mapped without activation and with the non-focusable hint; X11
+  honors it, while Wayland leaves focus policy to the compositor (use a
+  no-focus rule there, or `VUI_HIDDEN=1` for the hard guarantee).
+  `vui-ctl info` reports `background`, `focusable`, `keyboard_focus`,
+  `mouse_inside`, `pointer_synthetic` and `video_driver`. `vui-ctl foreground`
+  is the explicit escape hatch when a native file dialog, IME or a human
+  takeover needs the OS window; `vui-ctl background` returns to the safe mode.
+  On Wayland a compositor may refuse to make an existing surface focusable —
+  restart without `VUI_BACKGROUND=1` for that flow.
+  `vinland-ui/scripts/check-background.sh` verifies the X11 path under Xvfb.
 - After every class change check `vui-ctl info` → `unknown_classes`: an unknown
   token renders nothing.
 - Keep `make e2e` passing (`odin/tests/ui/window.vt`, run headless and sandboxed by
@@ -118,10 +131,11 @@ cover it.
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — 269 unit tests (DSP + core/engine/project/cloud + UI)
+- `make test` — 271 unit tests (DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
+- `make ui-bg` — visible non-focusable window on port 7421 for `vui-ctl` while the user games
 - `make ui-shot SHOT=/tmp/ui.png` — render one frame (`--settings`, `--cloud`)
 - `make ui-test SCRIPT=... UI_OUT=...` — run a harness script
 - `make devices`, `make selftest`, `make bounce SESSION=...` — CLI helpers
@@ -159,7 +173,7 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 71 DSP + 127 core/engine/project/WAV/settings/cloud + 71 UI tests.
+- `make test` — 71 DSP + 129 core/engine/project/WAV/settings/cloud + 71 UI tests.
 - `make e2e` — 18 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, render dialog range/format, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay).
 - The Cairo/Pango harness (`ui-test`, `ui-shot`) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.

@@ -10,7 +10,7 @@ complete; details and intentional limits are in `ROADMAP.md`.
 |---|---|---|
 | clean build | `make clean && make build` | ≈0.8 s |
 | DSP | `odin test src/dsp` | **71 passed** |
-| engine / project / WAV / RF64 / takes / CLI / settings / cloud | `odin test src` | **127 passed** |
+| engine / project / WAV / RF64 / takes / CLI / settings / cloud | `odin test src` | **129 passed** |
 | UI state, layout, HiDPI, harness zoom, PNG | `odin test src/ui` | **71 passed** |
 | native renderer | vinland-ui SDL3 + Vulkan/GL | JetBrains Mono, canvas charts, `vui-ctl` screenshots |
 | harness renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
@@ -18,7 +18,7 @@ complete; details and intentional limits are in `ROADMAP.md`.
 | static checks | `odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
-Total: **269 unit tests**.
+Total: **271 unit tests**.
 
 ## Headless UI harness
 
@@ -39,6 +39,49 @@ Total: **269 unit tests**.
   secret masking, and the cloud settings/overlay.
   The suite asserts the I/O overlay text but does not baseline its live device
   list: enumeration order is PipeWire/compositor-dependent.
+
+## Background input and focus safety (2026-11-22)
+
+`vui-ctl` pointer/key commands are synthetic and in-process; they never move the
+real OS pointer, raise the window or request focus. `VUI_BACKGROUND=1` (or
+`make ui-bg`) maps a visible window without activation and with SDL's
+non-focusable hint, and suppresses cursor/IME side effects driven by synthetic
+hover. X11 window managers honor the hint; Wayland leaves focus policy to the
+compositor, so `VUI_HIDDEN=1` remains the hard no-desktop-contact guarantee.
+
+| check | result |
+|---|---|
+| `vinland-ui/scripts/check-background.sh` (Xvfb + openbox) | window mapped `background:true`, `focusable:false`; pointer stayed at `640,400` across a synthetic `click-text`; screenshot rendered |
+| `vui-ctl info` on Tracker in background mode | `background:true`, `focusable:false`, `keyboard_focus` reported from SDL window flags |
+| escape hatch | `vui-ctl foreground` clears background suppression and raises/flashes the window; `vui-ctl background` restores it |
+| regression | Tracker `tests/ui/window.vt` 18/18; vinland showroom e2e 6/6 after the change |
+
+On Wayland a compositor may refuse to make an existing surface focusable; the
+`foreground` response reports that, and the documented fallback is to restart
+without `VUI_BACKGROUND=1` for the flow that needs native focus.
+
+## Audit fixes (2026-11-22)
+
+Read-only audits in `docs/audit/2026-11-22/` produced these changes; 271 unit
+tests and the 18-case e2e suite pass after them.
+
+| fix | evidence |
+|---|---|
+| master `t`/`T` no longer indexes take lists out of bounds | `engine_take_cycle` guard + regression test |
+| project sample rate adopted on startup/palette load | `engine_load_tracks` sets `e.sample_rate` from the loaded project; 44.1 kHz regression test |
+| Save As refuses an occupied Tracker folder | `engine_save_as_to` guard; regression test leaves the destination take unchanged |
+| closing during REC finalizes the take before take-list teardown | `engine_destroy` stops first, window close stops/syncs/saves; old canonical is stabilized |
+| take stop/selection and clean close persist `project.json` | `window_save_project` in `ui_window.odin` |
+| unreadable `project.json` quarantined and takes recovered | renamed `project.json.corrupt-<pid>`; manual malformed-session repro |
+| RIFF/PCM WAV writes are atomic | `wav_write`/export use `write_file_atomic` |
+| `bounce` requires `--session` | CLI refuses the default session |
+| Ctrl/Alt chords no longer fire Vim letters | `window_on_event` swallows non-edit modifier chords |
+| pan law hoisted; PNG zlib level 3 | `dsp/render.odin`; `ui/png.odin` (pixel-stable, faster harness) |
+
+Known open items (larger design/architecture changes) are listed in
+`docs/audit/2026-11-22/code.md` and `performance.md`: JACK lifecycle, async
+mixdown, compressor/resampler rewrites, WAV streaming, native strip
+re-proportioning and settings overflow.
 
 ## External mix render (2026-11-22)
 

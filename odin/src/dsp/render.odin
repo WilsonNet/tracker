@@ -169,9 +169,16 @@ render_mix :: proc(track_audio: [][]f32, settings: Fx_Settings, sample_rate: f32
 	defer delete(eqs)
 	comps := make([]Compressor, len(tracks))
 	defer delete(comps)
+	pan_l := make([]f32, len(tracks))
+	defer delete(pan_l)
+	pan_r := make([]f32, len(tracks))
+	defer delete(pan_r)
 	for track, i in tracks {
 		eqs[i] = eq_new(sample_rate, track.eq)
 		comps[i] = comp_new(sample_rate, track.comp)
+		// Constant-power pan depends only on the track settings, not the sample:
+		// hoist the sin/cos out of the per-frame loop.
+		pan_l[i], pan_r[i] = track_mix_pan_gains(track)
 	}
 
 	master_comp := comp_new(sample_rate, settings.master_comp)
@@ -230,9 +237,8 @@ render_mix :: proc(track_audio: [][]f32, settings: Fx_Settings, sample_rate: f32
 			}
 			l, r := eq_process(&eqs[i], sample, sample)
 			l, r = comp_process(&comps[i], l, r)
-			gl, gr := track_mix_pan_gains(track)
-			out_l := l * gl
-			out_r := r * gr
+			out_l := l * pan_l[i]
+			out_r := r * pan_r[i]
 			bus_l += out_l
 			bus_r += out_r
 			send_rev_l += out_l * track.send_reverb

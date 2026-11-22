@@ -65,6 +65,7 @@ close it. Never leave an orphaned instance.
 | Real app | `cd odin && VUI_PORT=7421 ./bin/tracker-odin ui` | `vui: control server on 127.0.0.1:7421` |
 | Demo meters, no hardware | `cd odin && VUI_PORT=7421 ./bin/tracker-odin ui --demo` | same |
 | Offscreen UI check | `cd odin && VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-odin ui --demo &` | same |
+| Visible, cannot steal focus | `cd odin && make ui-bg` | same |
 | Window E2E suite | `cd odin && make e2e` | `N passed, 0 failed` |
 | Headless UI tour | `cd odin && make check` | `== PASS ==` |
 
@@ -110,6 +111,13 @@ or close the tab.
 - Drive the running app with `vinland-ui/build/vui-ctl --port 7421`:
   `info`, `screenshot`, `tree`, `click-text`, `type`, `key`, `resize`, `dark`,
   `scroll`, `quit`.
+- `vui-ctl` input is synthetic and in-process; it never moves the real pointer or
+  focuses the window. If the user is gaming or working in another app, run
+  `make ui-bg` (`VUI_BACKGROUND=1`): the window stays visible but non-focusable.
+  `vui-ctl foreground` is the explicit escape hatch for native dialogs/IME or a
+  human takeover; `vui-ctl background` returns to the safe mode. On Wayland the
+  compositor may refuse to focus an existing surface, so restart without
+  `VUI_BACKGROUND=1` for that flow.
 - Always read the PNG back and check `info.unknown_classes` and `frame_ms`.
 - Every UI change must be driven through `vui-ctl`, not just `ui-shot` or unit
   tests: open the changed panel, click/type the full flow, screenshot, read it.

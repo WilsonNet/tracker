@@ -36,7 +36,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | Comp regions + comp renderer | done | equal-power joins, CLI `comp` |
 | Whole-take comping in UI | done | palette “comp active take” |
 | Latency/a11y settings persisted | done | project fields + `settings.json` |
-| Settings overlay: project folder, audio, a11y, cloud | done | `vui-ctl`, settings tests, 17-case e2e |
+| Settings overlay: project folder, audio, a11y, cloud | done | `vui-ctl`, settings tests, 18-case e2e |
 | Folder picker starts with sibling projects visible | done | `dialog_start_dir` unit test |
 | Text fields: caret, selection, click/drag/double/triple, clipboard, undo | done | native `vui-ctl` geometry + 4 UI tests + e2e case |
 | Google Drive backup/restore (`drive.file`, visible named folder) | done | live Google round-trip, innocent-file guard, fake-Drive no-delete tests |
@@ -63,6 +63,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | Accessibility: keyboard-first, high contrast, reduced motion | done | tests + `--a11y-log` |
 | HiDPI 1×/1.25×/1.5×/2×/3× | done | SDL density in the window; stb_truetype atlases in the harness |
 | Window class `tracker` for compositor rules | done | `hyprctl clients`; optional scratchpad rule |
+| Background driving without OS focus/pointer | done | `VUI_BACKGROUND=1`, `vui-ctl foreground` escape hatch; Xvfb pointer check, `check-background.sh` |
 
 ## Headless UI test harness
 
@@ -77,8 +78,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **269** (71 DSP, 127 core/engine/project/cloud, 71 UI) |
-| UI e2e | 17 headless vinland-ui cases |
+| unit tests | **271** (71 DSP, 129 core/engine/project/cloud, 71 UI) |
+| UI e2e | 18 headless vinland-ui cases |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |
 | hardware capture | 96,000 frames / 2.000 s |

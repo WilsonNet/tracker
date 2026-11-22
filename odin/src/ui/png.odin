@@ -53,7 +53,10 @@ png_encode :: proc(width, height: int, pixels: []u32) -> []u8 {
 	comp := make([]u8, int(bound))
 	defer delete(comp)
 	dest_len := zlib.uLongf(bound)
-	if zlib.compress2(raw_data(comp), &dest_len, raw_data(raw), zlib.uLong(len(raw)), 6) != 0 {
+	// Level 3 is pixel-identical for these opaque UI frames and roughly halves
+	// encode time versus the zlib default (screenshots and e2e dominate harness
+	// wall time).
+	if zlib.compress2(raw_data(comp), &dest_len, raw_data(raw), zlib.uLong(len(raw)), 3) != 0 {
 		return nil
 	}
 	compressed := comp[:int(dest_len)]

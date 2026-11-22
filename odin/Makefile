@@ -12,6 +12,7 @@ SESSION    ?= $(HOME)/.local/share/tracker/session
 SCRIPT     ?= tests/ui/full-tour.json
 SHOT       ?= /tmp/tracker-odin-ui.png
 UI_OUT     ?= /tmp/tracker-ui-test
+VUI_PORT   ?= 7421
 
 E2E_OUT    ?= /tmp/tracker-e2e
 
@@ -52,6 +53,13 @@ run: ui
 
 ui: build
 	./$(BIN) ui
+
+# Visible window that is not activated on show, so an agent can drive it with
+# vui-ctl while the user games or works elsewhere (X11 honors the non-focusable
+# hint; Wayland leaves focus policy to the compositor). vui-ctl foreground is
+# the escape hatch when a native dialog or IME genuinely needs focus.
+ui-bg: build
+	VUI_BACKGROUND=1 VUI_PORT=$(VUI_PORT) ./$(BIN) ui
 
 ui-shot: build
 	./$(BIN) ui-shot --out "$(SHOT)"

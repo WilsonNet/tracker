@@ -111,7 +111,7 @@ wav_write :: proc(path: string, sample_rate: u32, channels: u32, samples: []f32)
 		endian.put_f32(buf[WAV_HEADER_SIZE + i * 4:], .Little, s)
 	}
 
-	return os.write_entire_file(path, buf) == nil
+	return write_file_atomic(path, buf)
 }
 
 // External render formats. The engine always works in f32; the export writer
@@ -206,7 +206,7 @@ wav_write_pcm :: proc(
 		}
 	}
 
-	return os.write_entire_file(path, buf) == nil
+	return write_file_atomic(path, buf)
 }
 
 wav_read :: proc(path: string) -> (wav: Wav, ok: bool) {

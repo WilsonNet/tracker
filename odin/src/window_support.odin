@@ -10,6 +10,17 @@ ui_sync_takes :: proc(a: ^ui.App, e: ^Engine) {
 	}
 }
 
+// Persist take metadata and the current mix state after a state-changing
+// operation. Take files are already on disk; the project.json is what makes
+// them survive a restart.
+window_save_project :: proc(a: ^ui.App, e: ^Engine) -> bool {
+	if project_save_with_takes(a, e.takes[:], e.project_path) {
+		a.dirty = false
+		return true
+	}
+	return false
+}
+
 ui_persist_recent :: proc(a: ^ui.App, path: string) {
 	if path == "" {
 		return

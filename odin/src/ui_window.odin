@@ -157,6 +157,20 @@ run_ui_window :: proc(args: []string) -> bool {
 			ui_sync_takes(&a, &e)
 			ui.app_history_reset(&a)
 			ui.status_buf_set(&a, "project loaded")
+		} else {
+			// Preserve an unreadable project.json instead of letting the next
+			// save overwrite it, then recover any canonical take files on disk.
+			backup := fmt.tprintf("%s.corrupt-%d", e.project_path, os.get_pid())
+			renamed := os.rename(e.project_path, backup) == nil
+			_ = engine_load_tracks(&e, &a)
+			ui_sync_takes(&a, &e)
+			ui.app_history_reset(&a)
+			if renamed {
+				ui.status_buf_set(&a, "project unreadable · original preserved")
+			} else {
+				ui.status_buf_set(&a, "project unreadable · takes recovered")
+			}
+			ui.toast(&a, "project file was unreadable")
 		}
 	} else {
 		_ = engine_load_tracks(&e, &a)
@@ -215,6 +229,17 @@ run_ui_window :: proc(args: []string) -> bool {
 			vapp.request_redraw(&va)
 		}
 	}
+	// A clean close keeps take selection, comp regions and mix edits. If a take
+	// is still open, finalize it first: the old active take is stabilized to its
+	// take file before the new canonical WAV is written, so closing mid-record
+	// cannot destroy the previous audio.
+	if e.rec.active || jack_session_is_running(&e.jack) {
+		_ = engine_record_stop(&e, &a)
+		ui_sync_takes(&a, &e)
+	}
+	if !e.rec.active && !jack_session_is_running(&e.jack) {
+		_ = window_save_project(&a, &e)
+	}
 	return true
 }
 
@@ -258,6 +283,13 @@ window_on_event :: proc(va: ^vapp.App, ev: ^sdl.Event) -> bool {
 			return true
 		}
 		key, ch, shift := map_key(ev.key.key, ev.key.mod)
+		// Modifier chords are not Vim commands. Without this guard Ctrl+S
+		// toggles Solo, Ctrl+R records, Ctrl+B bounces, etc. because app_key
+		// only looks at the character. Text editing consumed its own chords
+		// above; swallow the rest instead of typing a literal.
+		if ctrl_down || ev.key.mod & {.LALT, .RALT, .LGUI, .RGUI} != {} {
+			return true
+		}
 		ui.app_set_shift(ws.a, shift)
 		if key != .Char || ch != 0 {
 			window_key(ws.a, key, ch, shift)
@@ -501,6 +533,12 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 		case .Record_Stop:
 			_ = engine_record_stop(e, a)
 			ui_sync_takes(a, e)
+			// A finished take changes the take list; persist it now so a crash or
+			// a close without an explicit save cannot point project.json at the
+			// old canonical file.
+			if !e.rec.active {
+				_ = window_save_project(a, e)
+			}
 		case .Bounce:
 			_ = engine_bounce(e, a)
 		case .Render_Mix:
@@ -530,7 +568,7 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 				ui.status_buf_set(a, "render cancelled")
 			}
 		case .Save:
-			if project_save_with_takes(a, e.takes[:], e.project_path) {
+			if window_save_project(a, e) {
 				ui.status_buf_set(a, "project saved")
 				ui_add_recent(a, e.project_path, recent_store)
 			} else {
@@ -582,12 +620,14 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 		case .Take_Next:
 			if engine_take_cycle(e, a, cmd.index, 1) {
 				ui_sync_takes(a, e)
+				_ = window_save_project(a, e)
 			} else {
 				ui.status_buf_set(a, "no takes on this track")
 			}
 		case .Take_Prev:
 			if engine_take_cycle(e, a, cmd.index, -1) {
 				ui_sync_takes(a, e)
+				_ = window_save_project(a, e)
 			} else {
 				ui.status_buf_set(a, "no takes on this track")
 			}
@@ -595,16 +635,17 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 			if engine_comp_use_active(e, a, cmd.index) {
 				_ = engine_take_select(e, a, cmd.index, e.takes[cmd.index].active)
 				ui_sync_takes(a, e)
-				_ = project_save_with_takes(a, e.takes[:], e.project_path)
+				_ = window_save_project(a, e)
 				ui_add_recent(a, e.project_path, recent_store)
 			} else {
 				ui.status_buf_set(a, "no active take to comp")
 			}
 		case .Comp_Clear:
-			_ = engine_comp_clear(e, a, cmd.index)
-			_ = engine_take_select(e, a, cmd.index, e.takes[cmd.index].active)
-			ui_sync_takes(a, e)
-			_ = project_save_with_takes(a, e.takes[:], e.project_path)
+			if engine_comp_clear(e, a, cmd.index) {
+				_ = engine_take_select(e, a, cmd.index, e.takes[cmd.index].active)
+				ui_sync_takes(a, e)
+				_ = window_save_project(a, e)
+			}
 		case .Open_Project:
 			path, picked := pick_project_open()
 			if picked {

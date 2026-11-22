@@ -60,6 +60,19 @@ engine_takes_register_stabilize_and_comp :: proc(t: ^testing.T) {
 }
 
 @(test)
+engine_take_cycle_rejects_master :: proc(t: ^testing.T) {
+	base := "/tmp/tracker-engine-take-master"
+	os.remove_all(base)
+	defer os.remove_all(base)
+	_ = os.make_directory_all(base)
+	e: Engine
+	testing.expect(t, engine_init(&e, []string{"--session", base}))
+	defer engine_destroy(&e)
+	testing.expect(t, !engine_take_cycle(&e, nil, MAX_ENGINE_TRACKS, 1), "master must not index takes")
+	testing.expect(t, !engine_take_cycle(&e, nil, -1, 1), "negative track must not index takes")
+}
+
+@(test)
 engine_comp_use_active_and_clear :: proc(t: ^testing.T) {
 	base := "/tmp/tracker-engine-comp-ui"
 	os.remove_all(base)

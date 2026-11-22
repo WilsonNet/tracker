@@ -67,6 +67,10 @@ engine_save_as_to :: proc(a: ^ui.App, e: ^Engine, project_path: string) -> bool 
 		ui.status_buf_set(a, "cannot create save-as directory")
 		return false
 	}
+	if save_dir_occupied(dir) {
+		ui.status_buf_set(a, "folder already contains a tracker project")
+		return false
+	}
 	for i in 1 ..= 4 {
 		src := fmt.tprintf("%s/track%d.wav", e.session_dir, i)
 		if !os.exists(src) {

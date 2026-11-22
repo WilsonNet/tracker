@@ -209,6 +209,9 @@ engine_comp_clear :: proc(e: ^Engine, a: ^ui.App, track: int) -> bool {
 }
 
 engine_take_cycle :: proc(e: ^Engine, a: ^ui.App, track, delta: int) -> bool {
+	if track < 0 || track >= MAX_ENGINE_TRACKS {
+		return false
+	}
 	list := &e.takes[track]
 	if len(list.takes) == 0 {
 		return false

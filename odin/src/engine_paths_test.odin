@@ -37,6 +37,15 @@ engine_save_as_and_open_roundtrip :: proc(t: ^testing.T) {
 	testing.expect(t, os.exists(fmt.tprintf("%s/project.json", target_dir)), "project copied")
 	testing.expect(t, os.exists(fmt.tprintf("%s/track1.wav", target_dir)), "take copied")
 
+	// Save-as must not merge into an existing Tracker folder.
+	occupied := fmt.tprintf("%s/occupied", base)
+	_ = os.make_directory_all(occupied)
+	_ = os.write_entire_file(fmt.tprintf("%s/track1.wav", occupied), transmute([]u8)string("OTHER"))
+	testing.expect(t, !engine_save_as(&a, &e, occupied), "occupied save-as must be refused")
+	marker, _ := os.read_entire_file(fmt.tprintf("%s/track1.wav", occupied), context.allocator)
+	defer delete(marker)
+	testing.expect(t, string(marker) == "OTHER", "save-as overwrote the destination take")
+
 	// Open the new project from a fresh app/engine.
 	b: ui.App
 	ui.app_init(&b, 1180, 760)
@@ -49,6 +58,32 @@ engine_save_as_and_open_roundtrip :: proc(t: ^testing.T) {
 	testing.expect(t, b.tracks[0].has_audio, "take restored")
 	testing.expect(t, e2.loaded[0] != nil, "engine loaded take")
 	testing.expectf(t, engine_take_count(&e2, 0) >= 1, "take count %d", engine_take_count(&e2, 0))
+}
+
+@(test)
+engine_load_tracks_adopts_project_rate :: proc(t: ^testing.T) {
+	base := "/tmp/tracker-engine-project-rate"
+	os.remove_all(base)
+	defer os.remove_all(base)
+	_ = os.make_directory_all(base)
+	samples := make([]f32, 441)
+	defer delete(samples)
+	for i in 0 ..< len(samples) {
+		samples[i] = 0.1
+	}
+	testing.expect(t, wav_write(fmt.tprintf("%s/track1.wav", base), 44_100, 1, samples))
+
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	a.sample_rate = 44_100
+	e: Engine
+	testing.expect(t, engine_init(&e, []string{"--session", base}))
+	defer engine_destroy(&e)
+	testing.expect(t, e.sample_rate == 48_000, "engine starts at the default rate")
+	testing.expect(t, engine_load_tracks(&e, &a), "load takes")
+	testing.expect(t, e.sample_rate == 44_100, "engine adopted the project rate")
+	testing.expect(t, e.loaded_rate[0] == 44_100, "take kept its native rate")
 }
 
 @(test)

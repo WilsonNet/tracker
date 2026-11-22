@@ -722,6 +722,10 @@ run_bounce :: proc(args: []string) -> bool {
 	if !validate_flags(args, []string{"--session", "--out"}, nil) {
 		return false
 	}
+	if _, has_session := flag_value(args, "--session"); !has_session {
+		fmt.eprintln("bounce needs --session DIR (refusing to write the default session's bounce.wav)")
+		return false
+	}
 	// engine_init only makes one directory level; create nested explicit
 	// session paths here so `--session a/b/c` works like other CLI paths.
 	if session, has_session := flag_value(args, "--session"); has_session {
