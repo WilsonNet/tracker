@@ -1,8 +1,14 @@
 # Product
 
-## Register
+<!-- impeccable:product-schema 1 -->
 
-product
+## Platform
+
+desktop (native Linux with Vulkan / OpenGL 3.3 and PipeWire / ALSA / cooperative JACK; macOS with Metal / OpenGL 3.3 and CoreAudio)
+
+## Stack
+
+Odin, vinland-ui (SDL3 GPU / OpenGL 3.3), vendor:miniaudio
 
 ## Users
 
@@ -13,6 +19,15 @@ Solo musicians and audio recordists who want to capture multitrack recordings on
 A minimal multitrack audio recorder for the desktop. It provides the core recording workflow of a physical multitrack recorder (like the Zoom R4) — arm tracks, set levels, record, playback, overdub — with the speed and precision of Vim-style keyboard control. No timeline, no grid, no DAW complexity. Just record.
 
 Projects are self-contained folders, so they can move between computers. Google Drive backup/restore is an explicit transfer, not a live sync or collaboration surface.
+
+## Positioning
+
+Physical 4-track tape-deck ergonomics with Vim-native keyboard fluency: arm, set levels, record, overdub, scrub, and bounce without timeline or DAW clutter.
+
+## Operating Context
+
+- Built and run from the terminal on Linux and macOS (`cd odin && make build`); offline-first self-contained session folders with explicit opt-in Google Drive backup/restore.
+- Agent and regression verification runs offscreen via `VUI_HIDDEN=1` (`vui-ctl` / `vui-test`) alongside native unit tests and `make check`.
 
 ## Brand Personality
 
@@ -27,7 +42,11 @@ Like a precision instrument: every control has a clear purpose, nothing is ornam
 - **SaaS dashboards**: White cards, rounded corners, blue CTAs, onboarding wizards — this is a tool, not a service
 - **DAW timeline paradigm**: No waveform grids, no arrange windows, no clip-based editing
 
-## Design Principles
+## Evidence on Hand
+
+Verified on Linux and macOS (`odin/VERIFICATION.md`): 270 macOS / 276 Linux unit tests (`make test`), 220-action headless UI tour (`make check`), 21-case `vui-test` window e2e suite (`make e2e`), hardware Scarlett 4i4 USB capture, and loopback audio tests.
+
+## Product Principles
 
 1. **Keyboard is primary, mouse is available.** Every action has a Vim key binding. Discovery through the UI, speed through the keyboard.
 2. **One function, one control.** EQ uses sliders because that's what makes sense. Use the right input affordance for each task, not a uniform control library.
