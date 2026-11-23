@@ -1339,7 +1339,83 @@ engine_load_tracks :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		wav_destroy(&wav)
 		any = true
 	}
+	engine_sync_tape_length(e, a)
 	return any
+}
+
+// Longest loaded track length at the project sample rate.
+engine_tape_frames :: proc(e: ^Engine) -> i64 {
+	if e == nil {
+		return 0
+	}
+	max_frames: i64 = 0
+	dst_rate := max(e.sample_rate, 1)
+	for i in 0 ..< MAX_ENGINE_TRACKS {
+		src := e.loaded[i]
+		if src == nil || len(src) == 0 {
+			continue
+		}
+		src_rate := e.loaded_rate[i]
+		if src_rate == 0 || src_rate == dst_rate {
+			max_frames = max(max_frames, i64(len(src)))
+		} else {
+			scaled := i64(math.round(f64(len(src)) * f64(dst_rate) / f64(src_rate)))
+			max_frames = max(max_frames, scaled)
+		}
+	}
+	return max_frames
+}
+
+engine_sync_tape_length :: proc(e: ^Engine, a: ^ui.App) {
+	if e == nil || a == nil {
+		return
+	}
+	ui.app_set_tape_frames(a, engine_tape_frames(e))
+}
+
+// Repositions the active playback head (or peeks audio meters under the head
+// when stopped) after a jog/shuttle scrub or return-to-zero.
+engine_seek :: proc(e: ^Engine, a: ^ui.App) {
+	if e == nil || a == nil || e.rec.active || jack_session_is_running(&e.jack) {
+		return
+	}
+	if e.play.active {
+		if e.play.frames <= 0 {
+			return
+		}
+		target := clamp(a.frames, 0, i64(e.play.frames) - 1)
+		a.frames = target
+		sync.atomic_store(&e.play.cursor, u64(target))
+		beat := max(e.play.beat_frames, 1)
+		e.play.beat_pos = beat - (int(target) % beat)
+		return
+	}
+	rate := max(e.sample_rate, 1)
+	peak_master: f32 = -60
+	for i in 0 ..< MAX_ENGINE_TRACKS {
+		src := e.loaded[i]
+		if src == nil || len(src) == 0 {
+			a.tracks[i].peak_db = -60
+			a.tracks[i].rms_db = -60
+			continue
+		}
+		src_rate := e.loaded_rate[i] if e.loaded_rate[i] > 0 else rate
+		idx := int(f64(a.frames) * f64(src_rate) / f64(rate))
+		if idx < 0 || idx >= len(src) {
+			a.tracks[i].peak_db = -60
+			a.tracks[i].rms_db = -60
+			continue
+		}
+		peak: f32 = 0
+		for f in idx ..< min(idx + 512, len(src)) {
+			peak = max(peak, abs(src[f]))
+		}
+		a.tracks[i].peak_db = dsp.lin_to_db(peak * a.tracks[i].level)
+		a.tracks[i].rms_db = a.tracks[i].peak_db - 6
+		peak_master = max(peak_master, a.tracks[i].peak_db)
+	}
+	a.master.peak_db = peak_master
+	a.master.rms_db = peak_master - 6
 }
 
 @(private)
@@ -1415,6 +1491,10 @@ playback_prepare :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool) -> bool {
 	p.bpm = a.bpm
 	p.beat_frames = max(int(60.0 / f32(max(a.bpm, 1)) * f32(max(e.sample_rate, 1))), 1)
 	p.beat_pos = 0
+	if !mute_armed && a.tape_cued && a.frames > 0 && a.frames < i64(p.frames) {
+		p.cursor = u64(a.frames)
+		p.beat_pos = p.beat_frames - (int(p.cursor) % p.beat_frames)
+	}
 	p.click_left = 0
 	p.click_phase = 0
 

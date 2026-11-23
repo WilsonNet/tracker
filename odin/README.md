@@ -136,9 +136,16 @@ directory is in `XDG_DATA_DIRS`.
   meter and compressor gain-reduction meter. Arming a track opens a
   capture-only preview, so its input meter and history graph are live before
   REC (the miniaudio/PipeWire path; JACK meters during the take).
-- **Transport:** REC / PLAY / STOP / BOUNCE, timecode, armed count, BPM
+- **Transport & Tape Scrubber:** REC / PLAY / STOP / BOUNCE, timecode, armed count, BPM
   stepper, metronome click, live input **MON**itoring, latency trim and a
-  PipeWire/cooperative-JACK backend switch.
+  PipeWire/cooperative-JACK backend switch. Centered in the bottom deck bar is a
+  hardware-inspired **Tape Scrubber** with a **`|◄` RTZ** button and dual rotary
+  wheels: **SHUTTLE** (`5.0 s` normal / `1.0 s` `Shift` / `0.25 s` `Ctrl|Alt`)
+  and **JOG** (`250 ms` normal / `50 ms` `Shift` / `10 ms` `Ctrl|Alt`), plus loaded
+  tape length (`/ MM:SS.s`). Hover either wheel (or the transport timecode) and
+  scroll, vertical-drag either wheel, double-click the wheel/timecode for RTZ, or
+  scrub from the keyboard; when stopped, scrubbing cues playback and peeks the
+  meters at the tape head without modifying takes.
 - **Takes and mix:** multi-take recording (`T1/2` on each strip), active-take cycling,
   whole-take comping from the palette, and arbitrary comp regions through the
   `comp` CLI. `BOUNCE` writes the canonical `bounce.wav`; `RENDER…` opens a
@@ -193,12 +200,15 @@ directory is in `XDG_DATA_DIRS`.
 - **Headless UI harness:** `ui-test` (below) drives the exact same state
   machine without a browser or window.
 - **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `B` render dialog, `1–4` arm, `j/k`
-  select, `J/K` level, `m` mute, `s` solo, `a` arm, `n` rename project, `I` input, `x` FX,
-  `c` click, `o` monitor, `y` JACK backend, `t`/`T` next/previous take,
-  `u`/`U` undo/redo, `[`/`]` FX channel, `Tab`/`Shift+Tab` FX focus,
-  `,` settings, `g` cloud projects, `:` command palette, `Esc` close. Recent
-  projects and open/save-as live in the palette; the dialogs use zenity or
-  kdialog on Linux and Cocoa panels on macOS. Double-click resets a fader/pan/knob.
+  select, `J/K` level, `h/l` jog `±250 ms` (`H/L` fine `±50 ms`, `Alt|Ctrl+h/l`
+  micro `±10 ms`), `</>` shuttle `±5.0 s`, `0` return to zero (`|◄`), `m` mute,
+  `s` solo, `a` arm, `n` rename project, `I` input, `x` FX, `c` click, `o`
+  monitor, `y` JACK backend, `t`/`T` next/previous take, `u`/`U` undo/redo,
+  `[`/`]` FX channel, `Tab`/`Shift+Tab` FX focus, `,` settings, `g` cloud projects,
+  `:` command palette (`rewind to start`, `shuttle forward/back`, `jog forward/back`),
+  `Esc` close. Recent projects and open/save-as live in the palette; the dialogs
+  use zenity or kdialog on Linux and Cocoa panels on macOS. Double-click resets a
+  fader/pan/knob or rewinds from the scrubber/timecode.
 
 ### Google Drive
 

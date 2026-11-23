@@ -253,3 +253,29 @@ test "rename project in settings and cloud overlay"
   key escape
   expect-no-text EDIT
   expect-text "Studio Session"
+
+test "tape scrubber shuttle jog wheels and modifiers"
+  expect-text "SHUTTLE"
+  expect-text "JOG"
+  expect-text "5.0s"
+  expect-text "250ms"
+  type ">"
+  expect-text "00:00:05.000"
+  type l
+  expect-text "00:00:05.250"
+  type L
+  expect-text "00:00:05.300"
+  scroll -48 563 731
+  expect-text "00:00:10.300"
+  scroll 48 563 731 shift
+  expect-text "00:00:09.300"
+  scroll -48 653 731 shift
+  expect-text "00:00:09.350"
+  scroll -48 653 731 ctrl
+  expect-text "00:00:09.360"
+  type 0
+  expect-text "00:00:00.000"
+  type ">"
+  expect-text "00:00:05.000"
+  click-text "|◄"
+  expect-text "00:00:00.000"

@@ -15,6 +15,11 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"record", .Record_Start},
 	{"play", .Play},
 	{"stop", .Stop},
+	{"rewind to start", .Seek_Zero},
+	{"shuttle forward", .Shuttle_Forward},
+	{"shuttle back", .Shuttle_Back},
+	{"jog forward", .Jog_Forward},
+	{"jog back", .Jog_Back},
 	{"bounce", .Bounce},
 	{"render mix…", .Render_Mix},
 	{"fx rack", .Fx},
@@ -1166,6 +1171,12 @@ app_set_shift :: proc(a: ^App, down: bool) {
 	a.shift_down = down
 }
 
+app_set_mods :: proc(a: ^App, shift, ctrl, alt: bool) {
+	a.shift_down = shift
+	a.ctrl_down = ctrl
+	a.alt_down = alt
+}
+
 DOUBLE_CLICK_TIME :: 0.45
 DOUBLE_CLICK_SLOP :: 5.0
 
@@ -1673,6 +1684,27 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 		case 'n':
 			app_execute(a, .Rename_Project)
 			return
+		case 'h':
+			_ = app_scrub_wheel(a, .Jog, -1, .Micro if ctrl else .Normal)
+			return
+		case 'l':
+			_ = app_scrub_wheel(a, .Jog, 1, .Micro if ctrl else .Normal)
+			return
+		case 'H':
+			_ = app_scrub_wheel(a, .Jog, -1, .Micro if ctrl else .Slow)
+			return
+		case 'L':
+			_ = app_scrub_wheel(a, .Jog, 1, .Micro if ctrl else .Slow)
+			return
+		case '<':
+			_ = app_scrub_wheel(a, .Shuttle, -1, .Micro if ctrl else .Normal)
+			return
+		case '>':
+			_ = app_scrub_wheel(a, .Shuttle, 1, .Micro if ctrl else .Normal)
+			return
+		case '0':
+			_ = app_seek_zero(a)
+			return
 		case 'I':
 			if a.selected < MAX_TRACKS && a.transport != .Recording {
 				a.tracks[a.selected].input = (a.tracks[a.selected].input % max(a.input_count, 1)) + 1
@@ -2126,6 +2158,18 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Rename_Project"
 	case .Apply_Project_Name:
 		return "Apply_Project_Name"
+	case .Seek:
+		return "Seek"
+	case .Seek_Zero:
+		return "Seek_Zero"
+	case .Shuttle_Back:
+		return "Shuttle_Back"
+	case .Shuttle_Forward:
+		return "Shuttle_Forward"
+	case .Jog_Back:
+		return "Jog_Back"
+	case .Jog_Forward:
+		return "Jog_Forward"
 	case .Recent:
 		return "Recent"
 	case .Open_Recent:
@@ -2214,6 +2258,12 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 		}
 	case "selected":
 		return fmt.tprintf("%d", a.selected), true
+	case "frames":
+		return fmt.tprintf("%d", a.frames), true
+	case "tape.frames":
+		return fmt.tprintf("%d", a.tape_frames), true
+	case "tape.cued":
+		return "true" if a.tape_cued else "false", true
 	case "device":
 		return app_device(a), true
 	case "project":

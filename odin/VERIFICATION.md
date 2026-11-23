@@ -7,9 +7,10 @@ Measured on Linux (Arch Linux, PipeWire 1.6.11, Odin `dev-2026-11-nightly`, 2026
 | check | command / mode | result |
 |---|---|---|
 | Build & `-vet` | `make clean && make build && odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` | clean (`darwin_arm64`) |
-| Unit tests | `make test` (`src/dsp`, `src`, `src/ui`) | **268 passed** (**71** DSP + **124** core + **73** UI; 6 Linux JACK tests excluded via `#+build linux`) |
+| Unit tests | `make test` (`src/dsp`, `src`, `src/ui`) | **270 passed** (**71** DSP + **125** core + **74** UI; 6 Linux JACK tests excluded via `#+build linux`) |
 | Offline check | `make check` (`scripts/check.sh`) | **PASS**: unit tests, `selftest`, **220/220** UI tour (`full-tour.json`, 17 valid PNGs via pure-Odin + `stb_truetype` harness), offline bounce, `ffprobe` `pcm_f32le` |
-| Window e2e | `make e2e` (`vui-test tests/ui/window.vt`) | **20/20 passed** on Metal (`VUI_HIDDEN=1`) |
+| Window e2e | `make e2e` (`vui-test tests/ui/window.vt`) | **21/21 passed** on Metal (`VUI_HIDDEN=1`) |
+| Tape scrubber (`\|◄`, `SHUTTLE`, `JOG`) | `vui-ctl` + unit/engine tests + `window.vt` | Hover scroll & drag on dual platters (`5.0 s` / `1.0 s` Shift / `0.25 s` Ctrl\|Alt; `250 ms` / `50 ms` Shift / `10 ms` Ctrl\|Alt), keyboard (`h/l`, `H/L`, `Ctrl\|Alt+h/l`, `</>`, `0`), palette commands, `\|◄` / double-click RTZ, live playback seek + stopped head meter peeking; verified at `1180×760` and `900×620` (`RHYTHM ON`) |
 | Project titling & Drive rename | `vui-ctl` + fake Drive + `window.vt` | Status bar click / `n` / `: rename project` / Settings `PROJECT` / Cloud `RENAME`; persists to `project.json` and reloads on restart; fake-Drive `PATCH` renames `untitled-<id>` in place with zero orphaned folders and `DELETES == 0` |
 | Metal UI (`vui-ctl`) | `VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-odin ui` | `backend: "GPU"`, `gpu_driver: "metal"`, `video_driver: "cocoa"`, `frame_ms: 2.68`, `unknown_classes: []`; visually verified I/O (`CoreAudio input devices`), Settings (`COREAUDIO`), FX `MST`, Render dialog |
 | OpenGL 3.3 fallback | `VUI_BACKEND=gl VUI_HIDDEN=1 VUI_PORT=7422 ./bin/tracker-odin ui --demo` | `backend: "GL"`, `gl_renderer: "Apple M4"`, `unknown_classes: []`, `frame_ms: 2.66` |

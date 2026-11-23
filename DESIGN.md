@@ -98,7 +98,7 @@ All native UI components live in `odin/src/ui/`; `odin/src/ui_window.odin` is th
 
 **Cloud projects overlay** — compact list of remote projects with name, short cloud id, modified time and size. Same overlay shell and amber selection as Recents; `Enter` restores, `U` backs up the current project, `R` refreshes. Disconnected and empty states teach the next action.
 
-**Status line / rhythm section** — mode badge, transient message, capture/record indicators, hint string; rhythm toggle at the right.
+**Status line / rhythm / tape scrubber bar** — status bar shows mode badge, transient message, project title (`untitled` click / `n`), hardware rate, and key hints. Below it, the bottom deck bar pairs the metronome controls on the left (`RHYTHM`, time signature, meter readout) with a hardware-inspired centered **Tape Scrubber** (`|◄` return-to-zero button, `SHUTTLE` coarse wheel `5.0s` / `1.0s` Shift / `0.25s` Ctrl|Alt, `JOG` fine wheel `250ms` / `50ms` Shift / `10ms` Ctrl|Alt, plus loaded `/ MM:SS.s` tape length) and latency/redo/palette controls on the right. Each wheel is a 24×24 milled canvas platter with knurl ticks and a rotating amber finger-well dimple, highlighting in amber while dragged, hovered with Shift/Ctrl/Alt, or cued (`00:00:00.000` turns amber in the transport bar).
 
 ### Interaction vocabulary
 - Buttons: 1px border, flat; hover fills with the 8–12% tint (`amber_bg`, `teal_bg`, `red_bg` semantic tokens).

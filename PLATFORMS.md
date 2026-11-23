@@ -18,7 +18,7 @@ Tracker runs natively on **Linux** and **macOS** from one Odin codebase, with OS
 | **Native File/Folder Picker** | `zenity` (fallback `kdialog`) | `osascript` Cocoa panels | Disabled (`"", false`) |
 | **Browser OAuth Opener** | `xdg-open` / `gio open` / `sensible-browser` | `open <url>` | Disabled (`false`) |
 | **Primary Text Shortcut** | `Ctrl` (`.LCTRL` / `.RCTRL`) | `Cmd` (`.LGUI` / `.RGUI`) and `Ctrl` | `Ctrl` |
-| **Unit Test Count (`make test`)** | **274** (71 DSP + 130 core + 73 UI) | **268** (71 DSP + 124 core + 73 UI; 6 JACK session tests Linux-only) | **268** |
+| **Unit Test Count (`make test`)** | **276** (71 DSP + 131 core + 74 UI) | **270** (71 DSP + 125 core + 74 UI; 6 JACK session tests Linux-only) | **270** |
 
 ---
 
@@ -65,4 +65,4 @@ odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui
 
 ## Pending Cross-OS Verification
 
-- [ ] **Linux (`linux_amd64`)**: Verify split `#+build linux` modules (`platform_linux.odin`, `file_dialog_linux.odin`, `jack_capture_linux.odin`, `jack_session_linux.odin`, `jack_session_test.odin`, `ui/platform_linux.odin`, `ui/cairo_ffi.odin`, `ui/canvas_cairo_linux.odin`, `ui/font_runtime_linux.odin`), updated `odin/Makefile` (`$(ODIN) root`), `odin/scripts/check.sh`, `VUI_HIDDEN=1` file-dialog suppression in `file_dialog_linux.odin`, and updated 20-case `odin/tests/ui/window.vt` (`make build && make test && make check && make e2e && odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui`).
+- [ ] **Linux (`linux_amd64`)**: Verify split `#+build linux` modules (`platform_linux.odin`, `file_dialog_linux.odin`, `jack_capture_linux.odin`, `jack_session_linux.odin`, `jack_session_test.odin`, `ui/platform_linux.odin`, `ui/cairo_ffi.odin`, `ui/canvas_cairo_linux.odin`, `ui/font_runtime_linux.odin`), updated `odin/Makefile` (`$(ODIN) root`), `odin/scripts/check.sh`, `VUI_HIDDEN=1` file-dialog suppression in `file_dialog_linux.odin`, Tape Scrubber (`Ctrl`/`Alt` + `Shift` scroll/key modifiers and updated `main.png`/`min-size.png` baselines), and the 21-case `odin/tests/ui/window.vt` (`make build && make test && make check && make e2e && odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui`).

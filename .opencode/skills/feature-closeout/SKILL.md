@@ -355,3 +355,8 @@ message state:
 - Package-global fake-server endpoints in `cloud_fake_test.odin` (`cloud_api_base`, `cloud_upload_base`) must be serialized with a mutex because `odin test` runs package tests across multiple threads.
 - Gate native OS file/folder pickers (`file_dialog_{linux,darwin}.odin`) on `VUI_HIDDEN=1` returning `"", false` so headless automation never pops OS dialogs onto the desktop.
 - In `tests/ui/window.vt`, give `view_settings` scroll-into-view `wait 15` before clicking a newly revealed row (`Client ID`) so `vui`'s animated `scroll_to` finishes moving the target rect before `click-text`.
+
+### Tape scrubber & palette capacity (2026-11-23)
+
+- `PALETTE_COMMANDS` uses a fixed backing capacity `MAX_PALETTE` in `ui/app.odin`; whenever new palette entries push `len(PALETTE_COMMANDS)` higher, bump `MAX_PALETTE` in the same change (`ui_palette_query_case_backspace_and_rows` enforces `a.palette_count == len(PALETTE_COMMANDS)`).
+- In `tests/ui/window.vt`, `vui-test`'s `scroll` command takes numeric window coordinates (`scroll <dy> <x> <y> [mods]`), not a text locator, whereas `Shift+scroll` on macOS swaps `wheel.y` to `wheel.x` in SDL3 — handle both axes in wheel-hover widgets.

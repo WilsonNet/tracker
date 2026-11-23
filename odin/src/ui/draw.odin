@@ -661,7 +661,7 @@ draw_module_visual :: proc(a: ^App, c: ^Canvas, m: Fx_Module, r: Rect) {
 @(private)
 command_hint :: proc(kind: Command_Kind) -> string {
 	#partial switch kind {
-	case .Play, .Stop, .Record_Start, .Record_Stop:
+	case .Play, .Stop, .Record_Start, .Record_Stop, .Seek, .Seek_Zero, .Shuttle_Back, .Shuttle_Forward, .Jog_Back, .Jog_Forward:
 		return "transport"
 	case .Bounce, .Render_Mix, .Render_File:
 		return "render"

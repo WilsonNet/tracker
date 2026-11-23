@@ -22,6 +22,8 @@ View_Drag_Kind :: enum {
 	Fader,
 	Pan,
 	Knob,
+	Scrub_Shuttle,
+	Scrub_Jog,
 }
 
 View_Drag :: struct {
@@ -34,13 +36,15 @@ View_Drag :: struct {
 
 View :: struct {
 	drag:          View_Drag,
+	drag_last:     [2]f32,
 	ic_play:       vui.Icon,
 	ic_close:      vui.Icon,
 	ic_left:       vui.Icon,
 	ic_right:      vui.Icon,
 	ic_settings:   vui.Icon,
 	high_contrast: bool,
-	fine:          bool, // Shift held: fine knob drag / wheel
+	fine:          bool, // Shift held: fine knob drag / slow tape scrub
+	micro:         bool, // Ctrl/Alt held: micro tape scrub
 	tight:         bool, // FX rack open in a short window: compact strips + rack
 	knob_wheel:    bool, // a rack knob consumed this frame's wheel
 	focus_rect:    vui.Rect, // module holding the keyboard focus (last frame)
@@ -136,9 +140,10 @@ view_frame :: proc(a: ^App, v: ^View) {
 	a.mouse_x = ctx.input.mouse.x
 	a.mouse_y = ctx.input.mouse.y
 	// The window consumes SDL key events before vinland sees them, so
-	// ctx.input.mods never carries a physical Shift; ui_window keeps
-	// a.shift_down current. Synthetic (vui-ctl) modifiers arrive via mods.
+	// ctx.input.mods never carries physical modifiers; ui_window keeps
+	// shift_down/ctrl_down/alt_down current. Synthetic mods arrive via ctx.input.mods.
 	v.fine = a.shift_down || .Shift in ctx.input.mods
+	v.micro = a.ctrl_down || a.alt_down || .Ctrl in ctx.input.mods || .Alt in ctx.input.mods || .Super in ctx.input.mods
 	// With the 266px rack open, windows shorter than ~700px (down to the
 	// 620px minimum) cannot fit a full strip: the take row slid under the
 	// rack. Drop the level history and shorten the rack visuals instead.
@@ -163,7 +168,7 @@ view_frame :: proc(a: ^App, v: ^View) {
 		}
 		view_bounce_row(a, v)
 		view_status(a)
-		view_rhythm(a)
+		view_rhythm(a, v)
 
 		if a.toast_time > 0 && a.mode != .Palette {
 			vui.text(app_toast(a), "absolute bottom-28 right-4 z-40 rounded-[2px] border border-line-sig bg-panel-raised px-3 py-1.5 text-[11px] font-medium tracking-[0.04em] text-sig shadow-sm")
@@ -221,6 +226,15 @@ view_drag_update :: proc(a: ^App, v: ^View) {
 		speed: f32 = 170 / 0.12 if v.fine else 170
 		n := clamp(d.norm - dy / speed, 0, 1)
 		app_set_knob(a, d.target, norm_to_value(n, lo, hi, lg))
+	case .Scrub_Shuttle, .Scrub_Jog:
+		dxy := ctx.input.mouse - v.drag_last
+		v.drag_last = ctx.input.mouse
+		delta := dxy.x - dxy.y
+		if abs(delta) > 0.01 && a.transport != .Recording {
+			wheel: Scrub_Wheel = .Shuttle if d.kind == .Scrub_Shuttle else .Jog
+			speed := app_scrub_speed(v.fine, v.micro, false)
+			_ = app_scrub_wheel(a, wheel, delta / 18.0, speed)
+		}
 	case .None:
 	}
 }
@@ -330,7 +344,16 @@ view_transport :: proc(a: ^App, v: ^View) {
 			}
 		}
 
-		vui.text(timecode(a.frames, a.sample_rate), "ml-auto shrink-0 whitespace-nowrap text-[13px] tabular-nums tracking-[0.02em] text-ink")
+		scrubbing := a.tape_cued || v.drag.kind == .Scrub_Shuttle || v.drag.kind == .Scrub_Jog
+		if vui.div("ml-auto flex shrink-0 cursor-ew-resize items-center rounded-[2px] px-1.5 py-0.5 hover:bg-panel-hover") {
+			if w := wheel_here(); w != 0 {
+				_ = app_scrub_wheel(a, .Jog, w, app_scrub_speed(v.fine, v.micro, false))
+			}
+			if vui.double_clicked() {
+				_ = app_seek_zero(a)
+			}
+			vui.text(timecode(a.frames, a.sample_rate), vui.cx("whitespace-nowrap text-[13px] tabular-nums tracking-[0.02em]", scrubbing ? "text-sig" : "text-ink"))
+		}
 
 		if vui.div("ml-4 flex shrink-0 items-center gap-2") {
 			vui.text("BPM", "text-[12px] font-semibold tracking-[0.04em] text-ink-dim")
@@ -1306,10 +1329,142 @@ view_status :: proc(a: ^App) {
 }
 
 @(private = "file")
-view_rhythm :: proc(a: ^App) {
+Scrub_Wheel_Draw :: struct {
+	wheel:   Scrub_Wheel,
+	frames:  i64,
+	rate:    u32,
+	hover:   bool,
+	active:  bool,
+	enabled: bool,
+}
+
+@(private = "file")
+scrubber_wheel_here :: proc() -> f32 {
+	if !vui.hovered() {
+		return 0
+	}
+	in_ := &vui.ctx_get().input
+	// macOS Shift+scroll converts vertical wheel into horizontal wheel; read whichever axis moved.
+	if abs(in_.wheel.y) >= abs(in_.wheel.x) {
+		return -in_.wheel.y / WHEEL_NOTCH
+	}
+	return -in_.wheel.x / WHEEL_NOTCH
+}
+
+@(private = "file")
+scrubber_step_label :: proc(wheel: Scrub_Wheel, speed: Scrub_Speed) -> string {
+	switch wheel {
+	case .Shuttle:
+		switch speed {
+		case .Normal: return "5.0s"
+		case .Slow:   return "1.0s"
+		case .Micro:  return "0.25s"
+		}
+	case .Jog:
+		switch speed {
+		case .Normal: return "250ms"
+		case .Slow:   return "50ms"
+		case .Micro:  return "10ms"
+		}
+	}
+	return "250ms"
+}
+
+@(private = "file")
+scrubber_wheel_draw :: proc(ctx: ^vui.Context, r: vui.Rect, data: rawptr) {
+	d := (^Scrub_Wheel_Draw)(data)
+	c := [2]f32{r.x + r.w * 0.5, r.y + r.h * 0.5}
+	rad := min(r.w, r.h) * 0.5 - 1.5
+	if rad <= 2 {
+		return
+	}
+	rim := tok("line")
+	if !d.enabled {
+		rim = tok("line-subtle")
+	} else if d.active {
+		rim = tok("sig")
+	} else if d.hover {
+		rim = tok("sig-dim")
+	}
+	vui.draw_circle(ctx, c, rad, tok("panel-raised"))
+	vui.draw_arc(ctx, c, rad, 0, math.TAU, rim, 1.25)
+
+	turn_hz := f64(0.25 if d.wheel == .Shuttle else 2.0)
+	secs := f64(d.frames) / f64(max(d.rate, 1))
+	theta := f32(-math.PI * 0.5 + secs * turn_hz * math.TAU)
+
+	knurls := 12 if d.wheel == .Shuttle else 20
+	knurl_col := tok("ink-muted") if d.hover || d.active else tok("line")
+	if !d.enabled {
+		knurl_col = tok("line-subtle")
+	}
+	for i in 0 ..< knurls {
+		ang := theta + f32(i) * (math.TAU / f32(knurls))
+		dir := [2]f32{math.cos(ang), math.sin(ang)}
+		inner := rad - (2.4 if d.wheel == .Shuttle else 1.8)
+		vui.draw_line(ctx, c + dir * inner, c + dir * (rad - 0.5), knurl_col, 1)
+	}
+
+	vui.draw_circle(ctx, c, rad - 3.2, tok("canvas"))
+	vui.draw_arc(ctx, c, rad - 3.2, 0, math.TAU, tok("line-subtle"), 1)
+
+	dir := [2]f32{math.cos(theta), math.sin(theta)}
+	accent := tok("sig") if d.enabled else tok("ink-muted")
+	if d.active {
+		accent = tok("sig-hi")
+	}
+	vui.draw_line(ctx, c + dir * 2.0, c + dir * (rad - 3.5), tok("ink-dim") if d.enabled else tok("ink-muted"), 1.1)
+	vui.draw_circle(ctx, c + dir * (rad * 0.48), 2.1, accent)
+}
+
+@(private = "file")
+scrubber_wheel_ui :: proc(a: ^App, v: ^View, wheel: Scrub_Wheel, title: string, loc := #caller_location) {
+	ctx := vui.ctx_get()
+	speed := app_scrub_speed(v.fine, v.micro, false)
+	enabled := a.transport != .Recording
+	drag_kind: View_Drag_Kind = .Scrub_Shuttle if wheel == .Shuttle else .Scrub_Jog
+	active := v.drag.kind == drag_kind
+
+	cls := vui.cx(
+		"flex shrink-0 select-none items-center gap-1.5 rounded-[2px] border px-2 py-0.5 transition-colors duration-150",
+		!enabled ? "border-line-subtle bg-canvas opacity-40" : active ? "cursor-ew-resize border-sig bg-sig-bg" : "cursor-ew-resize border-line bg-canvas hover:border-sig-dim hover:bg-panel-hover",
+	)
+	if vui.div(cls, loc = loc) {
+		hov := vui.hovered()
+		if enabled {
+			if press_started() {
+				v.drag = View_Drag{kind = drag_kind, start = ctx.input.mouse}
+				v.drag_last = ctx.input.mouse
+			}
+			if w := scrubber_wheel_here(); w != 0 {
+				_ = app_scrub_wheel(a, wheel, w, speed)
+			}
+			if vui.double_clicked() {
+				_ = app_seek_zero(a)
+			}
+		}
+		d := new(Scrub_Wheel_Draw, context.temp_allocator)
+		d^ = {
+			wheel   = wheel,
+			frames  = a.frames,
+			rate    = a.sample_rate,
+			hover   = hov,
+			active  = active,
+			enabled = enabled,
+		}
+		vui.canvas("size-6 shrink-0", scrubber_wheel_draw, d)
+		if vui.div("flex flex-col leading-tight") {
+			vui.text(title, vui.cx("text-[10px] font-semibold tracking-[0.06em]", active ? "text-sig" : "text-ink-dim"))
+			vui.text(scrubber_step_label(wheel, speed), vui.cx("text-[9px] tabular-nums", (speed != .Normal || active) ? "text-sig" : "text-ink-muted"))
+		}
+	}
+}
+
+@(private = "file")
+view_rhythm :: proc(a: ^App, v: ^View) {
 	if vui.div("flex shrink-0 items-center gap-3 border-t border-line px-4 py-2") {
 		on := a.metronome
-		if vui.button_box(vui.cx("flex items-center gap-2 rounded-[2px] border px-3 py-1 text-[12px] font-semibold tracking-[0.06em] transition-colors duration-150", on ? "border-line-sig bg-sig-bg text-sig" : "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
+		if vui.button_box(vui.cx("flex shrink-0 items-center gap-2 rounded-[2px] border px-3 py-1 text-[12px] font-semibold tracking-[0.06em] transition-colors duration-150", on ? "border-line-sig bg-sig-bg text-sig" : "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
 			vui.text("RHYTHM")
 			vui.text("ON" if on else "OFF", "text-sig" if on else "text-ink-muted")
 			if vui.clicked() {
@@ -1317,9 +1472,21 @@ view_rhythm :: proc(a: ^App) {
 			}
 		}
 		if on {
-			vui.text(fmt.tprintf("CLICK · %d BPM · 4/4", a.bpm), "text-[11px] tracking-[0.04em] text-ink-dim")
+			vui.text(fmt.tprintf("CLICK · %d BPM · 4/4", a.bpm), "shrink-0 whitespace-nowrap text-[11px] tracking-[0.04em] text-ink-dim")
 		}
-		if vui.div("ml-auto flex items-center gap-1") {
+		if vui.div("mx-auto flex shrink-0 items-center gap-1.5") {
+			rtz_enabled := a.transport != .Recording
+			rtz_lit := a.frames > 0 && rtz_enabled
+			if vui.button("|◄", vui.cx("rounded-[2px] border px-1.5 py-1 text-[10px] font-semibold tracking-[0.04em] transition-colors duration-150", rtz_lit ? "border-line-sig text-sig hover:bg-sig-bg" : "border-line text-ink-muted hover:text-ink"), {} if rtz_enabled else {.Disabled}) {
+				_ = app_seek_zero(a)
+			}
+			scrubber_wheel_ui(a, v, .Shuttle, "SHUTTLE")
+			scrubber_wheel_ui(a, v, .Jog, "JOG")
+			if a.tape_frames > 0 {
+				vui.text(fmt.tprintf("/ %s", render_time_text(f32(a.tape_frames) / f32(max(a.sample_rate, 1)))), "ml-1 whitespace-nowrap text-[10px] tabular-nums text-ink-muted")
+			}
+		}
+		if vui.div("flex shrink-0 items-center gap-1") {
 			lat := fmt.tprintf("LAT %.0f ms", a.latency_ms)
 			vui.text(lat, "text-[11px] tabular-nums text-ink-muted")
 			can_redo := app_can_redo(a)

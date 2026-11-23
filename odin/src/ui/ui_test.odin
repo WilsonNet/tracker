@@ -2229,3 +2229,57 @@ ui_project_rename_in_settings_and_cloud_overlay :: proc(t: ^testing.T) {
 	app_key(&a, .Char, 'n')
 	testing.expect(t, a.mode == .Normal && a.project_name_edit, "n from cloud starts inline rename")
 }
+
+@(test)
+ui_tape_scrubber_shuttle_jog_modifiers_and_rtz :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	a.sample_rate = 48_000
+	app_set_tape_frames(&a, 48_000 * 10) // 10 s tape
+
+	// Speed table matches hardware-like coarse (Shuttle) and fine (Jog) tiers.
+	testing.expect(t, scrub_step_seconds(.Shuttle, .Normal) == 5.0, "shuttle normal 5s")
+	testing.expect(t, scrub_step_seconds(.Shuttle, .Slow) == 1.0, "shuttle slow 1s")
+	testing.expect(t, scrub_step_seconds(.Shuttle, .Micro) == 0.25, "shuttle micro 0.25s")
+	testing.expect(t, scrub_step_seconds(.Jog, .Normal) == 0.25, "jog normal 250ms")
+	testing.expect(t, scrub_step_seconds(.Jog, .Slow) == 0.05, "jog slow 50ms")
+	testing.expect(t, scrub_step_seconds(.Jog, .Micro) == 0.01, "jog micro 10ms")
+
+	// Shuttle `>` advances +5.0 s, `<` rewinds -5.0 s.
+	app_key(&a, .Char, '>')
+	testing.expectf(t, a.frames == 48_000 * 5 && a.tape_cued, "shuttle > frames=%d", a.frames)
+	testing.expect(t, a.last_command == .Seek, "seek emitted")
+
+	// Jog `l`/`L` and Ctrl micro-scrub `l` step 250ms, 50ms, 10ms cleanly.
+	app_key(&a, .Char, 'l') // +0.25s -> 5.25s
+	testing.expectf(t, a.frames == 48_000 * 5 + 12_000, "jog l frames=%d", a.frames)
+	app_key(&a, .Char, 'L') // +0.05s -> 5.30s
+	testing.expectf(t, a.frames == 48_000 * 5 + 14_400, "jog L frames=%d", a.frames)
+	app_key(&a, .Char, 'l', false, true) // +0.01s -> 5.31s
+	testing.expectf(t, a.frames == 48_000 * 5 + 14_880, "micro ctrl+l frames=%d", a.frames)
+	app_key(&a, .Char, 'h', false, true) // -0.01s -> 5.30s
+	testing.expectf(t, a.frames == 48_000 * 5 + 14_400, "micro ctrl+h frames=%d", a.frames)
+	app_key(&a, .Char, 'H') // -0.05s -> 5.25s
+	testing.expectf(t, a.frames == 48_000 * 5 + 12_000, "slow H frames=%d", a.frames)
+
+	// Playing from a scrubbed cue preserves the cue point; Stop clears back to 0.
+	app_execute(&a, .Play)
+	testing.expectf(t, a.transport == .Playing && a.frames == 48_000 * 5 + 12_000, "play preserves cue=%d", a.frames)
+	app_execute(&a, .Stop)
+	testing.expect(t, a.transport == .Stopped && a.frames == 0 && !a.tape_cued, "stop rewinds to zero")
+
+	// Clamps to tape length (10 s) and returns to 0 with `0` (RTZ).
+	app_key(&a, .Char, '>')
+	app_key(&a, .Char, '>')
+	app_key(&a, .Char, '>')
+	testing.expectf(t, a.frames == 48_000 * 10, "clamps to tape_frames=%d", a.frames)
+	app_key(&a, .Char, '0')
+	testing.expect(t, a.frames == 0 && !a.tape_cued, "0 returns to zero")
+
+	// Scrubbing is refused while recording.
+	a.tracks[0].armed = true
+	app_execute(&a, .Record_Start)
+	testing.expect(t, a.transport == .Recording, "recording")
+	testing.expect(t, !app_scrub_wheel(&a, .Jog, 1, .Normal), "scrub blocked while recording")
+}

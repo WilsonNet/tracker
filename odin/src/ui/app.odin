@@ -12,7 +12,7 @@ MAX_TRACKS :: 4
 MAX_KNOBS :: 24
 MAX_TOGGLES :: 16
 MAX_DEVICES :: 16
-MAX_PALETTE :: 40
+MAX_PALETTE :: 48
 MAX_HISTORY :: 64
 MAX_RECENT :: 8
 RECENT_PATH_MAX :: 192
@@ -35,6 +35,8 @@ Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent, Settings, Cloud, Render 
 // encoding. The mix itself always runs through the f32 engine chain.
 Render_Format :: enum u8 { Wav_F32, Wav_PCM24, Wav_PCM16 }
 Render_Handle :: enum u8 { None, From, To }
+Scrub_Wheel :: enum u8 { Shuttle, Jog }
+Scrub_Speed :: enum u8 { Normal, Slow, Micro }
 
 RENDER_FORMAT_COUNT :: int(Render_Format.Wav_PCM16) + 1
 RENDER_STEP_SECONDS :: f32(0.5)
@@ -125,6 +127,12 @@ Command_Kind :: enum {
 	Save_As,
 	Rename_Project,
 	Apply_Project_Name,
+	Seek,
+	Seek_Zero,
+	Shuttle_Back,
+	Shuttle_Forward,
+	Jog_Back,
+	Jog_Forward,
 	Recent,
 	Open_Recent,
 	High_Contrast,
@@ -376,6 +384,8 @@ App :: struct {
 	take_count:    [MAX_TRACKS]int,
 	take_active:   [MAX_TRACKS]int,
 	frames:        i64,
+	tape_frames:   i64,
+	tape_cued:     bool,
 	time:          f32,
 	peak_history:  [MAX_TRACKS][HISTORY_LEN]f32,
 	peak_history_pos: int,
@@ -516,9 +526,10 @@ App :: struct {
 	// without a mouse.
 	fx_focus: int,
 
-	// Modifier state for fine dragging. SDL2 reports modifiers on KEYDOWN, so
-	// any key press refreshes this; the window layer may also set it directly.
+	// Modifier state for fine dragging & slow tape scrubbing.
 	shift_down: bool,
+	ctrl_down:  bool,
+	alt_down:   bool,
 
 	// Double-click detection (SDL2 has no native event; two mouse-downs in the
 	// same spot within this window are treated as one).
@@ -1734,13 +1745,19 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 			return
 		}
 		a.transport = .Playing
-		a.frames = 0
+		if !a.tape_cued {
+			a.frames = 0
+		} else if a.tape_frames > 0 && a.frames >= a.tape_frames {
+			a.frames = 0
+			a.tape_cued = false
+		}
 		status_buf_set(a, "playing preview")
 		emit(a, .Play)
 		bump_revision(a)
 	case .Stop:
 		a.transport = .Stopped
 		a.frames = 0
+		a.tape_cued = false
 		status_buf_set(a, "stopped")
 		emit(a, .Stop)
 		bump_revision(a)
@@ -1761,6 +1778,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		}
 		a.transport = .Recording
 		a.frames = 0
+		a.tape_cued = false
 		status_buf_set(a, "recording (undo is paused; takes are kept)")
 		emit(a, .Record_Start)
 		bump_revision(a)
@@ -1841,6 +1859,19 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 			a.last_command_index = 0
 			emit(a, .Apply_Project_Name)
 		}
+	case .Seek:
+		a.last_command = .Seek
+		emit(a, .Seek)
+	case .Seek_Zero:
+		_ = app_seek_zero(a)
+	case .Shuttle_Back:
+		_ = app_scrub_wheel(a, .Shuttle, -1, app_scrub_speed(a.shift_down, a.ctrl_down, a.alt_down))
+	case .Shuttle_Forward:
+		_ = app_scrub_wheel(a, .Shuttle, 1, app_scrub_speed(a.shift_down, a.ctrl_down, a.alt_down))
+	case .Jog_Back:
+		_ = app_scrub_wheel(a, .Jog, -1, app_scrub_speed(a.shift_down, a.ctrl_down, a.alt_down))
+	case .Jog_Forward:
+		_ = app_scrub_wheel(a, .Jog, 1, app_scrub_speed(a.shift_down, a.ctrl_down, a.alt_down))
 	case .Select_Device:
 		a.device_index = clamp(index, 0, max(len(a.devices) - 1, 0))
 		if len(a.devices) > 0 {
@@ -2073,6 +2104,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		project_edit_clear(a)
 		a.transport = .Stopped
 		a.frames = 0
+		a.tape_cued = false
 		a.mode = .Normal
 		a.fx_focus = -1
 		status_buf_set(a, "stopped")
@@ -2311,6 +2343,101 @@ app_render_drag_update :: proc(a: ^App, pointer_seconds: f32) {
 app_render_drag_end :: proc(a: ^App) {
 	a.render_drag = .None
 	a.render_grab = 0
+}
+
+// ---------------------------------------------------------------- tape scrub
+
+// Step size in seconds for one tick/key on the dual tape wheels.
+// Shuttle seeks across phrases; Jog scrubs sub-second phrasing; modifiers step down smoothly.
+scrub_step_seconds :: proc(wheel: Scrub_Wheel, speed: Scrub_Speed) -> f32 {
+	switch wheel {
+	case .Shuttle:
+		switch speed {
+		case .Normal: return 5.0
+		case .Slow:   return 1.0
+		case .Micro:  return 0.25
+		}
+	case .Jog:
+		switch speed {
+		case .Normal: return 0.25
+		case .Slow:   return 0.05
+		case .Micro:  return 0.01
+		}
+	}
+	return 0.25
+}
+
+app_scrub_speed :: proc(shift, ctrl, alt: bool) -> Scrub_Speed {
+	if ctrl || alt {
+		return .Micro
+	}
+	if shift {
+		return .Slow
+	}
+	return .Normal
+}
+
+app_set_tape_frames :: proc(a: ^App, frames: i64) {
+	if a == nil {
+		return
+	}
+	a.tape_frames = max(frames, 0)
+	if a.tape_frames > 0 && a.frames > a.tape_frames {
+		a.frames = a.tape_frames
+		a.tape_cued = a.frames > 0
+	}
+}
+
+app_scrub_seconds :: proc(a: ^App, delta_s: f32) -> bool {
+	if a == nil {
+		return false
+	}
+	if a.transport == .Recording {
+		toast(a, "stop recording to scrub")
+		status_buf_set(a, "stop recording to scrub")
+		return false
+	}
+	rate := max(i64(a.sample_rate), 1)
+	limit := a.tape_frames if a.tape_frames > 0 else rate * 3_600
+	delta_frames := i64(math.round(f64(delta_s) * f64(rate)))
+	if delta_frames == 0 && delta_s != 0 {
+		delta_frames = 1 if delta_s > 0 else -1
+	}
+	next := clamp(a.frames + delta_frames, 0, limit)
+	a.frames = next
+	a.tape_cued = next > 0
+	status_buf_set(a, fmt.tprintf("cue %s", timecode(a.frames, a.sample_rate)))
+	a.last_command = .Seek
+	a.last_command_index = 0
+	emit(a, .Seek)
+	bump_revision(a)
+	return true
+}
+
+app_scrub_wheel :: proc(a: ^App, wheel: Scrub_Wheel, steps: f32, speed: Scrub_Speed) -> bool {
+	if steps == 0 {
+		return false
+	}
+	return app_scrub_seconds(a, steps * scrub_step_seconds(wheel, speed))
+}
+
+app_seek_zero :: proc(a: ^App) -> bool {
+	if a == nil {
+		return false
+	}
+	if a.transport == .Recording {
+		toast(a, "stop recording to scrub")
+		status_buf_set(a, "stop recording to scrub")
+		return false
+	}
+	a.frames = 0
+	a.tape_cued = false
+	status_buf_set(a, "rewound to 00:00:00.000")
+	a.last_command = .Seek_Zero
+	a.last_command_index = 0
+	emit(a, .Seek)
+	bump_revision(a)
+	return true
 }
 
 // ---------------------------------------------------------------- tick

@@ -7,6 +7,7 @@ import "core:sync"
 import "core:testing"
 
 import ma "vendor:miniaudio"
+import ui "ui"
 
 // ---------------------------------------------------------------- monitoring
 
@@ -252,4 +253,45 @@ live_test_write_raw :: proc(path: string, frames, channels: int) -> bool {
 		}
 	}
 	return os.write_entire_file(path, data) == nil
+}
+
+@(test)
+engine_seek_updates_playback_cursor_and_scrub_meters :: proc(t: ^testing.T) {
+	e: Engine
+	e.sample_rate = 48_000
+	e.loaded_rate[0] = 48_000
+	e.loaded[0] = make([]f32, 48_000 * 4)
+	defer {
+		delete(e.loaded[0])
+		e.loaded[0] = nil
+	}
+	// Put silence in seconds 0..2, strong 0.5 signal in seconds 2..4.
+	for i in 48_000 * 2 ..< 48_000 * 4 {
+		e.loaded[0][i] = 0.5
+	}
+	testing.expect(t, engine_tape_frames(&e) == 48_000 * 4, "tape length 4 s")
+
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	engine_sync_tape_length(&e, &a)
+	testing.expect(t, a.tape_frames == 48_000 * 4, "synced tape_frames")
+
+	// Scrubbing into silence yields -60 dB; scrubbing into second 2 lights track 1 meter.
+	ui.app_seek_zero(&a)
+	engine_seek(&e, &a)
+	testing.expectf(t, a.tracks[0].peak_db < -50, "silence peak %v", a.tracks[0].peak_db)
+
+	_ = ui.app_scrub_seconds(&a, 2.0)
+	engine_seek(&e, &a)
+	testing.expectf(t, a.tracks[0].peak_db > -12 && a.master.peak_db > -12, "scrubbed signal peak %v / %v", a.tracks[0].peak_db, a.master.peak_db)
+
+	// Active playback seek repositions atomic playback cursor + aligns beat_pos.
+	e.play.active = true
+	e.play.frames = 48_000 * 4
+	e.play.beat_frames = 24_000
+	_ = ui.app_scrub_seconds(&a, 1.0)
+	engine_seek(&e, &a)
+	testing.expect(t, sync.atomic_load(&e.play.cursor) == u64(48_000 * 3), "play cursor moved to 3 s")
+	e.play.active = false
 }

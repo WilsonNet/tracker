@@ -144,7 +144,7 @@ cover it.
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — unit tests (271 on Linux / 265 on macOS: DSP + core/engine/project/cloud + UI)
+- `make test` — unit tests (276 on Linux / 270 on macOS: DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
@@ -186,8 +186,8 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 71 DSP + core/engine/project/WAV/settings/cloud (129 on Linux, 123 on macOS without Linux JACK session tests) + 71 UI tests (271 total on Linux, 265 on macOS).
-- `make e2e` — 18 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, render dialog range/format, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay).
+- `make test` — 71 DSP + core/engine/project/WAV/settings/cloud (131 on Linux, 125 on macOS without Linux JACK session tests) + 74 UI tests (276 total on Linux, 270 on macOS).
+- `make e2e` — 21 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, render dialog range/format, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay, project titling, tape scrubber shuttle/jog wheels + modifiers).
 - The headless harness (`ui-test`, `ui-shot`; Cairo/Pango on Linux, pure-Odin + `stb_truetype` on macOS) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.
 - Do not claim a UI works without inspecting the generated PNG/report. Hardware recording evidence belongs in `odin/VERIFICATION.md`.

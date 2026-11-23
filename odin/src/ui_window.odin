@@ -210,8 +210,14 @@ run_ui_window :: proc(args: []string) -> bool {
 		}
 		window_synthetic_keys(&a, ctx)
 		// key events are consumed by window_on_event, so vinland's input.mods
-		// never sees Shift; poll it for fine knob drags and wheel steps
-		ui.app_set_shift(&a, sdl.GetModState() & {.LSHIFT, .RSHIFT} != {})
+		// never sees modifiers; poll them for fine drags, micro-scrubbing and wheel steps
+		mods_now := sdl.GetModState()
+		ui.app_set_mods(
+			&a,
+			mods_now & {.LSHIFT, .RSHIFT} != {},
+			mods_now & {.LCTRL, .RCTRL, .LGUI, .RGUI} != {},
+			mods_now & {.LALT, .RALT} != {},
+		)
 
 		now := time.now()
 		dt := f32(time.duration_seconds(time.since(last)))
@@ -268,14 +274,15 @@ window_on_event :: proc(va: ^vapp.App, ev: ^sdl.Event) -> bool {
 	#partial switch ev.type {
 	case .KEY_DOWN:
 		vapp.request_redraw(va)
-		if ev.key.repeat {
-			return true
-		}
 		ctrl_down := platform_primary_mod(ev.key.mod)
+		alt_down := ev.key.mod & {.LALT, .RALT} != {}
 		shift_down := .LSHIFT in ev.key.mod || .RSHIFT in ev.key.mod
 		// SDL key events are consumed before vinland sees them, so the app's
 		// custom text surfaces handle their own clipboard/selection shortcuts.
 		if ui.app_text_editing(ws.a) && (ctrl_down || (shift_down && (ev.key.key == sdl.K_INSERT || ev.key.key == sdl.K_DELETE))) {
+			if ev.key.repeat {
+				return true
+			}
 			if shift_down && ev.key.key == sdl.K_INSERT {
 				window_clipboard_paste(ws.a)
 				return true
@@ -294,22 +301,35 @@ window_on_event :: proc(va: ^vapp.App, ev: ^sdl.Event) -> bool {
 			return true
 		}
 		key, ch, shift := map_key(ev.key.key, ev.key.mod)
-		// Modifier chords are not Vim commands. Without this guard Ctrl+S
-		// toggles Solo, Ctrl+R records, Ctrl+B bounces, etc. because app_key
-		// only looks at the character. Text editing consumed its own chords
-		// above; swallow the rest instead of typing a literal.
+		// Allow held key repeat only for Normal-mode tape scrub keys so holding
+		// h/l/</> rolls the tape smoothly; other keys stay single-fire.
+		scrub_key := ws.a.mode == .Normal && !ui.app_text_editing(ws.a) && key == .Char &&
+			(ch == 'h' || ch == 'l' || ch == 'H' || ch == 'L' || ch == '<' || ch == '>')
+		if ev.key.repeat && !scrub_key {
+			return true
+		}
+		// Outside text fields, Alt or Ctrl + scrub key enters micro-scrubbing;
+		// swallow every other modifier chord so Ctrl+S doesn't solo, Ctrl+R doesn't record.
+		if (ctrl_down || alt_down) && scrub_key {
+			ui.app_set_mods(ws.a, shift, ctrl_down, alt_down)
+			ui.app_key(ws.a, key, ch, shift, true)
+			return true
+		}
 		if ctrl_down || ev.key.mod & {.LALT, .RALT, .LGUI, .RGUI} != {} {
 			return true
 		}
-		ui.app_set_shift(ws.a, shift)
+		ui.app_set_mods(ws.a, shift, ctrl_down, alt_down)
 		if key != .Char || ch != 0 {
 			window_key(ws.a, key, ch, shift)
 		}
 		return true
 	case .KEY_UP:
-		if .LSHIFT not_in ev.key.mod && .RSHIFT not_in ev.key.mod {
-			ui.app_set_shift(ws.a, false)
-		}
+		ui.app_set_mods(
+			ws.a,
+			ev.key.mod & {.LSHIFT, .RSHIFT} != {},
+			platform_primary_mod(ev.key.mod),
+			ev.key.mod & {.LALT, .RALT} != {},
+		)
 		return true
 	case .TEXT_INPUT:
 		// keys already reached app_key above; if anything turns SDL text
@@ -418,6 +438,10 @@ window_synthetic_keys :: proc(a: ^ui.App, ctx: ^vui.Context) {
 	in_ := &ctx.input
 	shift := .Shift in in_.mods
 	ctrl := .Ctrl in in_.mods || .Super in in_.mods
+	alt := .Alt in in_.mods
+	if in_.mods != {} {
+		ui.app_set_mods(a, shift, ctrl, alt)
+	}
 	if ctrl {
 		if .V in in_.keys_pressed {
 			window_clipboard_paste(a)
@@ -442,7 +466,7 @@ window_synthetic_keys :: proc(a: ^ui.App, ctx: ^vui.Context) {
 			_ = ui.text_redo(a)
 		}
 	}
-	if !ctrl {
+	if !ctrl && !alt {
 		for r in in_.text {
 			if r < 128 {
 				if r == ' ' {
@@ -452,6 +476,12 @@ window_synthetic_keys :: proc(a: ^ui.App, ctx: ^vui.Context) {
 				} else {
 					window_key(a, .Char, u8(r), r >= 'A' && r <= 'Z')
 				}
+			}
+		}
+	} else if a.mode == .Normal && !ui.app_text_editing(a) {
+		for r in in_.text {
+			if r == 'h' || r == 'l' || r == 'H' || r == 'L' || r == '<' || r == '>' {
+				ui.app_key(a, .Char, u8(r), shift, true)
 			}
 		}
 	}
@@ -710,6 +740,8 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 				ui.status_buf_set(a, "save failed")
 				ui.toast(a, "save failed")
 			}
+		case .Seek:
+			engine_seek(e, a)
 		case .Settings:
 			// The mode transition is pure App state; nothing to do here.
 		case .Choose_Save_Dir:

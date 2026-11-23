@@ -62,6 +62,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | Bounce overlay and status | done | engine bounce |
 | External mix render | done | dual-handle range/format dialog, 32f/24/16-bit WAV, native save dialog; ffprobe/sox |
 | Undo/redo | done | 64-entry history, tests |
+| Tape scrubber (`\|◄` RTZ, Shuttle & Jog wheels, modifier speeds) | done | unit + engine seek/meter tests, `vui-ctl` screenshots, `window.vt` e2e |
 | Accessibility: keyboard-first, high contrast, reduced motion | done | tests + `--a11y-log` |
 | HiDPI 1×/1.25×/1.5×/2×/3× | done | SDL density in the window; stb_truetype atlases in the harness |
 | Window class `tracker` for compositor rules | done | `hyprctl clients`; optional scratchpad rule |
@@ -80,8 +81,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **274** Linux / **268** macOS (71 DSP, 130/124 core/engine/project/cloud, 73 UI) |
-| UI e2e | 20 headless vinland-ui cases |
+| unit tests | **276** Linux / **270** macOS (71 DSP, 131/125 core/engine/project/cloud, 74 UI) |
+| UI e2e | 21 headless vinland-ui cases |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |
 | hardware capture | 96,000 frames / 2.000 s |
