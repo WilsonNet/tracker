@@ -32,11 +32,12 @@ run_ui_window :: proc(args: []string) -> bool {
 		scale = forced_scale
 	}
 
-	ctx: vui.Context
-	vui.init(&ctx)
-	defer vui.destroy(&ctx)
+	ctx := new(vui.Context)
+	defer free(ctx)
+	vui.init(ctx)
+	defer vui.destroy(ctx)
 	view: ui.View
-	ui.view_init(&view, &ctx)
+	ui.view_init(&view, ctx)
 
 	va: vapp.App
 	cfg := vapp.Config {
@@ -47,7 +48,7 @@ run_ui_window :: proc(args: []string) -> bool {
 		app_id       = "tracker", // Hyprland rule: open on the silent special workspace
 		control_port = flag_int(args, "--control-port", 0),
 	}
-	if !vapp.init(&va, cfg, &ctx) {
+	if !vapp.init(&va, cfg, ctx) {
 		return false
 	}
 	defer vapp.shutdown(&va)
@@ -199,7 +200,7 @@ run_ui_window :: proc(args: []string) -> bool {
 		if !vapp.next_frame(&va) {
 			break
 		}
-		window_synthetic_keys(&a, &ctx)
+		window_synthetic_keys(&a, ctx)
 		// key events are consumed by window_on_event, so vinland's input.mods
 		// never sees Shift; poll it for fine knob drags and wheel steps
 		ui.app_set_shift(&a, sdl.GetModState() & {.LSHIFT, .RSHIFT} != {})

@@ -6,7 +6,7 @@ BREW_PREFIX := $(shell brew --prefix 2>/dev/null || echo /opt/homebrew)
 
 ifeq ($(UNAME_S),Darwin)
 STB_LIB    := $(ODIN_ROOT)/vendor/stb/lib/darwin/stb_truetype.a
-LINK_FLAGS := -extra-linker-flags:"-lm -lpthread -lz -L$(BREW_PREFIX)/lib -Wl,-rpath,$(BREW_PREFIX)/lib"
+LINK_FLAGS := -extra-linker-flags:"-L$(BREW_PREFIX)/lib -Wl,-rpath,$(BREW_PREFIX)/lib"
 else
 STB_LIB    := $(ODIN_ROOT)/vendor/stb/lib/stb_truetype.a
 LINK_FLAGS := -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0"

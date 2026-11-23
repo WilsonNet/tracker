@@ -26,7 +26,7 @@ VINLAND="${VINLAND:-$(cd "$(dirname "$0")/../../.." && pwd)/vinland-ui}"
 case "$(uname -s)" in
 	Darwin)
 		BREW_PREFIX=$(brew --prefix 2>/dev/null || echo /opt/homebrew)
-		LINK="-extra-linker-flags:-lm -lpthread -lz -L$BREW_PREFIX/lib -Wl,-rpath,$BREW_PREFIX/lib"
+		LINK="-extra-linker-flags:-L$BREW_PREFIX/lib -Wl,-rpath,$BREW_PREFIX/lib"
 		;;
 	*)
 		LINK='-extra-linker-flags:-lm -ldl -lpthread -ljack -lz -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0'
