@@ -1,60 +1,32 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <!-- App Tile -->
-  <rect x="16" y="16" width="480" height="480" rx="96" fill="#0A0A0A" stroke="#1E1E1E" stroke-width="2"/>
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="#0A0A0A" stroke="#1E1E1E" stroke-width="2"/>
 
-  <!-- Left Reel Tape Pack (Fuller Coil) -->
-  <circle cx="158" cy="194" r="76" fill="#F08A31"/>
-  <circle cx="158" cy="194" r="64" fill="none" stroke="#0A0A0A" stroke-width="2" opacity="0.3"/>
-  <circle cx="158" cy="194" r="52" fill="none" stroke="#0A0A0A" stroke-width="2" opacity="0.3"/>
+  <!-- Fader 1 (cx=142, mid-level) -->
+  <rect x="135" y="120" width="14" height="274" rx="7" fill="#1E1E1E"/>
+  <rect x="135" y="252" width="14" height="142" rx="7" fill="#F08A31"/>
+  <rect x="118" y="239" width="48" height="26" rx="5" fill="#E8E8E8"/>
+  <rect x="129" y="250.5" width="26" height="3" rx="1.5" fill="#0A0A0A"/>
 
-  <!-- Right Reel Tape Pack (Leaner Coil) -->
-  <circle cx="354" cy="194" r="54" fill="#F08A31"/>
-  <circle cx="354" cy="194" r="44" fill="none" stroke="#0A0A0A" stroke-width="1.8" opacity="0.3"/>
+  <!-- Fader 2 (cx=216, lead-level) -->
+  <rect x="209" y="120" width="14" height="274" rx="7" fill="#1E1E1E"/>
+  <rect x="209" y="182" width="14" height="212" rx="7" fill="#F08A31"/>
+  <rect x="192" y="169" width="48" height="26" rx="5" fill="#E8E8E8"/>
+  <rect x="203" y="180.5" width="26" height="3" rx="1.5" fill="#0A0A0A"/>
 
-  <!-- Magnetic Tape Ribbon Path Tangent From Tape Coils Across Capstans & Head -->
-  <path d="M 85 212 L 116 352 L 396 352 L 403 216" fill="none" stroke="#F08A31" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Fader 3 (cx=290, supporting-level) -->
+  <rect x="283" y="120" width="14" height="274" rx="7" fill="#1E1E1E"/>
+  <rect x="283" y="292" width="14" height="102" rx="7" fill="#F08A31"/>
+  <rect x="266" y="279" width="48" height="26" rx="5" fill="#E8E8E8"/>
+  <rect x="277" y="290.5" width="26" height="3" rx="1.5" fill="#0A0A0A"/>
 
-  <!-- Left Reel Metallic Flange with 3 Cutout Windows -->
-  <g transform="translate(158,194) rotate(-15)">
-    <path fill="#1E1E1E" stroke="#383838" stroke-width="2.5" fill-rule="evenodd" d="
-      M 0 -90 A 90 90 0 1 0 0 90 A 90 90 0 1 0 0 -90 Z
-      M 0 -25 A 25 25 0 1 1 0 25 A 25 25 0 1 1 0 -25 Z
-      M -19.5 -75.5 A 78 78 0 0 1 19.5 -75.5 L 9.0 -34.8 A 36 36 0 0 0 -9.0 -34.8 Z
-      M 75.1 20.8 A 78 78 0 0 1 55.6 54.7 L 25.6 25.2 A 36 36 0 0 0 34.7 9.6 Z
-      M -55.6 54.7 A 78 78 0 0 1 -75.1 20.8 L -34.7 9.6 A 36 36 0 0 0 -25.6 25.2 Z
-    "/>
-  </g>
-  <circle cx="158" cy="194" r="21" fill="#E8E8E8"/>
-  <circle cx="158" cy="194" r="9" fill="#0A0A0A"/>
-
-  <!-- Right Reel Metallic Flange (rotated so spoke covers the tangent exit cleanly) -->
-  <g transform="translate(354,194) rotate(58)">
-    <path fill="#1E1E1E" stroke="#383838" stroke-width="2.5" fill-rule="evenodd" d="
-      M 0 -90 A 90 90 0 1 0 0 90 A 90 90 0 1 0 0 -90 Z
-      M 0 -25 A 25 25 0 1 1 0 25 A 25 25 0 1 1 0 -25 Z
-      M -19.5 -75.5 A 78 78 0 0 1 19.5 -75.5 L 9.0 -34.8 A 36 36 0 0 0 -9.0 -34.8 Z
-      M 75.1 20.8 A 78 78 0 0 1 55.6 54.7 L 25.6 25.2 A 36 36 0 0 0 34.7 9.6 Z
-      M -55.6 54.7 A 78 78 0 0 1 -75.1 20.8 L -34.7 9.6 A 36 36 0 0 0 -25.6 25.2 Z
-    "/>
-  </g>
-  <circle cx="354" cy="194" r="21" fill="#E8E8E8"/>
-  <circle cx="354" cy="194" r="9" fill="#0A0A0A"/>
-
-  <!-- Machined Guide Rollers (below tape bend, subtle matte steel) -->
-  <circle cx="116" cy="352" r="10" fill="#222222" stroke="#5D5D5D" stroke-width="2.5"/>
-  <circle cx="116" cy="352" r="3" fill="#0A0A0A"/>
-  <circle cx="396" cy="352" r="10" fill="#222222" stroke="#5D5D5D" stroke-width="2.5"/>
-  <circle cx="396" cy="352" r="3" fill="#0A0A0A"/>
-
-  <!-- Precision Center 4-Track Tape Head Block -->
-  <rect x="206" y="346" width="100" height="52" rx="8" fill="#141414" stroke="#E8E8E8" stroke-width="2.5"/>
-  <!-- Head Gap Vertical Line -->
-  <line x1="256" y1="350" x2="256" y2="394" stroke="#E8E8E8" stroke-width="2" opacity="0.5"/>
-  <!-- 4 Active Magnetic Track Bars -->
-  <rect x="218" y="362" width="12" height="5" rx="1.5" fill="#F08A31"/>
-  <rect x="236" y="362" width="12" height="5" rx="1.5" fill="#F08A31"/>
-  <rect x="264" y="362" width="12" height="5" rx="1.5" fill="#F08A31"/>
-  <rect x="282" y="362" width="12" height="5" rx="1.5" fill="#5D5D5D"/>
-  <!-- Small REC LED integrated into head housing bottom-center -->
-  <circle cx="256" cy="384" r="4.5" fill="#BA022F"/>
+  <!-- Column 4: 8-Segment LED Output Meter (x=350..394, y=120..394) -->
+  <rect x="350" y="120" width="44" height="22" rx="4" fill="#1E1E1E"/>
+  <rect x="350" y="156" width="44" height="22" rx="4" fill="#1E1E1E"/>
+  <rect x="350" y="192" width="44" height="22" rx="4" fill="#BA022F"/>
+  <rect x="350" y="228" width="44" height="22" rx="4" fill="#F08A31"/>
+  <rect x="350" y="264" width="44" height="22" rx="4" fill="#F08A31"/>
+  <rect x="350" y="300" width="44" height="22" rx="4" fill="#F08A31"/>
+  <rect x="350" y="336" width="44" height="22" rx="4" fill="#F08A31"/>
+  <rect x="350" y="372" width="44" height="22" rx="4" fill="#F08A31"/>
 </svg>
