@@ -1,10 +1,22 @@
 # Verification matrix
 
-Measured on the development machine (Arch Linux, PipeWire 1.6.11, Odin
-`dev-2026-11-nightly`), 2026-11-17 through 2026-11-22. The native port is
-complete; details and intentional limits are in `ROADMAP.md`.
+Measured on Linux (Arch Linux, PipeWire 1.6.11, Odin `dev-2026-11-nightly`, 2026-11-17 through 2026-11-22) and **macOS** (Apple M4 `arm64`, macOS 27.2.1, CoreAudio + Metal / OpenGL 3.3, Odin `dev-2026-11`, 2026-11-23). The native port and cross-OS modularization are complete; details and intentional limits are in `ROADMAP.md` and `../PLATFORMS.md`.
 
-## Build and unit tests
+## macOS verification (Apple Silicon, Metal + CoreAudio, 2026-11-23)
+
+| check | command / mode | result |
+|---|---|---|
+| Build & `-vet` | `make clean && make build && odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` | clean (`darwin_arm64`) |
+| Unit tests | `make test` (`src/dsp`, `src`, `src/ui`) | **265 passed** (**71** DSP + **123** core + **71** UI; 6 Linux JACK tests excluded via `#+build linux`) |
+| Offline check | `make check` (`scripts/check.sh`) | **PASS**: 265 unit tests, `selftest`, **220/220** UI tour (`full-tour.json`, 17 valid PNGs via pure-Odin + `stb_truetype` harness), offline bounce, `ffprobe` `pcm_f32le` |
+| Window e2e | `make e2e` (`vui-test tests/ui/window.vt`) | **18/18 passed** on Metal (`VUI_HIDDEN=1`) |
+| Metal UI (`vui-ctl`) | `VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-odin ui` | `backend: "GPU"`, `gpu_driver: "metal"`, `video_driver: "cocoa"`, `frame_ms: 2.68`, `unknown_classes: []`; visually verified I/O (`CoreAudio input devices`), Settings (`COREAUDIO`), FX `MST`, Render dialog |
+| OpenGL 3.3 fallback | `VUI_BACKEND=gl VUI_HIDDEN=1 VUI_PORT=7422 ./bin/tracker-odin ui --demo` | `backend: "GL"`, `gl_renderer: "Apple M4"`, `unknown_classes: []`, `frame_ms: 2.66` |
+| Scarlett 4i4 USB CLI 2ch | `./bin/tracker-odin record --seconds 2 --channels 2 --device 0` | `96,000` frames @ `48,000 Hz` (short 0), `track1.wav` **−52.30 dBFS peak / −60.33 dBFS rms** (phantom-powered condenser @ 9 o'clock), `track2.wav` −86.99 / −99.59 dBFS; bounce `mix.wav` −50.08 dBFS |
+| Scarlett 4i4 USB CLI 6ch | `./bin/tracker-odin record --seconds 2 --channels 6 --device 0` | `96,000` frames @ `48,000 Hz` (short 0), tracks 1–6 unmixed in hardware order (ch 1 −52.46 / −60.10, ch 2 −89.38 / −99.92, ch 3 −94.34 / −101.81, ch 4 −94.45 / −101.84, ch 5/6 −120.00 dBFS) |
+| Scarlett 4i4 USB live UI | `VUI_HIDDEN=1` live session: arm preview + REC + `MON ON` + playback | Live arm preview meter/waveform before REC; 2.133 s take (`track1-take1.wav`, 102,400 frames, −51.93 dBFS peak) + 1.280 s `MON ON` duplex take (`track1.wav`, 61,440 frames, −52.46 dBFS peak); playback verified |
+
+## Linux build and unit tests
 
 | check | command | result |
 |---|---|---|

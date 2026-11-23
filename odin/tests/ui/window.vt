@@ -4,7 +4,10 @@ app ../../bin/tracker-odin ui --session {test}/session
 size 1180x760
 scale 1
 baselines baselines
-threshold 0.003
+# 0.5% allows live audio device names in the header/status bar to differ across
+# OS/hardware (e.g. "Scarlett 4i4 USB" on CoreAudio vs "... Analog Surround 5.1"
+# on PipeWire) while keeping every widget and panel pixel-verified.
+threshold 0.005
 
 test "main screen"
   expect-text "Track 1"

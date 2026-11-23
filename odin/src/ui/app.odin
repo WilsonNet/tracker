@@ -1287,7 +1287,7 @@ app_describe :: proc(a: ^App) -> string {
 	describe_append(out[:], &n, "tempo %d bpm. metronome %s. monitor %s. latency %.0f ms. capture %s. high contrast %s. reduced motion %s. project folder %s. ",
 		a.bpm, "on" if a.metronome else "off",
 		"on" if a.monitor else "off", a.latency_ms,
-		"Jack" if a.jack_backend else "PipeWire",
+		"Jack" if a.jack_backend else platform_audio_backend_name(),
 		"on" if a.high_contrast else "off",
 		"on" if a.reduced_motion else "off", app_save_dir(a))
 	describe_append(out[:], &n, "google drive %s. cloud projects %d. ", "connected" if a.cloud_connected else "disconnected", a.cloud_project_count)
@@ -1890,7 +1890,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		a.last_command_index = 0
 		a.jack_backend = !a.jack_backend
 		emit(a, .Backend)
-		status_buf_set(a, "JACK capture" if a.jack_backend else "PipeWire capture")
+		status_buf_set(a, "JACK capture" if a.jack_backend else fmt.tprintf("%s capture", platform_audio_backend_name()))
 		app_history_note(a, "backend")
 		app_touch(a)
 	case .Rescan:

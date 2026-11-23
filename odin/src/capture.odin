@@ -140,7 +140,7 @@ capture_pulse_channel_map :: proc(channels: int) -> i32 {
 capture_config_unmixed :: proc(cfg: ^ma.device_config, channels: int) {
 	cfg.capture.channels = u32(max(channels, 0))
 	cfg.capture.channelMap = nil
-	cfg.pulse.channelMap = capture_pulse_channel_map(channels)
+	platform_audio_configure_capture(cfg, channels)
 }
 
 capture_device_name :: proc(info: ^ma.device_info) -> string {

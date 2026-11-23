@@ -1,9 +1,17 @@
 ODIN       ?= odin
 VINLAND    ?= $(abspath ../../vinland-ui)
-ODIN_BIN   := $(shell command -v $(ODIN))
-ODIN_ROOT  ?= $(dir $(shell readlink -f $(ODIN_BIN)))
-STB_LIB    := $(ODIN_ROOT)vendor/stb/lib/stb_truetype.a
+UNAME_S    := $(shell uname -s)
+ODIN_ROOT  ?= $(shell "$(ODIN)" root)
+BREW_PREFIX := $(shell brew --prefix 2>/dev/null || echo /opt/homebrew)
+
+ifeq ($(UNAME_S),Darwin)
+STB_LIB    := $(ODIN_ROOT)/vendor/stb/lib/darwin/stb_truetype.a
+LINK_FLAGS := -extra-linker-flags:"-lm -lpthread -lz -L$(BREW_PREFIX)/lib -Wl,-rpath,$(BREW_PREFIX)/lib"
+else
+STB_LIB    := $(ODIN_ROOT)/vendor/stb/lib/stb_truetype.a
 LINK_FLAGS := -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0"
+endif
+
 BIN        := bin/tracker-odin
 
 PREFIX     ?= $(HOME)/.local
@@ -16,15 +24,15 @@ VUI_PORT   ?= 7421
 
 E2E_OUT    ?= /tmp/tracker-e2e
 
-.PHONY: e2e all build stb test test-dsp test-core test-ui check clean run devices selftest ui ui-shot ui-test bounce install uninstall
+.PHONY: e2e all build stb test test-dsp test-core test-ui check clean run devices selftest ui ui-bg ui-shot ui-test bounce install uninstall
 
 all: build
 
-# Runtime text at 1.25x/1.5x/3x uses Odin's stb_truetype bindings. Recent
-# releases do not ship the native archive; build it once with the vendored
-# script (the same pattern as the miniaudio archive).
+# Runtime text at 1.25x/1.5x/3x uses Odin's stb_truetype bindings. On Linux
+# recent Odin releases omit the native archive so build it once; on macOS it
+# is shipped under vendor/stb/lib/darwin/.
 $(STB_LIB):
-	sh "$(ODIN_ROOT)vendor/stb/src/build_stb.sh" unix
+	sh "$(ODIN_ROOT)/vendor/stb/src/build_stb.sh" unix
 
 stb: $(STB_LIB)
 

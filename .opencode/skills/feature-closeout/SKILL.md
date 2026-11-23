@@ -333,6 +333,13 @@ message state:
   `background:true`/`focusable:false`, and the foreground/background toggle
   round-trips. Tracker e2e (18) and showroom e2e (6) stay green.
 
+### macOS port & cross-OS `#+build` isolation (2026-11-23)
+
+- Keep OS differences out of shared files by splitting into `_linux.odin` (`#+build linux`), `_darwin.odin` (`#+build darwin`), and `_other.odin` (`#+build !linux` and `#+build !darwin` on **separate** lines — Odin rejects `!linux !darwin` on one line).
+- On non-Linux, the headless `ui-shot`/`ui-test` harness runs on a pure-Odin software rasterizer + embedded `vendor:stb/truetype` (`ScaleForMappingEmToPixels` matches Pango 72 dpi em-height sizing cleanly inside `ui_canvas_text_rasterises_at_physical_size`), removing Cairo/Pango as build dependencies on macOS.
+- `tests/ui/window.vt` uses `threshold 0.005` because the header I/O pill and status bar display the live hardware device name (e.g. `"Scarlett 4i4 USB"` on CoreAudio vs `"Scarlett 4i4 USB Analog Surround 5.1"` on PipeWire), which shifts ~0.32% of pixels in the header/status bar while leaving every widget pixel-identical.
+- Update `PLATFORMS.md` whenever editing OS-specific files you cannot test locally on the other OS.
+
 ### Repo cleanup (2026-11-21)
 
 - After removing a retired frontend or toolchain, stale references hide in

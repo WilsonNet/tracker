@@ -1396,7 +1396,7 @@ view_io :: proc(a: ^App) {
 		if vui.pressable(PANEL) {
 			if vui.div("flex items-baseline gap-3") {
 				vui.text("Input devices", "text-[14px] font-semibold text-ink")
-				vui.text("PipeWire / JACK sources", "text-[11px] text-ink-muted")
+				vui.text(platform_audio_sources_subtitle(), "text-[11px] text-ink-muted")
 				vui.text("ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
 			}
 			if len(a.devices) == 0 {
@@ -1421,8 +1421,10 @@ view_io :: proc(a: ^App) {
 				}
 			}
 			if vui.div("flex items-center gap-2 border-t border-line-subtle pt-3") {
-				if vui.button("JACK", vui.cx(BBTN, a.jack_backend ? "border-cue bg-cue-bg text-cue" : "border-line text-ink-dim hover:text-ink")) {
-					app_execute(a, .Backend)
+				if platform_supports_jack() {
+					if vui.button("JACK", vui.cx(BBTN, a.jack_backend ? "border-cue bg-cue-bg text-cue" : "border-line text-ink-dim hover:text-ink")) {
+						app_execute(a, .Backend)
+					}
 				}
 				if vui.button("RESCAN", vui.cx(BBTN, "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
 					app_execute(a, .Rescan)
@@ -1570,7 +1572,7 @@ view_settings :: proc(a: ^App, v: ^View) {
 			}
 			if vui.div("flex items-center gap-2") {
 				vui.text("Capture backend", "flex-1 text-[12px] text-ink")
-				settings_toggle(a, .Backend, "JACK" if a.jack_backend else "PIPEWIRE", a.jack_backend, .Backend)
+				settings_toggle(a, .Backend, "JACK" if a.jack_backend else platform_audio_backend_upper(), a.jack_backend, .Backend)
 			}
 			if vui.div("flex items-center gap-2") {
 				vui.text("Input latency", "flex-1 text-[12px] text-ink")

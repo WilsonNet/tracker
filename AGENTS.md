@@ -12,9 +12,15 @@ This project has a PRODUCT.md and DESIGN.md at the repo root. Read both before m
 
 The app is a single native binary in `odin/src/` — no webview, no IPC.
 
-- **UI**: `src/ui/` — `view.odin` renders the `App` model as a vinland-ui element tree; `theme.odin` is the single source of design tokens; `text_edit.odin` owns caret/selection/clipboard/undo and `text_field_view.odin` maps pointer positions and paints the selection; `draw.odin`/`canvas.odin` paint the Cairo/Pango headless harness; `app.odin` holds state and key handling.
-- **Window**: `src/ui_window.odin` — SDL3 via vinland-ui, key mapping, engine commands, HiDPI.
-- **Audio**: `engine.odin`, `capture.odin` (miniaudio), `jack_capture.odin` (cooperative PipeWire/JACK), `wav.odin` (float32 WAV/RF64), `project.odin` (JSON persistence).
+- **UI**: `src/ui/` — `view.odin` renders the `App` model as a vinland-ui element tree; `theme.odin` is the single source of design tokens; `text_edit.odin` owns caret/selection/clipboard/undo and `text_field_view.odin` maps pointer positions and paints the selection; `draw.odin` + `canvas_{cairo_linux,soft_other}.odin` + `font_runtime_{linux,other}.odin` power the headless harness (Cairo/Pango on Linux, pure-Odin + `stb_truetype` on macOS/other); `app.odin` holds state and key handling.
+- **Window**: `src/ui_window.odin` — SDL3 GPU (Metal on macOS, Vulkan on Linux) + OpenGL 3.3 fallback via vinland-ui, key mapping (`Cmd`/`Ctrl` via `platform_primary_mod`), engine commands, HiDPI.
+- **Audio**: `engine.odin`, `capture.odin` (miniaudio CoreAudio on macOS / PipeWire+ALSA on Linux), `jack_capture_{linux,other}.odin` + `jack_session_{linux,other}.odin` (Linux cooperative JACK), `wav.odin` (float32 WAV/RF64), `project.odin` (JSON persistence).
+- **Platform isolation**: `src/platform_{linux,darwin,other}.odin`, `src/file_dialog_{linux,darwin,other}.odin` (`osascript` on macOS, `zenity`/`kdialog` on Linux), `src/ui/platform_{linux,darwin,other}.odin`. See `PLATFORMS.md` and `.agents/rules/`.
+
+## Cross-OS Isolation & Handoff
+
+- Never add `when ODIN_OS` conditionals inside shared files (`engine.odin`, `capture.odin`, `cloud_oauth.odin`, `file_dialog.odin`, `ui_window.odin`, `ui/app.odin`, `ui/view.odin`, `ui/draw.odin`, `ui/canvas_common.odin`). Put OS-specific code in `_linux.odin` (`#+build linux`), `_darwin.odin` (`#+build darwin`), and `_other.odin` (two lines: `#+build !linux` and `#+build !darwin`).
+- Read [`PLATFORMS.md`](PLATFORMS.md) at the start of a session: clear any pending cross-OS checklist item you verify locally, and add a checkbox whenever you edit OS-specific code for the other OS that you cannot run locally.
 - **DSP**: `src/dsp/` — hand-written biquad/EQ, compressor, limiter, FDN reverb, ping-pong delay, widener, resampling, mixdown. No VSTs, no plugin host.
 - **Harness**: `src/ui_harness.odin` runs semantic UI scripts headlessly; `src/ui_cmd.odin` renders single frames.
 
@@ -131,7 +137,7 @@ cover it.
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — 271 unit tests (DSP + core/engine/project/cloud + UI)
+- `make test` — unit tests (271 on Linux / 265 on macOS: DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
@@ -173,9 +179,9 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 71 DSP + 129 core/engine/project/WAV/settings/cloud + 71 UI tests.
+- `make test` — 71 DSP + core/engine/project/WAV/settings/cloud (129 on Linux, 123 on macOS without Linux JACK session tests) + 71 UI tests (271 total on Linux, 265 on macOS).
 - `make e2e` — 18 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, render dialog range/format, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay).
-- The Cairo/Pango harness (`ui-test`, `ui-shot`) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
+- The headless harness (`ui-test`, `ui-shot`; Cairo/Pango on Linux, pure-Odin + `stb_truetype` on macOS) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.
 - Do not claim a UI works without inspecting the generated PNG/report. Hardware recording evidence belongs in `odin/VERIFICATION.md`.
 

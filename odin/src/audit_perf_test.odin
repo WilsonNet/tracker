@@ -31,41 +31,10 @@ AUDIT_MB :: f64(1024 * 1024)
 
 // ---------------------------------------------------------------- utilities
 
-// Resident set size of this process in KiB, from /proc/self/statm. Linux-only,
-// returns 0 elsewhere. Used to confirm that a repeated operation does not grow
-// the process.
+// Resident set size of this process in KiB (Linux /proc/self/statm; 0 elsewhere).
+// Used to confirm that a repeated operation does not grow the process.
 audit_rss_kb :: proc() -> int {
-	when ODIN_OS == .Linux {
-		f, err := os.open("/proc/self/statm", os.O_RDONLY)
-		if err != nil {
-			return 0
-		}
-		defer os.close(f)
-		buf: [128]u8
-		n, rerr := os.read(f, buf[:])
-		if rerr != nil || n <= 0 {
-			return 0
-		}
-		// "size resident shared text lib data dt" (all in pages).
-		text := string(buf[:n])
-		fields := 0
-		for i in 0 ..< len(text) {
-			if text[i] == ' ' {
-				fields += 1
-				if fields == 1 {
-					start := i + 1
-					val := 0
-					for j in start ..< len(text) {
-						if text[j] == ' ' {
-							return val * 4096 / 1024
-						}
-						val = val * 10 + int(text[j] - '0')
-					}
-				}
-			}
-		}
-	}
-	return 0
+	return platform_rss_kb()
 }
 
 audit_ms :: proc(since: time.Time) -> f64 {

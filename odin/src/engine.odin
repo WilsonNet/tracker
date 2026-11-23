@@ -219,6 +219,9 @@ engine_destroy :: proc(e: ^Engine) {
 }
 
 engine_set_backend :: proc(e: ^Engine, backend: Capture_Backend) -> bool {
+	if backend == .Jack && !platform_supports_jack() {
+		return false
+	}
 	if e.rec.active || jack_session_is_running(&e.jack) {
 		return false
 	}

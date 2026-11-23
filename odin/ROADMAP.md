@@ -29,7 +29,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | Project JSON with defaults and strict validation | done | malformed/null/partial/version tests |
 | Atomic save + path traversal protection | done | project tests |
 | Recent-project list (`XDG_CONFIG_HOME`) | done | save/load + overlay |
-| Native open / save-as dialogs | done | zenity with kdialog fallback |
+| Native open / save-as dialogs | done | `zenity`/`kdialog` (Linux), `osascript` Cocoa panels (macOS) |
 | Mixed-rate resampling | done | 44.1↔48 kHz sessions |
 | RF64 reader/writer + streaming writer | done | synthetic RF64, ffprobe/sox |
 | Multi-take recording and active take | done | stable `trackN-takeM.wav`, project round-trip |
@@ -46,7 +46,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | item | status | evidence |
 |---|---|---|
-| vinland-ui window (SDL3, Vulkan/GL), DESIGN.md palette | done | Hyprland, `vui-ctl` screenshots |
+| vinland-ui window (SDL3 Metal/Vulkan + GL), DESIGN.md palette | done | Hyprland/Vulkan (Linux), Cocoa/Metal + OpenGL (macOS), `vui-ctl` screenshots |
+| macOS port (Apple Silicon, CoreAudio, Metal + GL, `osascript`) | done | `PLATFORMS.md`, 265 unit tests, `make check`, 18/18 `e2e`, Scarlett 4i4 USB 2ch/6ch capture + UI monitor |
 | SDL2 window, software canvas | replaced | superseded by vinland-ui |
 | 4 track strips, master, meters, GR | done | 220-action tour |
 | Arm preview: live input meter + history before REC | done | `vui-ctl` screenshots, preview tests |

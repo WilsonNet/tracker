@@ -1,8 +1,8 @@
 # tracker-odin
 
-Native Tracker application in [Odin](https://odin-lang.org/). One
-self-contained binary: SDL3 + Vulkan/OpenGL through vinland-ui, miniaudio or a
-cooperative JACK client, and a hand-written DSP chain. No webview, no
+Native Tracker application in [Odin](https://odin-lang.org/) for **Linux and macOS**. One
+self-contained binary: SDL3 GPU (Metal on macOS, Vulkan on Linux) + OpenGL 3.3 fallback through vinland-ui, miniaudio (CoreAudio on macOS, PipeWire/ALSA on Linux) or a
+cooperative JACK client (Linux), and a hand-written DSP chain. No webview, no
 JavaScript runtime, no IPC boundary.
 
 **Status: complete.** The window, live capture, monitoring, overdub, playback,
@@ -21,7 +21,14 @@ No Node dev server, no webview and no IPC boundary are involved.
 
 ## Dependencies
 
-Linux, a C toolchain (Odin shells out to `clang`, `cc` and `ld`; `ar` is
+**macOS (Apple Silicon / Intel):** Odin (`dev-2026-11a` or newer), SDL3, and Xcode Command Line Tools. Odin already ships precompiled `vendor/miniaudio/lib/darwin/miniaudio.a` and `vendor/stb/lib/darwin/stb_truetype.a`, and the headless harness uses a pure-Odin + `stb_truetype` rasterizer, so Pango/Cairo/JACK are not needed. Native open/save-as dialogs use `osascript` Cocoa panels, Drive login opens Safari/default browser with `open`, and text fields accept both `Cmd` and `Ctrl`.
+
+```sh
+brew install odin sdl3
+# optional for format checks: ffmpeg
+```
+
+**Linux:** A C toolchain (Odin shells out to `clang`, `cc` and `ld`; `ar` is
 needed only when building the miniaudio archive), Odin `dev-2026-11a` or
 newer, the sibling [vinland-ui](https://github.com/WilsonNet/vinland-ui) checkout
 (`../../vinland-ui` from `odin/`, override with `VINLAND=`), and development files
@@ -107,7 +114,7 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | 271 unit tests: 71 DSP, 129 core/engine/project/cloud, 71 UI |
+| `test` | unit tests: 71 DSP, 129 core (Linux) / 123 core (macOS), 71 UI = 271 (Linux) / 265 (macOS) |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
 | `e2e` | 18 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
@@ -377,26 +384,30 @@ A real 2-second take was recorded through the native window with xdotool:
 ```
 odin/
   src/
-    main.odin          CLI entry
-    ui_window.odin     vinland-ui window (SDL3/Vulkan) + key mapping + engine commands
-    ui_harness.odin    scripted headless UI test runner
-    ui_cmd.odin        ui-shot
-    engine.odin        ring-buffer capture, playback, bounce, overdub
-    project.odin       project.json + DSP/view mapping
-    capture.odin       miniaudio enumeration/capture
-    jack_capture.odin  cooperative JACK client
-    wav.odin           float32 WAV + PCM import
-    cloud*.odin        Drive store, OAuth, Drive API, background jobs
-    dsp/               biquad, EQ, comp, limiter, reverb, delay, widener,
-                       resample, render
-    ui/                view (vinland element tree), theme, app/input,
-                       text_edit, text_field_view, Cairo canvas/widgets,
-                       charts, PNG, tests
-  scripts/             check.sh, install-desktop.sh, gen_font.py
-  tests/ui/            full-tour.json, window.vt, e2e-checklist.md
-  assets/              tracker.png / tracker.svg / Inter-*.ttf /
-                       Inter-OFL.txt / NotoSansMono-Regular.ttf
-  assets/fonts/        JetBrainsMono-*.ttf (window) / JetBrainsMono-OFL.txt
+    main.odin              CLI entry
+    ui_window.odin         vinland-ui window (SDL3 Metal/Vulkan + GL fallback) + key mapping + engine commands
+    ui_harness.odin        scripted headless UI test runner
+    ui_cmd.odin            ui-shot
+    platform_*.odin        OS isolation (linux, darwin, other): audio map, JACK flag, open URL, Cmd/Ctrl mod, RSS
+    file_dialog*.odin      shared picker logic + zenity/kdialog (linux) + osascript (darwin) + stub (other)
+    engine.odin            ring-buffer capture, playback, bounce, overdub
+    project.odin           project.json + DSP/view mapping
+    capture.odin           miniaudio enumeration/capture (CoreAudio / PipeWire / ALSA)
+    jack_capture*.odin     shared JACK port filter + Linux client + non-Linux stub
+    jack_session*.odin     Linux lock-free JACK session + non-Linux stub
+    wav.odin               float32 WAV + PCM import
+    cloud*.odin            Drive store, OAuth, Drive API, background jobs
+    dsp/                   biquad, EQ, comp, limiter, reverb, delay, widener,
+                           resample, render
+    ui/                    view (vinland element tree), theme, app/input,
+                           text_edit, text_field_view, platform_*.odin,
+                           canvas_common.odin, Cairo/Pango (linux), pure-Odin/stb_truetype (!linux),
+                           charts, PNG, tests
+  scripts/                 check.sh, install-desktop.sh, gen_font.py
+  tests/ui/                full-tour.json, window.vt, e2e-checklist.md
+  assets/                  tracker.png / tracker.svg / Inter-*.ttf /
+                           Inter-OFL.txt / NotoSansMono-Regular.ttf
+  assets/fonts/            JetBrainsMono-*.ttf (window) / JetBrainsMono-OFL.txt
 ```
 
 The native tree is self-contained. Source comments record the original DSP

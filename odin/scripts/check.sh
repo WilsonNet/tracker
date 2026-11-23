@@ -23,7 +23,15 @@ for arg in "$@"; do
 done
 
 VINLAND="${VINLAND:-$(cd "$(dirname "$0")/../../.." && pwd)/vinland-ui}"
-LINK='-extra-linker-flags:-lm -ldl -lpthread -ljack -lz -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0'
+case "$(uname -s)" in
+	Darwin)
+		BREW_PREFIX=$(brew --prefix 2>/dev/null || echo /opt/homebrew)
+		LINK="-extra-linker-flags:-lm -lpthread -lz -L$BREW_PREFIX/lib -Wl,-rpath,$BREW_PREFIX/lib"
+		;;
+	*)
+		LINK='-extra-linker-flags:-lm -ldl -lpthread -ljack -lz -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0'
+		;;
+esac
 
 command -v "$ODIN" >/dev/null 2>&1 || {
 	echo "odin not found; install it and/or set ODIN=/path/to/odin" >&2
@@ -311,11 +319,15 @@ if [ "$HARDWARE" -eq 1 ]; then
 fi
 
 if [ "$JACK" -eq 1 ]; then
-	echo "== JACK capture (0.5 s) =="
-	rm -rf "$tmp/jack"
-	./bin/tracker-odin record --jack --seconds 0.5 --channels 2 --out "$tmp/jack"
-	[ -f "$tmp/jack/track1.wav" ] || { echo "FAIL: no JACK track1.wav" >&2; exit 1; }
-	./bin/tracker-odin info "$tmp/jack/track1.wav"
+	if [ "$(uname -s)" != "Linux" ]; then
+		echo "== JACK capture skipped (Linux-only) =="
+	else
+		echo "== JACK capture (0.5 s) =="
+		rm -rf "$tmp/jack"
+		./bin/tracker-odin record --jack --seconds 0.5 --channels 2 --out "$tmp/jack"
+		[ -f "$tmp/jack/track1.wav" ] || { echo "FAIL: no JACK track1.wav" >&2; exit 1; }
+		./bin/tracker-odin info "$tmp/jack/track1.wav"
+	fi
 fi
 
 echo "== PASS =="

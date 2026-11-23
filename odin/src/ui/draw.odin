@@ -755,7 +755,7 @@ draw_io :: proc(a: ^App, c: ^Canvas) {
 	canvas_fill_round(c, l.io_panel, T.radius.xl, T.color.surface)
 	canvas_stroke_round(c, l.io_panel, T.radius.xl, T.color.line, 1)
 	canvas_text_px(c, l.io_panel.x + 20, l.io_panel.y + 18, "Input Devices", T.color.ink, T.type.title, .SemiBold)
-	canvas_text_px(c, l.io_panel.x + 20, l.io_panel.y + 44, "Cooperative PipeWire / JACK sources", T.color.ink_muted, T.type.caption, .Regular)
+	canvas_text_px(c, l.io_panel.x + 20, l.io_panel.y + 44, platform_audio_sources_subtitle(), T.color.ink_muted, T.type.caption, .Regular)
 
 	l.io_count = min(len(a.devices), MAX_DEVICES)
 	for i in 0 ..< l.io_count {
@@ -877,7 +877,7 @@ draw_settings :: proc(a: ^App, c: ^Canvas) {
 	canvas_text_px_right(c, r.x + r.w - 24, y, app_device(a), T.color.ink_dim, T.type.caption, .Regular)
 	y += 22
 	canvas_text_px(c, x, y, "Capture backend", T.color.ink, T.type.body, .Regular)
-	canvas_text_px_right(c, r.x + r.w - 24, y, "JACK" if a.jack_backend else "PipeWire", T.color.ink_dim, T.type.caption, .Regular)
+	canvas_text_px_right(c, r.x + r.w - 24, y, "JACK" if a.jack_backend else platform_audio_backend_name(), T.color.ink_dim, T.type.caption, .Regular)
 	y += 22
 	canvas_text_px(c, x, y, "Input latency", T.color.ink, T.type.body, .Regular)
 	canvas_text_px_right(c, r.x + r.w - 24, y, fmt.tprintf("%.0f ms", a.latency_ms), T.color.ink_dim, T.type.caption, .Mono)

@@ -1,4 +1,5 @@
-// Flat vector canvas backed by Cairo.
+#+build linux
+// Flat vector canvas backed by Cairo + Pango.
 //
 // Every frame is drawn into an ARGB32 image surface that is also the SDL
 // texture upload buffer. Cairo handles anti-aliasing, rounded paths,
@@ -8,28 +9,6 @@
 package ui
 
 import "core:math"
-
-Color :: u32
-
-Rect :: struct {
-	x, y, w, h: f32,
-}
-
-rect :: proc(x, y, w, h: f32) -> Rect {
-	return Rect{x, y, w, h}
-}
-
-rect_contains :: proc(r: Rect, x, y: f32) -> bool {
-	return x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h
-}
-
-rect_intersect :: proc(a, b: Rect) -> Rect {
-	x0 := max(a.x, b.x)
-	y0 := max(a.y, b.y)
-	x1 := min(a.x + a.w, b.x + b.w)
-	y1 := min(a.y + a.h, b.y + b.h)
-	return Rect{x0, y0, max(0, x1 - x0), max(0, y1 - y0)}
-}
 
 // `width`/`height` are physical pixels; `scale` is physical pixels per logical
 // pixel. All public drawing calls take logical coordinates.
@@ -43,9 +22,6 @@ Canvas :: struct {
 	layout:        ^pango_layout_t,
 	measure:       ^pango_layout_t,
 }
-
-CANVAS_MIN_SCALE :: 1.0
-CANVAS_MAX_SCALE :: 6.0
 
 canvas_init :: proc(c: ^Canvas, width, height: int, scale: f32 = 1.0) {
 	c.scale = clamp(scale, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE)
@@ -96,10 +72,6 @@ canvas_flush :: proc(c: ^Canvas) {
 	if c.surface != nil {
 		cairo_surface_flush(c.surface)
 	}
-}
-
-canvas_pixel_size :: proc(logical: int, scale: f32) -> int {
-	return max(int(math.ceil(f32(logical) * clamp(scale, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE))), 1)
 }
 
 canvas_resize :: proc(c: ^Canvas, width, height: int) {
@@ -156,23 +128,6 @@ canvas_set_scale :: proc(c: ^Canvas, scale: f32) {
 	canvas_apply_clip(c)
 }
 
-canvas_logical_width :: proc(c: ^Canvas) -> int {
-	return max(int(math.round(f32(c.width) / c.scale)), 1)
-}
-
-canvas_logical_height :: proc(c: ^Canvas) -> int {
-	return max(int(math.round(f32(c.height) / c.scale)), 1)
-}
-
-canvas_physical_to_logical :: proc(c: ^Canvas, x, y: f32) -> (f32, f32) {
-	return x / c.scale, y / c.scale
-}
-
-@(private)
-scale_rect :: proc(c: ^Canvas, r: Rect) -> Rect {
-	return Rect{r.x * c.scale, r.y * c.scale, r.w * c.scale, r.h * c.scale}
-}
-
 @(private)
 cairo_color :: proc(c: ^Canvas, col: Color) {
 	cairo_set_source_rgba(c.cr,
@@ -227,25 +182,6 @@ canvas_clear :: proc(c: ^Canvas, col: Color) {
 	cairo_set_operator(c.cr, CANVAS_OPERATOR_OVER)
 	c.clip = Rect{0, 0, f32(c.width), f32(c.height)}
 	canvas_apply_clip(c)
-}
-
-canvas_nonblank :: proc(c: ^Canvas) -> bool {
-	canvas_flush(c)
-	if len(c.pixels) == 0 {
-		return false
-	}
-	base := c.pixels[0]
-	changed := 0
-	threshold := max(len(c.pixels) / 200, 1)
-	for p in c.pixels {
-		if p != base {
-			changed += 1
-			if changed > threshold {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 canvas_push_clip :: proc(c: ^Canvas, r: Rect) -> Rect {
@@ -331,33 +267,8 @@ canvas_arc :: proc(c: ^Canvas, cx, cy, radius, a0, a1: f32, col: Color, thicknes
 	cairo_color(c, col)
 	cairo_set_line_width(c.cr, f64(max(thickness * s, 1)))
 	cairo_new_path(c.cr)
-	if a1 >= a0 {
-		cairo_arc(c.cr, f64(cx * s), f64(cy * s), f64(radius * s), f64(a0), f64(a1))
-	} else {
-		cairo_arc(c.cr, f64(cx * s), f64(cy * s), f64(radius * s), f64(a0), f64(a1))
-	}
+	cairo_arc(c.cr, f64(cx * s), f64(cy * s), f64(radius * s), f64(a0), f64(a1))
 	cairo_stroke(c.cr)
-}
-
-text_width :: proc(text: string, scale: int = 1) -> f32 {
-	return f32(len(text)) * f32(FONT_W) * f32(max(scale, 1))
-}
-
-text_height :: proc(scale: int = 1) -> f32 {
-	return f32(FONT_H) * f32(max(scale, 1))
-}
-
-@(private)
-font_small_alpha :: proc(index, row, col: int) -> u8 {
-	shift := u64((FONT_W - 1 - col) * 8)
-	return u8((FONT_SMALL_ALPHA[index][row] >> shift) & 0xFF)
-}
-
-@(private)
-font_large_alpha :: proc(index, row, col: int) -> u8 {
-	half := col / 8
-	shift := u64((7 - (col % 8)) * 8)
-	return u8((FONT_LARGE_ALPHA[index][row][half] >> shift) & 0xFF)
 }
 
 // ---------------------------------------------------------------- AA shapes
@@ -459,10 +370,6 @@ canvas_arc_aa :: proc(c: ^Canvas, cx, cy, radius, a0, a1: f32, col: Color, thick
 	canvas_arc(c, cx, cy, radius, a0, a1, col, thickness)
 }
 
-Point :: struct {
-	x, y: f32,
-}
-
 canvas_polyline :: proc(c: ^Canvas, pts: []Point, col: Color, thickness: f32 = 1.5) {
 	if len(pts) < 2 || (col >> 24) == 0 {
 		return
@@ -542,28 +449,4 @@ canvas_gradient_v :: proc(c: ^Canvas, r: Rect, top, bottom: Color) {
 	cairo_rectangle(c.cr, f64(x0), f64(y0), f64(x1 - x0), f64(y1 - y0))
 	cairo_fill(c.cr)
 	cairo_pattern_destroy(pat)
-}
-
-// ---------------------------------------------------------------- legacy text
-
-// The shell no longer uses the baked mono atlas, but the headless font tests
-// still exercise it and a few fixed-cell call sites remain. These wrappers
-// render through the proportional path at the same nominal size.
-canvas_text :: proc(c: ^Canvas, x, y: f32, text: string, col: Color, scale: int = 1) {
-	canvas_text_px(c, x, y, text, col, 12.5 * f32(max(scale, 1)), .Mono)
-}
-
-canvas_text_right :: proc(c: ^Canvas, right, y: f32, text: string, col: Color, scale: int = 1) {
-	px := 12.5 * f32(max(scale, 1))
-	canvas_text_px(c, right - canvas_text_width(c, text, px, .Mono), y, text, col, px, .Mono)
-}
-
-canvas_text_center :: proc(c: ^Canvas, cx, y: f32, text: string, col: Color, scale: int = 1) {
-	px := 12.5 * f32(max(scale, 1))
-	canvas_text_px(c, cx - canvas_text_width(c, text, px, .Mono) * 0.5, y, text, col, px, .Mono)
-}
-
-canvas_text_clip :: proc(c: ^Canvas, x, y, max_width: f32, text: string, col: Color, scale: int = 1) {
-	px := 12.5 * f32(max(scale, 1))
-	canvas_text_px_clip(c, x, y, max_width, text, col, px, .Mono)
 }

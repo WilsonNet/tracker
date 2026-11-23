@@ -260,7 +260,7 @@ window_on_event :: proc(va: ^vapp.App, ev: ^sdl.Event) -> bool {
 		if ev.key.repeat {
 			return true
 		}
-		ctrl_down := .LCTRL in ev.key.mod || .RCTRL in ev.key.mod
+		ctrl_down := platform_primary_mod(ev.key.mod)
 		shift_down := .LSHIFT in ev.key.mod || .RSHIFT in ev.key.mod
 		// SDL key events are consumed before vinland sees them, so the app's
 		// custom text surfaces handle their own clipboard/selection shortcuts.
@@ -602,12 +602,16 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 		case .Latency_Up, .Latency_Down:
 			engine_set_latency_ms(e, a.latency_ms)
 		case .Backend:
-			if !engine_set_backend(e, .Jack if a.jack_backend else .Miniaudio) {
+			if a.jack_backend && !platform_supports_jack() {
+				a.jack_backend = false
+				ui.status_buf_set(a, fmt.tprintf("JACK is Linux-only (using %s)", platform_audio_backend_name()))
+				ui.toast(a, "JACK is Linux-only")
+			} else if !engine_set_backend(e, .Jack if a.jack_backend else .Miniaudio) {
 				a.jack_backend = !a.jack_backend
 				ui.status_buf_set(a, "stop transport before changing capture backend")
 				ui.toast(a, "stop transport first")
 			} else {
-				ui.status_buf_set(a, "JACK capture selected" if a.jack_backend else "PipeWire capture selected")
+				ui.status_buf_set(a, "JACK capture selected" if a.jack_backend else fmt.tprintf("%s capture selected", platform_audio_backend_name()))
 			}
 		case .Rescan:
 			names2 := engine_rescan_devices(e, a)

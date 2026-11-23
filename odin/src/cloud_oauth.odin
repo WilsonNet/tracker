@@ -32,20 +32,7 @@ cloud_send_http :: proc(client: net.TCP_Socket, status: string, body: string) {
 // Opens a URL with the desktop's browser helper. Returns false when no helper
 // exists; the caller turns that into a clear status message.
 cloud_open_url :: proc(url: string) -> bool {
-	candidates := [3][]string{
-		{"xdg-open", url},
-		{"gio", "open", url},
-		{"sensible-browser", url},
-	}
-	for argv in candidates {
-		state, out, err, e := os.process_exec(os.Process_Desc{command = argv}, context.allocator)
-		delete(out)
-		delete(err)
-		if e == nil && state.exited && state.exit_code == 0 {
-			return true
-		}
-	}
-	return false
+	return platform_open_url(url)
 }
 
 @(private)

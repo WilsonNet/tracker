@@ -2,8 +2,8 @@
 
 A minimal multitrack audio recorder for the desktop. No timeline, no grid — just arm, level, record, listen.
 
-Native [Odin](https://odin-lang.org/) application, drawn with the sibling
-[vinland-ui](https://github.com/WilsonNet/vinland-ui) toolkit (SDL3 + Vulkan, OpenGL
+Native [Odin](https://odin-lang.org/) application for **Linux and macOS**, drawn with the sibling
+[vinland-ui](https://github.com/WilsonNet/vinland-ui) toolkit (SDL3 GPU Metal/Vulkan, OpenGL 3.3
 fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
 
 ![Tracker with the FX rack open](docs/screenshot-app.png)
@@ -30,7 +30,7 @@ fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
   selection: click/drag/shift-click, double-click a word, triple-click all,
   clipboard and undo, with secrets rendered as `*`
 - **HiDPI and responsive density** — crisp type at 1×–3×; the native window uses SDL density and a flexible layout, while the headless harness and `ui-shot` scale the whole virtual frame for larger canvases
-- **Linux audio** — PipeWire/ALSA capture and cooperative JACK capture (`--jack`)
+- **Cross-platform audio** — CoreAudio on macOS, PipeWire/ALSA and cooperative JACK (`--jack`) on Linux
 
 ## Quick start
 
@@ -44,7 +44,7 @@ git clone https://github.com/WilsonNet/vinland-ui ../vinland-ui
 
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 271 unit tests
+make test         # 271 unit tests (Linux) / 265 unit tests (macOS)
 make check        # tests + headless UI tour + offline bounce
 
 ./bin/tracker-odin ui              # real window
@@ -80,6 +80,7 @@ PRODUCT.md     product strategy
 DESIGN.md      visual design system
 ```
 
+- [`PLATFORMS.md`](PLATFORMS.md) — Linux / macOS matrix, OS module isolation map, cross-OS verification handoff
 - [`odin/README.md`](odin/README.md) — build, CLI, make targets, native UI, verification
 - [`odin/ROADMAP.md`](odin/ROADMAP.md) — completion record and intentional limits
 - [`odin/VERIFICATION.md`](odin/VERIFICATION.md) — test and measurement matrix
@@ -89,8 +90,8 @@ DESIGN.md      visual design system
 ## Implementation
 
 Tracker is a single native binary in [`odin/src/`](odin/src): the window is
-SDL3 + Vulkan/OpenGL through vinland-ui, audio capture runs through miniaudio or
-a cooperative JACK client, and the DSP is plain Odin. There is no webview, no
+SDL3 GPU (Metal/Vulkan, OpenGL fallback) through vinland-ui, audio runs through miniaudio (CoreAudio / PipeWire / ALSA) or
+a cooperative JACK client on Linux, and the DSP is plain Odin. There is no webview, no
 JavaScript runtime and no IPC boundary.
 
 ## License

@@ -1,21 +1,8 @@
-// Pango text path for the vector shell.
-//
-// Sizes are logical pixels. Pango is configured at 72 dpi so 1 point == 1
-// pixel; the actual layout uses the physical size (logical * canvas scale), so
-// text stays crisp and correctly hinted at every display density and responsive
-// zoom. Inter is the UI face; Noto Sans Mono is reserved for timecode and
-// numeric readouts.
-
+#+build linux
+// Pango text path for the headless vector shell.
 package ui
 
 import "core:math"
-
-Font_Weight :: enum u8 {
-	Regular,
-	Medium,
-	SemiBold,
-	Mono,
-}
 
 @(private)
 canvas_set_font :: proc(c: ^Canvas, layout: ^pango_layout_t, weight: Font_Weight, px_physical: f32) {
@@ -76,34 +63,4 @@ canvas_text_px :: proc(c: ^Canvas, x, y: f32, text: string, col: Color, px: f32,
 	pango_layout_set_text(c.layout, cstring(raw_data(text)), i32(len(text)))
 	cairo_move_to(c.cr, f64(x * c.scale), f64(y * c.scale))
 	pango_cairo_show_layout(c.cr, c.layout)
-}
-
-canvas_text_px_right :: proc(c: ^Canvas, right, y: f32, text: string, col: Color, px: f32, weight: Font_Weight = .Regular) {
-	canvas_text_px(c, right - canvas_text_width(c, text, px, weight), y, text, col, px, weight)
-}
-
-canvas_text_px_center :: proc(c: ^Canvas, cx, y: f32, text: string, col: Color, px: f32, weight: Font_Weight = .Regular) {
-	canvas_text_px(c, cx - canvas_text_width(c, text, px, weight) * 0.5, y, text, col, px, weight)
-}
-
-canvas_text_px_clip :: proc(c: ^Canvas, x, y, max_width: f32, text: string, col: Color, px: f32, weight: Font_Weight = .Regular) {
-	if px <= 0 || len(text) == 0 {
-		return
-	}
-	if canvas_text_width(c, text, px, weight) <= max_width {
-		canvas_text_px(c, x, y, text, col, px, weight)
-		return
-	}
-	buf: [512]u8
-	n := min(len(text), 508)
-	for n > 0 {
-		copy(buf[:n], text[:n])
-		buf[n] = '.'
-		buf[n + 1] = '.'
-		if canvas_text_width(c, string(buf[:n + 2]), px, weight) <= max_width {
-			break
-		}
-		n -= 1
-	}
-	canvas_text_px(c, x, y, string(buf[:n + 2]), col, px, weight)
 }

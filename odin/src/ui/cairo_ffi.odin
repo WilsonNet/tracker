@@ -1,3 +1,4 @@
+#+build linux
 // Minimal Cairo + Pango bindings for the UI renderer.
 //
 // Cairo gives the shell a real vector rasteriser: anti-aliased paths, rounded

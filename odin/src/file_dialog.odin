@@ -1,9 +1,7 @@
-// Native Linux file pickers via the desktop's dialog helper.
+// Cross-platform file & folder picker API.
 //
-// Prefers zenity (GNOME/GTK, present on this machine), falls back to kdialog.
-// The dialog runs as a child process; the UI thread blocks only while the user
-// is choosing a path, which is the expected modal behaviour.
-
+// Platform-specific backends live in file_dialog_linux.odin,
+// file_dialog_darwin.odin, and file_dialog_other.odin.
 package main
 
 import "core:fmt"
@@ -23,63 +21,12 @@ trim_line :: proc(s: string) -> string {
 	return s[start:end]
 }
 
-@(private)
-run_dialog :: proc(argv: []string) -> (string, bool) {
-	command := argv
-	forced: [dynamic]string
-	defer delete(forced)
-	driver := os.get_env("SDL_VIDEODRIVER", context.allocator)
-	defer delete(driver)
-	if driver == "x11" {
-		// SDL is on X11 (e.g. Xvfb in tests). GTK would otherwise prefer
-		// Wayland and open the dialog on a different display.
-		append(&forced, "env", "GDK_BACKEND=x11")
-		for arg in argv {
-			append(&forced, arg)
-		}
-		command = forced[:]
-	}
-	desc := os.Process_Desc {
-		command = command,
-	}
-	state, stdout, stderr, err := os.process_exec(desc, context.allocator)
-	defer delete(stdout)
-	defer delete(stderr)
-	if err != nil || !state.exited || state.exit_code != 0 {
-		return "", false
-	}
-	path := trim_line(string(stdout))
-	if path == "" {
-		return "", false
-	}
-	return strings.clone(path), true
-}
-
-@(private)
-zenity_available :: proc() -> bool {
-	state, out, err, e := os.process_exec(os.Process_Desc{command = []string{"sh", "-c", "command -v zenity"}}, context.allocator)
-	defer delete(out)
-	defer delete(err)
-	return e == nil && state.exited && state.exit_code == 0
-}
-
 // Opens a project JSON file. Returns an owned string.
 pick_project_open :: proc() -> (string, bool) {
 	home := os.get_env("HOME", context.allocator)
 	defer delete(home)
 	start := home if home != "" else "."
-	filter := "Tracker project | *.json"
-	argv: []string
-	if zenity_available() {
-		argv = []string{
-			"zenity", "--file-selection", "--title=Open Tracker Project",
-			fmt.tprintf("--filename=%s/", start),
-			fmt.tprintf("--file-filter=%s", filter),
-		}
-	} else {
-		argv = []string{"kdialog", "--getopenfilename", start, "*.json"}
-	}
-	return run_dialog(argv)
+	return platform_pick_project_open(start)
 }
 
 // Save-as path (may not exist yet). Returns an owned string.
@@ -87,18 +34,7 @@ pick_project_save :: proc() -> (string, bool) {
 	home := os.get_env("HOME", context.allocator)
 	defer delete(home)
 	start := home if home != "" else "."
-	argv: []string
-	if zenity_available() {
-		argv = []string{
-			"zenity", "--file-selection", "--save", "--confirm-overwrite",
-			"--title=Save Tracker Project As",
-			fmt.tprintf("--filename=%s/project.json", start),
-			"--file-filter=Tracker project | *.json",
-		}
-	} else {
-		argv = []string{"kdialog", "--getsavefilename", fmt.tprintf("%s/project.json", start), "*.json"}
-	}
-	path, ok := run_dialog(argv)
+	path, ok := platform_pick_project_save(start)
 	if !ok {
 		return "", false
 	}
@@ -122,18 +58,7 @@ dialog_start_dir :: proc(current, home: string) -> string {
 // Save-as path for an external stereo mix render. Returns an owned string.
 pick_mix_save :: proc(start_dir: string) -> (string, bool) {
 	start := start_dir if start_dir != "" else "."
-	argv: []string
-	if zenity_available() {
-		argv = []string{
-			"zenity", "--file-selection", "--save", "--confirm-overwrite",
-			"--title=Render Mix to WAV",
-			fmt.tprintf("--filename=%s/mix.wav", start),
-			"--file-filter=WAV audio | *.wav",
-		}
-	} else {
-		argv = []string{"kdialog", "--getsavefilename", fmt.tprintf("%s/mix.wav", start), "*.wav"}
-	}
-	path, ok := run_dialog(argv)
+	path, ok := platform_pick_mix_save(start)
 	if !ok {
 		return "", false
 	}
@@ -149,27 +74,12 @@ pick_mix_save :: proc(start_dir: string) -> (string, bool) {
 pick_session_open :: proc() -> (string, bool) {
 	home := os.get_env("HOME", context.allocator)
 	defer delete(home)
-	return pick_directory("Open Tracker Session", home if home != "" else ".")
+	return platform_pick_directory("Open Tracker Session", home if home != "" else ".")
 }
 
 // Chooses the folder where project.json, takes and bounces are written.
 pick_save_dir :: proc(current: string) -> (string, bool) {
 	home := os.get_env("HOME", context.allocator)
 	defer delete(home)
-	return pick_directory("Choose Tracker Project Folder", dialog_start_dir(current, home))
-}
-
-@(private)
-pick_directory :: proc(title, start: string) -> (string, bool) {
-	argv: []string
-	if zenity_available() {
-		argv = []string{
-			"zenity", "--file-selection", "--directory",
-			fmt.tprintf("--title=%s", title),
-			fmt.tprintf("--filename=%s/", start),
-		}
-	} else {
-		argv = []string{"kdialog", "--getexistingdirectory", start}
-	}
-	return run_dialog(argv)
+	return platform_pick_directory("Choose Tracker Project Folder", dialog_start_dir(current, home))
 }

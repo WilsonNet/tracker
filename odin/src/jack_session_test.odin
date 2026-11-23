@@ -1,3 +1,4 @@
+#+build linux
 // Tests for the asynchronous JACK session.
 //
 // The lifecycle tests are deliberately server-free: they exercise argument
@@ -18,9 +19,8 @@ import "core:time"
 
 import dsp "dsp"
 
-when ODIN_OS == .Linux {
-	@(test)
-	jack_session_validate_rejects_bad_requests :: proc(t: ^testing.T) {
+@(test)
+jack_session_validate_rejects_bad_requests :: proc(t: ^testing.T) {
 		testing.expectf(t, jack_session_validate(0, 48_000, nil, 0) == .Bad_Arguments, "zero channels")
 		testing.expectf(t, jack_session_validate(33, 48_000, nil, 0) == .Bad_Arguments, "33 channels")
 		testing.expectf(t, jack_session_validate(2, 48_000, nil, 0) == .None, "valid request")
@@ -254,4 +254,3 @@ when ODIN_OS == .Linux {
 		fmt.printfln("jack live: rate mismatch detail: %s", jack_session_detail(&mismatch))
 		jack_session_destroy(&mismatch)
 	}
-}
