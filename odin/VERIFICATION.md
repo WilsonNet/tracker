@@ -160,7 +160,7 @@ vui-ctl --port 7426 key enter           # apply
 | isolation | explicit `--session` ignores and never writes the real config |
 
 `engine_apply_save_dir` refuses a folder that already contains `project.json`
-or `track1..4.wav`, so the picker and DEFAULT cannot silently overwrite another
+or any `trackN.wav` (1–24), so the picker and DEFAULT cannot silently overwrite another
 session.
 
 ## Clipboard paste and edit mode (2026-11-22)
@@ -230,6 +230,17 @@ the button-up arrives in a later frame, so multi-click selections lock drag
 updates until release. Synthetic Tab also reaches vinland's focus traversal;
 Tracker clears vinland focus while a text field is editing so a later synthetic
 Enter cannot activate BROWSE and block on the native folder dialog.
+
+## Track count, bounce-to-track and F1 help (2026-11-23)
+
+| check | result |
+|---|---|
+| `make test` | 71 DSP + 137 core + 80 UI, all green (new: variable-count project round trip, `bounce_tracks_mix` sum/refusals/label, `engine_bounce_to_track` take + mono WAV + sources untouched, Save As copies tracks > 4, add/remove limits, zoom/page/width cap, navigation + FX channel order, marks and target dialog, F1 contexts) |
+| `make e2e` | 25 cases; screenshots `help-mixer`, `help-palette`, `tracks-six`, `bounce-to-track`, `tracks-24-min` read back |
+| 24 tracks @ 900×620 | 11 strips shown (92 px minimum), `unknown_classes: []`, rail shows all 24 dots |
+| real window bounce | session with two 1 s tones: marks 1+2, `V`, Enter → `track3.wav` mono float 48 kHz, take `Bounce 1+2` in `project.json`, `tracks` length 4 |
+| `make check` | 220-action tour (master FX channel is now `24`) + format checks pass |
+| hardware | none required; JACK/capture paths unchanged apart from `MAX_ENGINE_TRACKS = 24` (capture of tracks > 4 not exercised on hardware) |
 
 ## Google Drive (2026-11-22)
 

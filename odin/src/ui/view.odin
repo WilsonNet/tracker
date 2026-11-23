@@ -156,13 +156,16 @@ view_frame :: proc(a: ^App, v: ^View) {
 
 	if vui.div("relative flex h-full flex-col overflow-hidden bg-canvas text-[14px] leading-[1.4] text-ink") {
 		view_transport(a, v)
-		if vui.div("flex min-h-0 flex-1 gap-2 p-3") {
-			for i in 0 ..< MAX_TRACKS {
+		view_n := app_view_count(a)
+		strip_w := (ctx.viewport.x - 24 - 8 * f32(view_n - 1)) / f32(view_n)
+		if vui.div("flex min-h-0 flex-1 gap-2 px-3 pb-1 pt-3") {
+			for i in a.view_first ..< a.view_first + view_n {
 				vui.push_id(i)
-				view_track(a, v, i)
+				view_track(a, v, i, strip_w)
 				vui.pop_id()
 			}
 		}
+		view_rail(a, v)
 		if a.mode == .Fx {
 			view_fx(a, v)
 		}
@@ -188,6 +191,11 @@ view_frame :: proc(a: ^App, v: ^View) {
 			view_bounce_overlay(a)
 		case .Render:
 			view_render(a)
+		case .Track_Bounce:
+			view_track_bounce(a)
+		}
+		if a.help_open {
+			view_help(a)
 		}
 	}
 }
@@ -301,6 +309,8 @@ status_mode :: proc(a: ^App) -> (string, string) {
 		return "CLOUD", "bg-cue-bg text-cue"
 	case .Render:
 		return "RENDER", "bg-sig-bg text-sig"
+	case .Track_Bounce:
+		return "BOUNCE→", "bg-sig-bg text-sig"
 	}
 	return "NORMAL", "bg-sig-bg text-sig"
 }
@@ -464,14 +474,22 @@ recording_guard :: proc(a: ^App, what: string) -> bool {
 }
 
 @(private = "file")
+CTRL_FIT :: "flex-1 rounded-[2px] border py-0.5 text-center text-[10px] font-bold leading-[1.6] transition-colors duration-150"
+@(private = "file")
 CTRL :: "rounded-[2px] border px-2 py-0.5 text-[10px] font-bold leading-[1.6] tracking-[0.06em] transition-colors duration-150"
 
 @(private = "file")
-view_track :: proc(a: ^App, v: ^View, i: int) {
+view_track :: proc(a: ^App, v: ^View, i: int, strip_w: f32) {
+	compact := strip_w < STRIP_FULL_W
+	narrow := strip_w < 120
 	t := &a.tracks[i]
 	selected := a.selected == i
 	recording := a.transport == .Recording && t.armed
-	cls := "flex min-w-[140px] flex-1 flex-col gap-2 rounded-[2px] border p-3 transition-colors duration-150"
+	marked := a.marked[i]
+	cls := "flex min-w-0 flex-1 flex-col gap-2 rounded-[2px] border p-3 transition-colors duration-150"
+	if compact {
+		cls = "flex min-w-0 flex-1 flex-col gap-1.5 rounded-[2px] border p-2 transition-colors duration-150"
+	}
 	state := "border-line-subtle bg-canvas hover:border-line hover:bg-panel-hover"
 	if recording {
 		state = "border-rec bg-panel" if selected else "border-rec bg-canvas"
@@ -479,6 +497,9 @@ view_track :: proc(a: ^App, v: ^View, i: int) {
 		state = "border-sig-dim bg-panel" if selected else "border-sig-dim bg-canvas hover:bg-panel-hover"
 	} else if selected {
 		state = "border-line-sig bg-panel"
+	}
+	if marked && !recording {
+		state = "border-sig bg-sig-bg/40"
 	}
 	if vui.div(vui.cx(cls, state)) {
 		if vui.clicked() {
@@ -488,8 +509,21 @@ view_track :: proc(a: ^App, v: ^View, i: int) {
 		// header
 		if vui.div("flex items-center gap-2") {
 			vui.text(fmt.tprintf("%02d", i + 1), recording ? "animate-pulse text-[12px] font-semibold tracking-[0.04em] text-rec" : "text-[12px] font-semibold tracking-[0.04em] text-sig")
-			vui.text(t.name, "truncate text-[12px] font-medium text-ink")
-			if vui.div("ml-auto flex items-center gap-[3px]") {
+			if !narrow {
+				vui.text(t.name, "min-w-0 truncate text-[12px] font-medium text-ink")
+			}
+			if narrow {
+				// too tight for a name or input pills: number only (I cycles the input)
+			} else if compact {
+				if vui.button(fmt.tprintf("IN%d", t.input), "ml-auto shrink-0 rounded-[2px] border border-line px-1 text-[10px] font-bold leading-[1.6] text-ink-muted hover:border-sig-dim hover:text-ink") {
+					if recording_guard(a, "input") {
+						t.input = t.input % max(a.input_count, 1) + 1
+						a.selected = i
+						app_history_note(a, "input")
+						app_touch(a)
+					}
+				}
+			} else if vui.div("ml-auto flex items-center gap-[3px]") {
 				vui.text("IN", "mr-0.5 text-[10px] font-semibold tracking-[0.04em] text-ink-muted")
 				count := clamp(a.input_count, 1, 4)
 				for ch in 1 ..= count {
@@ -512,7 +546,8 @@ view_track :: proc(a: ^App, v: ^View, i: int) {
 		}
 		// FX summary
 		badges := track_badges(t)
-		fxcls := "flex w-full items-center gap-2 rounded-[2px] border px-2 py-0.5 text-[9px] tracking-[0.06em] transition-colors duration-150 hover:bg-panel-hover"
+		if vui.div("flex items-center gap-1.5") {
+		fxcls := "flex min-w-0 flex-1 items-center gap-2 rounded-[2px] border px-2 py-0.5 text-[9px] tracking-[0.06em] transition-colors duration-150 hover:bg-panel-hover"
 		if vui.button_box(vui.cx(fxcls, selected ? "border-line-sig text-ink-dim" : badges != "" ? "border-line text-ink-dim" : "border-line-subtle text-ink-muted hover:border-line hover:text-ink-dim")) {
 			vui.text("FX", "font-bold text-sig" if badges != "" else "font-bold text-ink-muted")
 			vui.text(badges if badges != "" else "CLEAN", "flex-1 truncate")
@@ -528,10 +563,18 @@ view_track :: proc(a: ^App, v: ^View, i: int) {
 				}
 			}
 		}
+		// bounce mark (V): tick box, same action for the mouse
+		if vui.button_box(vui.cx("flex shrink-0 items-center justify-center rounded-[2px] border p-[3px] transition-colors duration-150", marked ? "border-sig" : "border-line-subtle hover:border-sig-dim")) {
+			vui.el(vui.cx("size-2.5 rounded-[1px]", marked ? "bg-sig" : "bg-line"))
+			if vui.clicked() {
+				app_mark_toggle(a, i)
+			}
+		}
+		}
 		// controls
-		if vui.div("flex items-end gap-3") {
-			if vui.div("flex flex-col gap-1") {
-				if vui.button("ARM", vui.cx(CTRL, t.armed ? "border-rec bg-rec text-ink" : "border-transparent text-rec hover:border-rec hover:bg-rec-bg")) {
+		if vui.div("flex flex-wrap items-end justify-center gap-2" if compact else "flex items-end gap-3") {
+			if vui.div("flex w-full flex-row gap-1" if compact else "flex flex-col gap-1") {
+				if vui.button("A" if compact else "ARM", vui.cx(CTRL_FIT if compact else CTRL, t.armed ? "border-rec bg-rec text-ink" : "border-transparent text-rec hover:border-rec hover:bg-rec-bg")) {
 					if recording_guard(a, "arms") {
 						t.armed = !t.armed
 						a.selected = i
@@ -539,21 +582,21 @@ view_track :: proc(a: ^App, v: ^View, i: int) {
 						app_touch(a)
 					}
 				}
-				if vui.button("SOLO", vui.cx(CTRL, t.soloed ? "border-cue bg-cue text-canvas" : "border-transparent text-cue hover:border-cue hover:bg-cue-bg")) {
+				if vui.button("S" if compact else "SOLO", vui.cx(CTRL_FIT if compact else CTRL, t.soloed ? "border-cue bg-cue text-canvas" : "border-transparent text-cue hover:border-cue hover:bg-cue-bg")) {
 					t.soloed = !t.soloed
 					a.selected = i
 					app_history_note(a, "solo")
 					app_touch(a)
 				}
-				if vui.button("MUTE", vui.cx(CTRL, t.muted ? "border-ink-muted bg-ink-muted text-canvas" : "border-transparent text-ink-dim hover:border-ink-dim hover:bg-panel-raised")) {
+				if vui.button("M" if compact else "MUTE", vui.cx(CTRL_FIT if compact else CTRL, t.muted ? "border-ink-muted bg-ink-muted text-canvas" : "border-transparent text-ink-dim hover:border-ink-dim hover:bg-panel-raised")) {
 					t.muted = !t.muted
 					a.selected = i
 					app_history_note(a, "mute")
 					app_touch(a)
 				}
 			}
-			// pan
-			if vui.div("flex items-center justify-center px-1") {
+			// pan (compact strips show the value below; arrows / wheel still pan)
+			if vui.div("hidden" if compact else "flex items-center justify-center px-1") {
 				io := knob_ui(v, "PAN", pan_label(t.pan), (t.pan + 1) * 0.5, true, true, false, .Knob)
 				if io.start {
 					a.selected = i
@@ -604,14 +647,24 @@ view_track :: proc(a: ^App, v: ^View, i: int) {
 		}
 
 		// footer: level history, takes
+		if compact {
+			if vui.button(pan_label(t.pan), "text-center text-[10px] tabular-nums text-ink-muted hover:text-ink") {
+				t.pan = 0
+				a.selected = i
+				app_history_note(a, "pan")
+				app_touch(a)
+			}
+		}
 		if vui.div("mt-auto flex flex-col gap-2") {
-			if !v.tight {
+			if !v.tight && !compact {
 				hist := new(History_Draw, context.temp_allocator)
 				hist^ = {a, i}
 				vui.canvas("h-8 w-full", history_draw, hist)
 			}
 			if vui.div("flex items-center gap-1.5 text-[10px] tracking-[0.06em] text-ink-muted") {
-				vui.text("TAKE")
+				if !compact {
+					vui.text("TAKE")
+				}
 				if a.take_count[i] > 0 {
 					if vui.button_box("rounded-[2px] p-0.5 text-ink-muted hover:bg-panel-raised hover:text-sig") {
 						vui.icon(v.ic_left, "size-3")
@@ -628,12 +681,12 @@ view_track :: proc(a: ^App, v: ^View, i: int) {
 							app_execute(a, .Take_Next, i)
 						}
 					}
-					if vui.button("COMP", "ml-auto rounded-[2px] border border-line px-1.5 py-px text-[9px] font-semibold text-ink-muted hover:border-sig-dim hover:text-sig") {
+					if !compact && vui.button("COMP", "ml-auto rounded-[2px] border border-line px-1.5 py-px text-[9px] font-semibold text-ink-muted hover:border-sig-dim hover:text-sig") {
 						app_execute(a, .Comp_Use, i)
 					}
 				} else {
 					vui.text("—", "text-ink-muted")
-					vui.text("EMPTY" if !t.has_audio else "AUDIO", "ml-auto text-[9px]")
+					vui.text("EMPTY" if !t.has_audio else "AUDIO", "ml-auto text-[9px]" if !compact else "text-[9px]")
 				}
 			}
 		}
@@ -775,21 +828,36 @@ view_fx :: proc(a: ^App, v: ^View) {
 		if vui.div("flex min-h-8 items-center gap-3 border-b border-line-subtle px-3 py-[5px]") {
 			vui.text("FX", "text-[12px] font-bold tracking-[0.09em] text-sig")
 			if vui.div("flex items-center gap-0.5") {
+				paged := a.track_count > 4
+				if paged {
+					if vui.button("‹", "rounded-[2px] px-1.5 py-0.5 text-[12px] text-ink-muted hover:bg-panel-hover hover:text-ink") {
+						app_fx_channel_step(a, -4)
+					}
+				}
 				for i in 0 ..< 5 {
-					on := a.fx_channel == i
+					ch := app_fx_tab_channel(a, i)
+					if ch < 0 {
+						continue
+					}
+					on := a.fx_channel == ch
 					vui.push_id(i)
 					if vui.button_box(vui.cx("relative rounded-[2px] border px-[9px] py-0.5 text-[11px] font-semibold tracking-[0.06em] transition-colors duration-150", on ? "border-line-sig bg-sig-bg text-sig" : "border-transparent text-ink-muted hover:bg-panel-hover hover:text-ink")) {
-						vui.text("MST" if i == 4 else fmt.tprintf("%d", i + 1))
-						if !on && fx_channel_active(a, i) {
+						vui.text("MST" if i == 4 else fmt.tprintf("%d", ch + 1))
+						if !on && fx_channel_active(a, ch) {
 							vui.el("absolute right-[3px] top-[3px] size-[3px] rounded-full bg-sig")
 						}
-						if vui.clicked() && a.fx_channel != i {
-							a.fx_channel = i
+						if vui.clicked() && a.fx_channel != ch {
+							a.fx_channel = ch
 							a.fx_focus = -1
 							bump_revision(a)
 						}
 					}
 					vui.pop_id()
+				}
+				if paged {
+					if vui.button("›", "rounded-[2px] px-1.5 py-0.5 text-[12px] text-ink-muted hover:bg-panel-hover hover:text-ink") {
+						app_fx_channel_step(a, 4)
+					}
 				}
 			}
 			vui.text("MASTER" if master else fmt.tprintf("TRACK %d", a.fx_channel + 1), "text-[11px] tracking-[0.08em] text-ink-dim")
@@ -1224,6 +1292,10 @@ view_bounce_row :: proc(a: ^App, v: ^View) {
 		if vui.button("···" if a.bounce_active else "BOUNCE", vui.cx(BBTN, "border-line-sig text-sig hover:bg-sig-bg"), {.Disabled} if a.bounce_active else {}) {
 			app_execute(a, .Bounce)
 		}
+		marked := app_marked_count(a)
+		if vui.button(fmt.tprintf("→ TRACK · %d", marked) if marked > 0 else "→ TRACK", vui.cx(BBTN, marked > 0 ? "border-line-sig bg-sig-bg text-sig hover:bg-sig-bg" : "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
+			app_execute(a, .Bounce_Tracks)
+		}
 		if vui.button("RENDER…", vui.cx(BBTN, "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
 			app_execute(a, .Render_Mix)
 		}
@@ -1323,8 +1395,11 @@ view_status :: proc(a: ^App) {
 			hint = "enter: restore  u: back up  n: rename  r: refresh  esc: close"
 		case .Render:
 			hint = "drag: trim  j/k: row  h/l: nudge  enter: render  esc: close"
+		case .Track_Bounce:
+			hint = "j/k: target  enter: bounce  esc: cancel"
 		}
 		vui.text(hint, "ml-2 whitespace-pre text-ink-muted")
+		vui.text("F1 keys", "ml-3 shrink-0 whitespace-pre font-semibold text-sig")
 	}
 }
 
@@ -1572,6 +1647,48 @@ view_palette :: proc(a: ^App) {
 				vui.text("ENTER run   ↑↓ select   ESC close", "whitespace-pre")
 				if a.palette_count > 10 {
 					vui.text(fmt.tprintf("%d/%d", a.palette_sel + 1, a.palette_count), "ml-auto tabular-nums")
+				}
+			}
+		}
+	}
+}
+
+// F1 cheat sheet: only the keys that work in the current context.
+@(private = "file")
+view_help :: proc(a: ^App) {
+	if vui.pressable("absolute inset-0 z-[60] flex items-start justify-center bg-canvas/85 pt-16") {
+		if vui.clicked() && vui.ctx_get().hover_id == vui.current_id() {
+			app_help_toggle(a)
+		}
+		if vui.pressable("flex max-h-[88%] w-[860px] max-w-[96%] flex-col gap-3 rounded-[4px] border border-line-sig bg-panel p-4 shadow-lg") {
+			if vui.div("flex items-baseline gap-3") {
+				vui.text("Keys", "text-[14px] font-semibold text-ink")
+				vui.text(app_help_context(a), "text-[12px] font-medium text-sig")
+				vui.text("F1 / ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
+			}
+			entries := app_help_entries(a)
+			if vui.div("flex min-h-0 flex-wrap items-start gap-x-4 gap-y-3 overflow-y-auto") {
+				i := 0
+				for i < len(entries) {
+					// one card per section: header + its rows
+					j := i + 1
+					for j < len(entries) && entries[j].keys != "" {
+						j += 1
+					}
+					vui.push_id(i)
+					if vui.div("flex w-[260px] flex-col gap-1") {
+						vui.text(entries[i].desc, "pb-0.5 text-[10px] font-semibold tracking-[0.08em] text-ink-muted uppercase")
+						for k in i + 1 ..< j {
+							vui.push_id(k)
+							if vui.div("flex items-center gap-2 text-[12px]") {
+								vui.text(entries[k].keys, "w-[88px] shrink-0 font-mono font-semibold text-sig")
+								vui.text(entries[k].desc, "min-w-0 flex-1 truncate text-ink-dim")
+							}
+							vui.pop_id()
+						}
+					}
+					vui.pop_id()
+					i = j
 				}
 			}
 		}
@@ -2220,6 +2337,149 @@ view_render :: proc(a: ^App) {
 				vui.text("non-destructive · takes stay untouched", "ml-auto text-[10px] text-ink-muted")
 			}
 			vui.text("J/K row   H/L nudge (SHIFT 5s)   ENTER render   ESC close", "whitespace-pre text-[11px] text-ink-muted")
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Track rail: count, window and a dot per track (state at a glance)
+// ---------------------------------------------------------------------------
+
+@(private = "file")
+RAIL_BTN :: "flex shrink-0 items-center justify-center rounded-[2px] border px-2 py-px text-[11px] font-semibold leading-[1.5] transition-colors duration-150"
+
+@(private = "file")
+view_rail :: proc(a: ^App, v: ^View) {
+	n := app_view_count(a)
+	first := a.view_first
+	can_remove := a.track_count > MIN_TRACKS
+	can_add := a.track_count < MAX_TRACKS
+	if vui.div("flex shrink-0 items-center gap-2 px-3 pb-2 pt-0.5 text-[10px] tracking-[0.06em] text-ink-muted") {
+		vui.text("TRACKS", "font-semibold")
+		if vui.button("−", vui.cx(RAIL_BTN, can_remove ? "border-line text-ink-dim hover:border-sig-dim hover:text-ink" : "border-line-subtle text-ink-muted/50"), {} if can_remove else {.Disabled}) {
+			app_execute(a, .Track_Remove)
+		}
+		vui.text(fmt.tprintf("%d", a.track_count), "w-5 text-center text-[12px] font-semibold tabular-nums text-ink")
+		if vui.button("+", vui.cx(RAIL_BTN, can_add ? "border-line text-ink-dim hover:border-sig-dim hover:text-ink" : "border-line-subtle text-ink-muted/50"), {} if can_add else {.Disabled}) {
+			app_execute(a, .Track_Add)
+		}
+
+		// one dot per track: armed red, has audio amber, empty dim; the
+		// visible window is outlined, marks and the selection are ringed
+		if vui.div("ml-3 flex min-w-0 flex-1 items-center gap-[3px] overflow-hidden") {
+			for i in 0 ..< a.track_count {
+				vis := i >= first && i < first + n
+				col := "bg-line"
+				if a.tracks[i].armed {
+					col = "bg-rec"
+				} else if a.tracks[i].has_audio || a.take_count[i] > 0 {
+					col = "bg-sig-dim"
+				}
+				ring := ""
+				if a.marked[i] {
+					ring = "border-sig"
+				} else if a.selected == i {
+					ring = "border-ink-dim"
+				} else if vis {
+					ring = "border-line-sig"
+				} else {
+					ring = "border-transparent"
+				}
+				vui.push_id(i)
+				if vui.button_box(vui.cx("h-[14px] min-w-[10px] max-w-[22px] flex-1 rounded-[2px] border p-px", ring)) {
+					vui.el(vui.cx("h-full w-full rounded-[1px]", col))
+					if vui.clicked() {
+						a.selected = i
+						app_view_clamp(a)
+						bump_revision(a)
+					}
+				}
+				vui.pop_id()
+			}
+		}
+
+		if a.track_count > n {
+			vui.text(fmt.tprintf("%d–%d", first + 1, first + n), "ml-2 tabular-nums text-ink-dim")
+			at_start := first <= 0
+			at_end := first + n >= a.track_count
+			if vui.button("‹", vui.cx(RAIL_BTN, at_start ? "border-line-subtle text-ink-muted/50" : "border-line text-ink-dim hover:border-sig-dim hover:text-ink"), {.Disabled} if at_start else {}) {
+				app_execute(a, .Page_Prev)
+			}
+			if vui.button("›", vui.cx(RAIL_BTN, at_end ? "border-line-subtle text-ink-muted/50" : "border-line text-ink-dim hover:border-sig-dim hover:text-ink"), {.Disabled} if at_end else {}) {
+				app_execute(a, .Page_Next)
+			}
+		}
+		vui.text("SHOW", "ml-2 font-semibold")
+		if vui.button("−", vui.cx(RAIL_BTN, "border-line text-ink-dim hover:border-sig-dim hover:text-ink")) {
+			app_execute(a, .Zoom_In)
+		}
+		vui.text(fmt.tprintf("%d", n), "w-5 text-center text-[12px] font-semibold tabular-nums text-ink")
+		if vui.button("+", vui.cx(RAIL_BTN, "border-line text-ink-dim hover:border-sig-dim hover:text-ink")) {
+			app_execute(a, .Zoom_Out)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Bounce marked tracks to a target track
+// ---------------------------------------------------------------------------
+
+@(private = "file")
+view_track_bounce :: proc(a: ^App) {
+	if vui.pressable(OVERLAY) {
+		close_on_backdrop(a)
+		if vui.pressable(vui.cx(PANEL, "w-[620px] gap-3 p-5")) {
+			marked := app_marked_count(a)
+			if vui.div("flex items-baseline gap-3") {
+				vui.text("Bounce to track", "text-[14px] font-semibold text-ink")
+				vui.text(fmt.tprintf("%d track%s → track %d", marked, "" if marked == 1 else "s", a.tb_target + 1), "text-[12px] font-medium text-sig")
+				vui.text("ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
+			}
+			vui.text("SOURCES", "text-[10px] font-semibold tracking-[0.08em] text-ink-muted")
+			if vui.div("flex flex-wrap gap-1") {
+				for i in 0 ..< a.track_count {
+					if !a.marked[i] {
+						continue
+					}
+					vui.text(fmt.tprintf("%02d", i + 1), "rounded-[2px] border border-sig bg-sig-bg px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-sig")
+				}
+			}
+			vui.text("TARGET · j/k or click", "text-[10px] font-semibold tracking-[0.08em] text-ink-muted")
+			if vui.div("flex flex-wrap gap-1") {
+				for i in 0 ..< a.track_count {
+					vui.push_id(i)
+					if a.marked[i] {
+						vui.text(fmt.tprintf("%02d", i + 1), "rounded-[2px] border border-line-subtle px-1.5 py-0.5 text-[11px] tabular-nums text-ink-muted/40")
+					} else {
+						on := a.tb_target == i
+						has := a.tracks[i].has_audio || a.take_count[i] > 0
+						label := fmt.tprintf("%02d", i + 1)
+						if vui.button(label, vui.cx("rounded-[2px] border px-1.5 py-0.5 text-[11px] font-semibold tabular-nums transition-colors duration-150", on ? "border-sig bg-sig text-canvas" : has ? "border-line text-ink-dim hover:border-sig-dim hover:text-ink" : "border-line-subtle text-ink-muted hover:border-sig-dim hover:text-ink")) {
+							a.tb_target = i
+							a.selected = i
+							app_view_clamp(a)
+							bump_revision(a)
+						}
+					}
+					vui.pop_id()
+				}
+			}
+			tgt := a.tb_target
+			if tgt >= 0 && tgt < a.track_count && (a.tracks[tgt].has_audio || a.take_count[tgt] > 0) {
+				vui.text(fmt.tprintf("track %d already has audio · the bounce becomes a new take, the old one stays (t / T)", tgt + 1), "text-[11px] text-sig")
+			} else {
+				vui.text(fmt.tprintf("track %d is empty", tgt + 1), "text-[11px] text-ink-dim")
+			}
+			if vui.div("flex items-center gap-2 border-t border-line-subtle pt-3") {
+				if vui.button("BOUNCE", vui.cx(BBTN, "border-line-sig text-sig hover:bg-sig-bg")) {
+					app_tb_run(a)
+				}
+				if vui.button("CANCEL", vui.cx(BBTN, "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
+					app_tb_close(a)
+					status_buf_set(a, "bounce to track cancelled")
+				}
+				vui.text("mono · EQ comp fader pan · no sends or master FX · sources untouched", "ml-auto text-[10px] text-ink-muted")
+			}
 		}
 	}
 }

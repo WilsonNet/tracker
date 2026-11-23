@@ -93,7 +93,7 @@ ui_fx_rack_knob_and_bypass :: proc(t: ^testing.T) {
 	testing.expect(t, !a.tracks[0].comp.enabled, "comp should be bypassed")
 
 	testing.expect(t, app_click_id(&a, "fx.tab.4"), "master tab")
-	testing.expectf(t, a.fx_channel == 4, "fx channel %d", a.fx_channel)
+	testing.expectf(t, a.fx_channel == MAX_TRACKS, "fx channel %d", a.fx_channel)
 	testing.expect(t, app_drag_id(&a, "knob.limiter.ceiling", -40), "limiter knob")
 	testing.expectf(t, a.master.limiter.ceiling_db > -0.3, "ceiling did not move: %v", a.master.limiter.ceiling_db)
 }
@@ -108,7 +108,7 @@ ui_palette_filters_and_executes :: proc(t: ^testing.T) {
 	testing.expect(t, a.mode == .Palette, "colon should open palette")
 	app_key(&a, .Char, 'b')
 	app_key(&a, .Char, 'o')
-	testing.expectf(t, a.palette_count == 1, "filter count %d", a.palette_count)
+	testing.expectf(t, a.palette_count == 2, "filter count %d", a.palette_count) // bounce, bounce marked tracks…
 	app_key(&a, .Enter)
 	testing.expect(t, a.mode == .Bounce, "bounce command should start")
 
@@ -262,13 +262,13 @@ ui_draws_every_overlay_without_panicking :: proc(t: ^testing.T) {
 	canvas_init(&c, 1180, 760)
 	defer canvas_destroy(&c)
 
-	modes := [9]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent, .Settings, .Cloud, .Render}
+	modes := [10]Mode{.Normal, .Fx, .Palette, .Io, .Bounce, .Recent, .Settings, .Cloud, .Render, .Track_Bounce}
 	for mode in modes {
 		a.mode = mode
 		app_draw(&a, &c)
 	}
 	a.mode = .Fx
-	a.fx_channel = 4
+	a.fx_channel = MAX_TRACKS
 	app_draw(&a, &c)
 	a.fx_channel = 0
 	app_draw(&a, &c)
@@ -588,7 +588,7 @@ ui_input_cycles_within_device_channels :: proc(t: ^testing.T) {
 	app_init(&a, 1180, 760)
 	defer app_destroy(&a)
 	testing.expect(t, a.tracks[0].input == 1, "default input")
-	for _ in 0 ..< MAX_TRACKS {
+	for _ in 0 ..< MIN_TRACKS {
 		testing.expect(t, app_click_id(&a, "input.0"), "input target")
 	}
 	testing.expectf(t, a.tracks[0].input == 1, "cycle should wrap to 1, got %d", a.tracks[0].input)
@@ -684,11 +684,11 @@ ui_master_strip_reachable_by_keyboard :: proc(t: ^testing.T) {
 	a: App
 	app_init(&a, 1180, 760)
 	defer app_destroy(&a)
-	a.selected = MAX_TRACKS - 1
+	a.selected = a.track_count - 1
 	app_key(&a, .Tab)
 	testing.expectf(t, a.selected == MAX_TRACKS, "Tab should reach master, got %d", a.selected)
 	app_key(&a, .Tab, 0, true)
-	testing.expectf(t, a.selected == MAX_TRACKS - 1, "shift+Tab should leave master, got %d", a.selected)
+	testing.expectf(t, a.selected == a.track_count - 1, "shift+Tab should leave master, got %d", a.selected)
 	app_key(&a, .Tab)
 	testing.expect(t, app_click_id(&a, "master"), "master target")
 	testing.expect(t, a.selected == MAX_TRACKS, "master click selects the bus")
@@ -801,7 +801,7 @@ ui_layout_geometry_across_sizes :: proc(t: ^testing.T) {
 
 		a.mode = .Normal
 		app_layout(&a)
-		for i in 0 ..< MAX_TRACKS {
+		for i in 0 ..< a.track_count {
 			tr := a.layout.track[i]
 			for r, name in ([?]Rect{
 				a.layout.arm[i], a.layout.solo[i], a.layout.mute[i], a.layout.input[i],
@@ -819,7 +819,7 @@ ui_layout_geometry_across_sizes :: proc(t: ^testing.T) {
 		testing.expect(t, rect_within(a.layout.click, a.layout.header), "CLICK off header")
 
 		a.mode = .Fx
-		a.fx_channel = 4
+		a.fx_channel = MAX_TRACKS
 		app_layout(&a)
 		testing.expect(t, a.layout.knob_count + a.layout.toggle_count > 0, "master rack empty")
 		for i in 0 ..< a.layout.knob_count {
@@ -874,7 +874,7 @@ ui_interactive_targets_meet_minimum_size :: proc(t: ^testing.T) {
 	check(t, "bpm-", a.layout.bpm_minus)
 	check(t, "bpm+", a.layout.bpm_plus)
 	check(t, "click", a.layout.click)
-	for i in 0 ..< MAX_TRACKS {
+	for i in 0 ..< a.track_count {
 		check(t, "arm", a.layout.arm[i])
 		check(t, "solo", a.layout.solo[i])
 		check(t, "mute", a.layout.mute[i])
@@ -913,7 +913,7 @@ ui_render_is_nonblank_in_every_mode_and_size :: proc(t: ^testing.T) {
 		for mode in modes {
 			a.mode = mode
 			for ch in 0 ..< 5 {
-				a.fx_channel = ch
+				a.fx_channel = MAX_TRACKS if ch == 4 else ch
 				a.palette_len = 0
 				app_palette_rebuild(&a)
 				canvas_clear(&c, COLORS_DEFAULT.bg)
@@ -2282,4 +2282,234 @@ ui_tape_scrubber_shuttle_jog_modifiers_and_rtz :: proc(t: ^testing.T) {
 	app_execute(&a, .Record_Start)
 	testing.expect(t, a.transport == .Recording, "recording")
 	testing.expect(t, !app_scrub_wheel(&a, .Jog, 1, .Normal), "scrub blocked while recording")
+}
+
+@(test)
+ui_help_f1_is_contextual_and_swallows_keys :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	app_key(&a, .F1)
+	testing.expect(t, a.help_open, "F1 opens help")
+	testing.expect(t, app_help_context(&a) == "Mixer", "mixer context")
+	has :: proc(es: []Help_Entry, keys: string) -> bool {
+		for e in es {
+			if e.keys == keys {
+				return true
+			}
+		}
+		return false
+	}
+	es := app_help_entries(&a)
+	testing.expect(t, has(es, "Space") && has(es, "1-9"), "mixer keys listed")
+
+	// keys are swallowed while help is open
+	app_key(&a, .Char, '1')
+	testing.expect(t, !a.tracks[0].armed, "help must swallow keys")
+	app_key(&a, .Escape)
+	testing.expect(t, !a.help_open, "Esc closes help")
+
+	// recording hides keys that are refused mid-take
+	app_key(&a, .Char, '1')
+	app_key(&a, .Char, 'r')
+	app_key(&a, .F1)
+	es = app_help_entries(&a)
+	testing.expect(t, app_help_context(&a) == "Recording", "recording context")
+	testing.expect(t, !has(es, "1-9") && !has(es, "B"), "arm/render hidden while recording")
+	app_key(&a, .F1)
+	testing.expect(t, !a.help_open, "F1 toggles closed")
+	app_key(&a, .Char, 'r')
+
+	// other modes show their own keys only
+	app_key(&a, .Char, ':')
+	app_key(&a, .F1)
+	es = app_help_entries(&a)
+	testing.expect(t, app_help_context(&a) == "Command palette", "palette context")
+	testing.expect(t, !has(es, "Space") && has(es, "Enter"), "palette keys only")
+	app_key(&a, .F1)
+	testing.expect(t, a.mode == .Palette, "closing help keeps the mode")
+}
+
+@(test)
+ui_track_add_remove_and_limits :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	testing.expect(t, a.track_count == 4, "starts with four tracks")
+	testing.expect(t, !app_track_remove(&a), "cannot go below four")
+
+	for _ in 0 ..< 30 {
+		_ = app_track_add(&a)
+	}
+	testing.expectf(t, a.track_count == MAX_TRACKS, "capped at %d, got %d", MAX_TRACKS, a.track_count)
+	testing.expect(t, a.selected == MAX_TRACKS - 1, "new track is selected")
+
+	// a track with audio is never removed
+	a.tracks[MAX_TRACKS - 1].has_audio = true
+	testing.expect(t, !app_track_remove(&a), "track with audio is kept")
+	a.tracks[MAX_TRACKS - 1].has_audio = false
+	testing.expect(t, app_track_remove(&a) && a.track_count == MAX_TRACKS - 1, "empty last track removed")
+
+	// recording blocks both
+	a.transport = .Recording
+	testing.expect(t, !app_track_add(&a) && !app_track_remove(&a), "no add/remove while recording")
+	a.transport = .Stopped
+
+	// keys: N adds, D removes
+	app_set_track_count(&a, 4)
+	app_key(&a, .Char, 'N', true)
+	testing.expect(t, a.track_count == 5, "N adds a track")
+	app_key(&a, .Char, 'D', true)
+	testing.expect(t, a.track_count == 4, "D removes the last track")
+}
+
+@(test)
+ui_view_window_zoom_and_paging :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_track_count(&a, 12)
+	testing.expect(t, app_view_count(&a) == 4, "default shows four")
+	testing.expect(t, app_view_is_visible(&a, 0) && !app_view_is_visible(&a, 4), "first page")
+
+	// hidden strips have no hit rectangles; visible ones tile the width
+	testing.expect(t, a.layout.track[5].w == 0, "hidden strip has no rect")
+	testing.expect(t, a.layout.track[3].x + a.layout.track[3].w <= f32(a.width), "strips stay in the window")
+
+	app_execute(&a, .Page_Next)
+	testing.expectf(t, a.view_first == 4, "page next -> %d", a.view_first)
+	testing.expect(t, a.selected >= 4 && a.selected < 8, "selection follows the page")
+	app_execute(&a, .Page_Next)
+	app_execute(&a, .Page_Next)
+	testing.expectf(t, a.view_first == 8, "last page clamps, got %d", a.view_first)
+	app_execute(&a, .Page_Prev)
+	testing.expect(t, a.view_first == 4, "page prev")
+
+	// j/k scroll the window to keep the selection visible
+	a.selected = 7
+	app_view_clamp(&a)
+	app_key(&a, .Char, 'k')
+	testing.expect(t, a.selected == 8 && app_view_is_visible(&a, 8), "k follows into the next page")
+
+	// zoom: more strips, fewer strips
+	app_execute(&a, .Zoom_Out)
+	testing.expectf(t, app_view_count(&a) == 6, "zoom out shows 6, got %d", app_view_count(&a))
+	app_execute(&a, .Zoom_In)
+	app_execute(&a, .Zoom_In)
+	testing.expectf(t, app_view_count(&a) == 3, "zoom in shows 3, got %d", app_view_count(&a))
+
+	// strips never get narrower than STRIP_MIN_W: the 900px window caps zoom
+	app_resize(&a, 900, 620)
+	for _ in 0 ..< 8 {
+		app_execute(&a, .Zoom_Out)
+	}
+	n := app_view_count(&a)
+	testing.expect(t, n <= app_view_fit(&a), "zoom capped by width")
+	w := a.layout.track[a.view_first].w
+	testing.expectf(t, w >= STRIP_MIN_W, "strip %v narrower than %d", w, STRIP_MIN_W)
+}
+
+@(test)
+ui_navigation_reaches_master_with_many_tracks :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_track_count(&a, 6)
+	a.selected = 5
+	app_key(&a, .Char, 'k')
+	testing.expect(t, a.selected == MAX_TRACKS, "k from the last track reaches master")
+	app_key(&a, .Char, 'k')
+	testing.expect(t, a.selected == MAX_TRACKS, "master is the end")
+	app_key(&a, .Char, 'j')
+	testing.expect(t, a.selected == 5, "j leaves master for the last track")
+	app_key(&a, .Tab)
+	app_key(&a, .Tab)
+	testing.expect(t, a.selected == 0, "Tab wraps master -> track 1")
+
+	// fx channels use the same order; [ and ] wrap through master
+	a.mode = .Fx
+	a.fx_channel = 5
+	app_key(&a, .Char, ']')
+	testing.expect(t, a.fx_channel == MAX_TRACKS, "] reaches master")
+	app_key(&a, .Char, ']')
+	testing.expect(t, a.fx_channel == 0, "] wraps to track 1")
+	app_key(&a, .Char, '[')
+	testing.expect(t, a.fx_channel == MAX_TRACKS, "[ goes back to master")
+	// fx tabs show one page of four tracks plus master
+	a.fx_channel = 5
+	testing.expect(t, app_fx_tab_channel(&a, 0) == 4 && app_fx_tab_channel(&a, 1) == 5, "tab page 2 starts at track 5")
+	testing.expect(t, app_fx_tab_channel(&a, 2) == -1 && app_fx_tab_channel(&a, 4) == MAX_TRACKS, "tabs past the count are empty; MST last")
+
+	// digits arm only existing tracks, up to nine
+	a.mode = .Normal
+	app_key(&a, .Char, '6')
+	testing.expect(t, a.tracks[5].armed, "6 arms track 6")
+	app_key(&a, .Char, '9')
+	testing.expect(t, !a.tracks[8].armed, "9 ignored when track 9 does not exist")
+}
+
+@(test)
+ui_bounce_marks_and_target_dialog :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_track_count(&a, 6)
+
+	// V with nothing marked marks the selected track
+	a.selected = 0
+	app_key(&a, .Char, 'V', true)
+	testing.expect(t, a.mode == .Track_Bounce, "V opens the dialog")
+	testing.expect(t, a.marked[0] && app_marked_count(&a) == 1, "selected track marked")
+	testing.expect(t, a.tb_target == 1, "target defaults to the first empty unmarked track")
+
+	// target moves over unmarked tracks only
+	a.marked[2] = true
+	app_key(&a, .Char, 'j')
+	testing.expect(t, a.tb_target == 3, "j skips the marked track")
+	app_key(&a, .Char, 'k')
+	app_key(&a, .Char, 'k')
+	testing.expect(t, a.tb_target == 5, "k wraps past the marked source")
+	app_key(&a, .Escape)
+	testing.expect(t, a.mode == .Normal && app_marked_count(&a) == 2, "Esc cancels, marks stay")
+
+	// Enter emits the engine command with the target
+	app_key(&a, .Char, 'V', true)
+	app_key(&a, .Enter)
+	cmd, has := app_take_command(&a)
+	testing.expect(t, has && cmd.kind == .Bounce_To_Track && cmd.index == a.tb_target, "enter emits Bounce_To_Track")
+
+	// the engine reports back: success selects the target and clears marks
+	app_tb_finished(&a, true, "bounced")
+	testing.expect(t, a.mode == .Normal && app_marked_count(&a) == 0 && a.selected == a.tb_target, "finish clears marks")
+
+	// all tracks marked: no target left
+	for i in 0 ..< 6 {
+		a.marked[i] = true
+	}
+	testing.expect(t, !app_tb_open(&a), "needs one unmarked track")
+	// recording refuses
+	app_mark_clear(&a)
+	a.transport = .Recording
+	testing.expect(t, !app_tb_open(&a), "no bounce while recording")
+}
+
+@(test)
+ui_help_lists_track_keys :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	has :: proc(es: []Help_Entry, keys: string) -> bool {
+		for e in es {
+			if e.keys == keys {
+				return true
+			}
+		}
+		return false
+	}
+	es := app_help_entries(&a)
+	testing.expect(t, has(es, "v") && has(es, "V") && has(es, "N") && has(es, "{ }") && has(es, "( )"), "track keys documented")
+	a.mode = .Track_Bounce
+	es = app_help_entries(&a)
+	testing.expect(t, has(es, "Enter") && !has(es, "N"), "dialog shows only its own keys")
 }

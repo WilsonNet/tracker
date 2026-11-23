@@ -104,6 +104,62 @@ test "command palette"
   key escape
   expect-no-text Commands
 
+test "f1 contextual help"
+  expect-text "F1 keys"
+  key f1
+  expect-text "Mixer"
+  expect-text "record armed tracks"
+  screenshot help-mixer
+  type 1
+  key escape
+  expect-no-text "record armed tracks"
+  type :
+  key f1
+  expect-text "Command palette"
+  expect-text "filter commands"
+  expect-no-text "record armed tracks"
+  screenshot help-palette
+  key f1
+  expect-text Commands
+  key escape
+
+test "add tracks, zoom and page"
+  expect-text TRACKS
+  type NN
+  expect-text "Track 6"
+  expect-no-text "Track 1"
+  type }
+  expect-text "Track 1"
+  screenshot tracks-six
+  type {{
+  type D
+  expect-text "Track 5"
+  key f1
+  expect-text "Track count"
+  key escape
+
+test "bounce marked tracks to a track dialog"
+  type v
+  click "→ TRACK"
+  expect-text "Bounce to track"
+  expect-text "SOURCES"
+  expect-text "track 2 is empty"
+  screenshot bounce-to-track
+  type j
+  expect-text "track 3 is empty"
+  key escape
+  expect-no-text SOURCES
+
+test "twenty-four tracks at minimum size"
+  resize 900 620
+  type NNNNNNNNNNNNNNNNNNNN
+  expect-text "Track 24"
+  expect-text "24"
+  type }}}}
+  screenshot tracks-24-min
+  type (
+  type )
+
 test "io overlay"
   click I/O
   expect-text "Input devices"

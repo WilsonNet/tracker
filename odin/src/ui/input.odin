@@ -21,6 +21,13 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"jog forward", .Jog_Forward},
 	{"jog back", .Jog_Back},
 	{"bounce", .Bounce},
+	{"bounce marked tracks to a track…", .Bounce_Tracks},
+	{"add track", .Track_Add},
+	{"remove last track", .Track_Remove},
+	{"show fewer tracks (zoom in)", .Zoom_In},
+	{"show more tracks (zoom out)", .Zoom_Out},
+	{"next page of tracks", .Page_Next},
+	{"previous page of tracks", .Page_Prev},
 	{"render mix…", .Render_Mix},
 	{"fx rack", .Fx},
 	{"io panel", .Io},
@@ -803,7 +810,7 @@ app_text_editing :: proc(a: ^App) -> bool {
 		return a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None
 	case .Normal:
 		return a.project_name_edit
-	case .Fx, .Io, .Bounce, .Cloud, .Render:
+	case .Fx, .Io, .Bounce, .Cloud, .Render, .Track_Bounce:
 		return false
 	}
 	return false
@@ -889,7 +896,7 @@ app_paste_text :: proc(a: ^App, text: string) {
 				bump_revision(a)
 			}
 		}
-	case .Fx, .Io, .Bounce, .Cloud, .Render:
+	case .Fx, .Io, .Bounce, .Cloud, .Render, .Track_Bounce:
 	}
 }
 
@@ -1228,6 +1235,10 @@ begin_drag :: proc(a: ^App, kind: Drag_Kind, index: int, target: Knob_Target, no
 }
 
 app_mouse_down :: proc(a: ^App, x, y: f32, button: int = 0) {
+	if a.help_open {
+		app_help_toggle(a)
+		return
+	}
 	a.mouse_x = x
 	a.mouse_y = y
 	a.mouse_down = true
@@ -1320,8 +1331,9 @@ app_mouse_down :: proc(a: ^App, x, y: f32, button: int = 0) {
 		}
 		for i in 0 ..< 5 {
 			if rect_contains(l.fx_tab[i], x, y) {
-				if a.fx_channel != i {
-					a.fx_channel = i
+				ch := app_fx_tab_channel(a, i)
+				if ch >= 0 && a.fx_channel != ch {
+					a.fx_channel = ch
 					a.fx_focus = -1
 					app_layout(a)
 				}
@@ -1572,6 +1584,19 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 	// arrow-key trims. Palette execution commits inside app_palette_execute.
 	defer app_history_commit(a)
 
+	// F1 works everywhere (even mid-text-edit: the draft is untouched). While
+	// the sheet is open every other key is swallowed so nothing fires blind.
+	if key == .F1 {
+		app_help_toggle(a)
+		return
+	}
+	if a.help_open {
+		if key == .Escape {
+			app_help_toggle(a)
+		}
+		return
+	}
+
 	if a.mode == .Palette {
 		if app_palette_key(a, key, ch) {
 			return
@@ -1598,6 +1623,10 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 	}
 	if a.mode == .Render {
 		app_render_key(a, key, ch, shift, ctrl)
+		return
+	}
+	if a.mode == .Track_Bounce {
+		app_tb_key(a, key, ch)
 		return
 	}
 	if a.mode == .Normal && a.project_name_edit {
@@ -1657,8 +1686,7 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 		} else {
 			// Includes the master strip so every selectable surface is
 			// reachable without a pointer.
-			n := MAX_TRACKS + 1
-			a.selected = (a.selected + (n - 1 if shift else 1)) % n
+			app_select_step(a, -1 if shift else 1, true)
 		}
 		return
 	case .Char:
@@ -1745,10 +1773,36 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 			app_execute(a, .Bpm_Down)
 			return
 		case 'j':
-			a.selected = max(a.selected - 1, 0)
+			app_select_step(a, -1, false)
 			return
 		case 'k':
-			a.selected = min(a.selected + 1, MAX_TRACKS)
+			app_select_step(a, 1, false)
+			return
+		case 'v':
+			if a.selected < MAX_TRACKS {
+				app_mark_toggle(a, a.selected)
+			}
+			return
+		case 'V':
+			app_execute(a, .Bounce_Tracks)
+			return
+		case 'N':
+			app_execute(a, .Track_Add)
+			return
+		case 'D':
+			app_execute(a, .Track_Remove)
+			return
+		case '{':
+			app_execute(a, .Zoom_In)
+			return
+		case '}':
+			app_execute(a, .Zoom_Out)
+			return
+		case '(':
+			app_execute(a, .Page_Prev)
+			return
+		case ')':
+			app_execute(a, .Page_Next)
 			return
 		case 'J':
 			if a.selected < MAX_TRACKS {
@@ -1796,8 +1850,11 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 				}
 			}
 			return
-		case '1', '2', '3', '4':
+		case '1', '2', '3', '4', '5', '6', '7', '8', '9':
 			idx := int(ch - '1')
+			if idx >= a.track_count {
+				return
+			}
 			if a.transport == .Recording {
 				toast(a, "stop recording to change arms")
 				status_buf_set(a, "stop recording to change arms")
@@ -1809,28 +1866,24 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 			app_touch(a)
 			return
 		case '[':
-			a.fx_channel = (a.fx_channel + 4) % 5
-			a.fx_focus = -1
-			app_layout(a)
+			app_fx_channel_step(a, -1)
 			return
 		case ']':
-			a.fx_channel = (a.fx_channel + 1) % 5
-			a.fx_focus = -1
-			app_layout(a)
+			app_fx_channel_step(a, 1)
 			return
 		}
 	case .Up:
 		if a.mode == .Fx {
 			fx_focus_step(a, 1, shift)
 		} else {
-			a.selected = max(a.selected - 1, 0)
+			app_select_step(a, -1, false)
 		}
 		return
 	case .Down:
 		if a.mode == .Fx {
 			fx_focus_step(a, -1, shift)
 		} else {
-			a.selected = min(a.selected + 1, MAX_TRACKS)
+			app_select_step(a, 1, false)
 		}
 		return
 	case .Right:
@@ -2021,7 +2074,7 @@ app_target_available :: proc(a: ^App, name: string) -> bool {
 		return false
 	case .Bounce:
 		return false
-	case .Render:
+	case .Render, .Track_Bounce:
 		return false
 	}
 	return false
@@ -2094,6 +2147,8 @@ app_key_name :: proc(a: ^App, name: string) -> bool {
 		app_key(a, .Left)
 	case "right":
 		app_key(a, .Right)
+	case "f1":
+		app_key(a, .F1)
 	case "tab":
 		app_key(a, .Tab)
 	case "shift+tab":
@@ -2218,6 +2273,22 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Cloud_Restore"
 	case .Cloud_List:
 		return "Cloud_List"
+	case .Track_Add:
+		return "Track_Add"
+	case .Track_Remove:
+		return "Track_Remove"
+	case .Bounce_Tracks:
+		return "Bounce_Tracks"
+	case .Bounce_To_Track:
+		return "Bounce_To_Track"
+	case .Zoom_In:
+		return "Zoom_In"
+	case .Zoom_Out:
+		return "Zoom_Out"
+	case .Page_Next:
+		return "Page_Next"
+	case .Page_Prev:
+		return "Page_Prev"
 	case .Cloud_Save_Credentials:
 		return "Cloud_Save_Credentials"
 	}
@@ -2255,6 +2326,8 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 			return "Cloud", true
 		case .Render:
 			return "Render", true
+		case .Track_Bounce:
+			return "Track_Bounce", true
 		}
 	case "selected":
 		return fmt.tprintf("%d", a.selected), true

@@ -8,11 +8,16 @@ import "core:fmt"
 import "core:math"
 import "core:strings"
 
-MAX_TRACKS :: 4
+// Capacity of the mixer. The session starts with MIN_TRACKS strips (the
+// four-track tape-deck default) and grows on demand; `App.track_count` is the
+// number of live strips. `MAX_TRACKS` doubles as the master's index for
+// `selected` / `fx_channel`, so a master selection never collides with a track.
+MAX_TRACKS :: 24
+MIN_TRACKS :: 4
 MAX_KNOBS :: 24
 MAX_TOGGLES :: 16
 MAX_DEVICES :: 16
-MAX_PALETTE :: 48
+MAX_PALETTE :: 64
 MAX_HISTORY :: 64
 MAX_RECENT :: 8
 RECENT_PATH_MAX :: 192
@@ -25,11 +30,11 @@ CLOUD_PROJECT_NAME_MAX :: 96
 CLOUD_STATUS_MAX :: 192
 CLOUD_ERROR_MAX :: 320
 CLOUD_CREDENTIAL_MAX :: 256
-DESCRIBE_MAX :: 1024
+DESCRIBE_MAX :: 4096
 HISTORY_LABEL_MAX :: 40
 HISTORY_LEN :: 120
 
-Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent, Settings, Cloud, Render }
+Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent, Settings, Cloud, Render, Track_Bounce }
 
 // External render settings. All formats are WAV; the choice is the sample
 // encoding. The mix itself always runs through the f32 engine chain.
@@ -98,7 +103,7 @@ cloud_view_name :: proc(view: ^Cloud_Project_View) -> string {
 	return string(view.name[:view.name_len])
 }
 Transport :: enum { Stopped, Playing, Recording }
-Key :: enum { Char, Space, Enter, Escape, Backspace, Delete, Left, Right, Up, Down, Home, End, Tab }
+Key :: enum { Char, Space, Enter, Escape, Backspace, Delete, Left, Right, Up, Down, Home, End, Tab, F1 }
 
 Fx_Module :: enum u8 { EQ, COMP, SEND, REVERB, DELAY, WIDTH, LIMITER }
 
@@ -158,6 +163,14 @@ Command_Kind :: enum {
 	Cloud_Restore,
 	Cloud_List,
 	Cloud_Save_Credentials,
+	Track_Add,
+	Track_Remove,
+	Bounce_Tracks,   // open the bounce-to-track dialog (marks sources)
+	Bounce_To_Track, // index = target track; marked tracks are the sources
+	Zoom_In,
+	Zoom_Out,
+	Page_Next,
+	Page_Prev,
 }
 
 Command :: struct {
@@ -373,7 +386,13 @@ App :: struct {
 	track_name_owned: [MAX_TRACKS]bool,
 	master:        Master_View,
 	selected:      int,
+	track_count:   int,  // live strips, MIN_TRACKS..MAX_TRACKS
+	view_want:     int,  // strips the user wants on screen (zoom); see app_view_count
+	view_first:    int,  // first visible strip
+	marked:        [MAX_TRACKS]bool, // bounce sources (v)
+	tb_target:     int,  // bounce destination while the dialog is open
 	mode:          Mode,
+	help_open:     bool, // F1 cheat sheet; overlays any mode, swallows keys until closed
 	transport:     Transport,
 	sample_rate:   u32,
 	bpm:           int,
@@ -544,7 +563,12 @@ App :: struct {
 	frame_no: u64,
 }
 
-TRACK_NAMES := [MAX_TRACKS]string{"Track 1", "Track 2", "Track 3", "Track 4"}
+TRACK_NAMES := [MAX_TRACKS]string{
+	"Track 1", "Track 2", "Track 3", "Track 4", "Track 5", "Track 6",
+	"Track 7", "Track 8", "Track 9", "Track 10", "Track 11", "Track 12",
+	"Track 13", "Track 14", "Track 15", "Track 16", "Track 17", "Track 18",
+	"Track 19", "Track 20", "Track 21", "Track 22", "Track 23", "Track 24",
+}
 
 app_init :: proc(a: ^App, width, height: int) {
 	a^ = App{}
@@ -557,7 +581,9 @@ app_init :: proc(a: ^App, width, height: int) {
 	a.transport = .Stopped
 	a.fx_channel = 0
 	a.device_index = 0
-	a.input_count = MAX_TRACKS
+	a.input_count = MIN_TRACKS
+	a.track_count = MIN_TRACKS
+	a.view_want = MIN_TRACKS
 	a.fx_focus = -1
 	status_buf_set(a, "ready")
 	project_buf_set(a, "untitled")
@@ -1378,6 +1404,8 @@ app_describe :: proc(a: ^App) -> string {
 		mode_name = "Cloud projects"
 	case .Render:
 		mode_name = "Render mix"
+	case .Track_Bounce:
+		mode_name = "Bounce to track"
 	}
 	transport := "stopped"
 	switch a.transport {
@@ -1401,7 +1429,8 @@ app_describe :: proc(a: ^App) -> string {
 		"on" if a.high_contrast else "off",
 		"on" if a.reduced_motion else "off", app_save_dir(a))
 	describe_append(out[:], &n, "google drive %s. cloud projects %d. ", "connected" if a.cloud_connected else "disconnected", a.cloud_project_count)
-	for t, i in a.tracks {
+	for i in 0 ..< a.track_count {
+		t := a.tracks[i]
 		describe_append(out[:], &n, "track %d %s: %s, mute %s, solo %s, %d take(s), level %d percent, pan %s, peak %.1f dB. ",
 			i + 1, t.name,
 			"armed" if t.armed else "disarmed",
@@ -1574,9 +1603,11 @@ app_layout :: proc(a: ^App) {
 	compact_tracks := fx_open && area_h < 260
 
 	// ── channel strips ─────────────────────────────────────────────────
-	track_w := (w - m.margin * 2 - m.gutter * MAX_TRACKS) / f32(MAX_TRACKS)
-	for i in 0 ..< MAX_TRACKS {
-		x := m.margin + f32(i) * (track_w + m.gutter)
+	app_view_clamp(a)
+	view_n := app_view_count(a)
+	track_w := (w - m.margin * 2 - m.gutter * f32(view_n)) / f32(view_n)
+	for i in a.view_first ..< a.view_first + view_n {
+		x := m.margin + f32(i - a.view_first) * (track_w + m.gutter)
 		r := Rect{x, area_y, track_w, area_h}
 		l.track[i] = r
 		inner_x := r.x + m.track_pad
@@ -1804,6 +1835,22 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		status_buf_set(a, "bouncing")
 		emit(a, .Bounce)
 		bump_revision(a)
+	case .Track_Add:
+		_ = app_track_add(a)
+	case .Track_Remove:
+		_ = app_track_remove(a)
+	case .Bounce_Tracks:
+		_ = app_tb_open(a)
+	case .Bounce_To_Track:
+		emit(a, .Bounce_To_Track, index)
+	case .Zoom_In:
+		app_view_zoom(a, -1)
+	case .Zoom_Out:
+		app_view_zoom(a, 1)
+	case .Page_Next:
+		app_view_page(a, 1)
+	case .Page_Prev:
+		app_view_page(a, -1)
 	case .Render_Mix:
 		if a.transport == .Recording {
 			toast(a, "stop recording before rendering")
@@ -2083,7 +2130,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 			toast(a, "stop recording to change arms")
 			return
 		}
-		for i in 0 ..< MAX_TRACKS {
+		for i in 0 ..< a.track_count {
 			a.tracks[i].armed = true
 		}
 		status_buf_set(a, "all tracks armed")

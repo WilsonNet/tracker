@@ -520,7 +520,7 @@ cloud_collect_files :: proc(session_dir: string, take_names: []string) -> []stri
 	}
 	add(&out, &seen, fmt.tprintf("%s/project.json", session_dir))
 	add(&out, &seen, fmt.tprintf("%s/%s", session_dir, CLOUD_ID_FILE))
-	for i in 1 ..= 4 {
+	for i in 1 ..= MAX_ENGINE_TRACKS {
 		add(&out, &seen, fmt.tprintf("%s/track%d.wav", session_dir, i))
 	}
 	add(&out, &seen, fmt.tprintf("%s/bounce.wav", session_dir))

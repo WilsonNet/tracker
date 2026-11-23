@@ -70,7 +70,7 @@ run_ui_shot :: proc(args: []string) -> bool {
 	a.tracks[2].has_audio = has_flag(args, "--three")
 	if has_flag(args, "--fx") {
 		a.mode = .Fx
-		a.fx_channel = 4 if has_flag(args, "--master") else 0
+		a.fx_channel = ui.MAX_TRACKS if has_flag(args, "--master") else 0
 	}
 	if has_flag(args, "--palette") {
 		a.mode = .Palette

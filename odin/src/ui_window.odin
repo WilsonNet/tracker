@@ -488,7 +488,7 @@ window_synthetic_keys :: proc(a: ^ui.App, ctx: ^vui.Context) {
 	pairs := [?]struct {
 		k: vui.Key,
 		t: ui.Key,
-	}{{.Escape, .Escape}, {.Enter, .Enter}, {.Tab, .Tab}, {.Space, .Space}, {.Backspace, .Backspace}, {.Delete, .Delete}, {.Home, .Home}, {.End, .End}, {.Left, .Left}, {.Right, .Right}, {.Up, .Up}, {.Down, .Down}}
+	}{{.Escape, .Escape}, {.Enter, .Enter}, {.Tab, .Tab}, {.Space, .Space}, {.Backspace, .Backspace}, {.Delete, .Delete}, {.Home, .Home}, {.End, .End}, {.Left, .Left}, {.Right, .Right}, {.Up, .Up}, {.Down, .Down}, {.F1, .F1}}
 	for p in pairs {
 		if p.k in in_.keys_pressed {
 			ui.app_key(a, p.t, ' ' if p.t == .Space else 0, shift, ctrl)
@@ -597,6 +597,13 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 			}
 		case .Bounce:
 			_ = engine_bounce(e, a)
+		case .Bounce_To_Track:
+			ok, msg := engine_bounce_to_track(e, a, cmd.index)
+			if ok {
+				ui_sync_takes(a, e)
+				_ = window_save_project(a, e)
+			}
+			ui.app_tb_finished(a, ok, msg)
 		case .Render_Mix:
 			ui.app_render_set_duration(a, engine_mix_duration(e, a))
 		case .Render_File:
@@ -875,6 +882,8 @@ map_key :: proc(k: sdl.Keycode, mod: sdl.Keymod) -> (key: ui.Key, ch: u8, shift:
 		return .Down, 0, shift
 	case sdl.K_TAB:
 		return .Tab, 0, shift
+	case sdl.K_F1:
+		return .F1, 0, shift
 	}
 	sym := u32(k)
 	if sym >= 'a' && sym <= 'z' {

@@ -18,7 +18,7 @@ Tracker runs natively on **Linux** and **macOS** from one Odin codebase, with OS
 | **Native File/Folder Picker** | `zenity` (fallback `kdialog`) | `osascript` Cocoa panels | Disabled (`"", false`) |
 | **Browser OAuth Opener** | `xdg-open` / `gio open` / `sensible-browser` | `open <url>` | Disabled (`false`) |
 | **Primary Text Shortcut** | `Ctrl` (`.LCTRL` / `.RCTRL`) | `Cmd` (`.LGUI` / `.RGUI`) and `Ctrl` | `Ctrl` |
-| **Unit Test Count (`make test`)** | **276** (71 DSP + 131 core + 74 UI) | **270** (71 DSP + 125 core + 74 UI; 6 JACK session tests Linux-only) | **270** |
+| **Unit Test Count (`make test`)** | **288** (71 DSP + 137 core + 80 UI) | **282** (71 DSP + 131 core + 80 UI; 6 JACK session tests Linux-only) | **282** |
 
 ---
 

@@ -56,10 +56,10 @@ engine_take_stabilize_canonical :: proc(e: ^Engine, track: int) {
 }
 
 @(private)
-engine_take_register_new :: proc(e: ^Engine, track: int, rate: u32) {
+engine_take_register_new :: proc(e: ^Engine, track: int, rate: u32, label := "") {
 	list := &e.takes[track]
 	id := take_list_next_id(list)
-	name := fmt.tprintf("Take %d", id)
+	name := label if label != "" else fmt.tprintf("Take %d", id)
 	file := fmt.tprintf("track%d.wav", track + 1)
 	new_id := take_list_add(list, name, file, rate, 0, 1.0, false, id)
 	_ = take_list_select(list, new_id)

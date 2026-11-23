@@ -360,3 +360,19 @@ message state:
 
 - `PALETTE_COMMANDS` uses a fixed backing capacity `MAX_PALETTE` in `ui/app.odin`; whenever new palette entries push `len(PALETTE_COMMANDS)` higher, bump `MAX_PALETTE` in the same change (`ui_palette_query_case_backspace_and_rows` enforces `a.palette_count == len(PALETTE_COMMANDS)`).
 - In `tests/ui/window.vt`, `vui-test`'s `scroll` command takes numeric window coordinates (`scroll <dy> <x> <y> [mods]`), not a text locator, whereas `Shift+scroll` on macOS swaps `wheel.y` to `wheel.x` in SDL3 — handle both axes in wheel-hover widgets.
+
+### Variable track count, bounce-to-track, F1 help (2026-11-23)
+
+- `ui.MAX_TRACKS` (24) is capacity **and** the master's index for `App.selected`
+  and `App.fx_channel`; `App.track_count` is the live count. Never index the
+  master as `track_count`, and never loop `0 ..< MAX_TRACKS` for anything the
+  user sees: use `track_count` (describe, layout, arm-all, project save).
+- Anything that hard-codes four tracks hides in file lists, not UI: Save As,
+  the folder-occupied check and Google Drive backup all looped `1 ..= 4`.
+  `grep -n '1 ..= 4\|track1..4'` after any capacity change.
+- vinland `ui.div` has a deferred close, so it cannot sit in `a && ui.div(...)`;
+  toggle with a `hidden` class or a nested `if`.
+- Palette growth needs `MAX_PALETTE` (now 64) in the same change.
+- F1 is `Key.F1` handled first in `app_key`; the help sheet swallows every other
+  key and any click, so it works over text edits without losing the draft.
+- Counts now: 288 Linux / 282 macOS unit tests, 25 e2e cases.

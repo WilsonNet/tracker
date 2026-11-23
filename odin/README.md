@@ -175,7 +175,7 @@ directory is in `XDG_DATA_DIRS`.
   editing. The folder and accessibility choices persist in
   `~/.config/tracker/settings.json`; changing the folder copies the current
   takes into it and leaves the old folder as a recovery copy. A folder that
-  already contains `project.json` or `track1..4.wav` is refused, so applying
+  already contains `project.json` or any `trackN.wav` (1–24) is refused, so applying
   cannot overwrite another session.
 - **Project title & Google Drive naming:** Click the project title in the
   bottom status bar, press `n`, run `: rename project`, edit `Project name` in

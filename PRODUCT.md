@@ -22,7 +22,7 @@ Projects are self-contained folders, so they can move between computers. Google 
 
 ## Positioning
 
-Physical 4-track tape-deck ergonomics with Vim-native keyboard fluency: arm, set levels, record, overdub, scrub, and bounce without timeline or DAW clutter.
+Physical 4-track tape-deck ergonomics (4 by default, up to 24 on demand) with Vim-native keyboard fluency: arm, set levels, record, overdub, scrub, and bounce without timeline or DAW clutter.
 
 ## Operating Context
 
@@ -44,7 +44,7 @@ Like a precision instrument: every control has a clear purpose, nothing is ornam
 
 ## Evidence on Hand
 
-Verified on Linux and macOS (`odin/VERIFICATION.md`): 270 macOS / 276 Linux unit tests (`make test`), 220-action headless UI tour (`make check`), 21-case `vui-test` window e2e suite (`make e2e`), hardware Scarlett 4i4 USB capture, and loopback audio tests.
+Verified on Linux and macOS (`odin/VERIFICATION.md`): 282 macOS / 288 Linux unit tests (`make test`), 220-action headless UI tour (`make check`), 25-case `vui-test` window e2e suite (`make e2e`), hardware Scarlett 4i4 USB capture, and loopback audio tests.
 
 ## Product Principles
 

@@ -13,8 +13,10 @@ import ui "ui"
 
 PROJECT_VERSION :: 1
 
-// A project is a fixed four-track document. Files claiming more tracks are
-// rejected by the loader instead of being silently truncated.
+// A project holds 4..24 tracks (ui.MIN_TRACKS..ui.MAX_TRACKS); the saved
+// `tracks` array length is the track count. Older four-track files load as-is.
+// The loader reads at most PROJECT_MAX_LOAD_TRACKS entries and ignores any
+// beyond ui.MAX_TRACKS instead of failing.
 PROJECT_MAX_LOAD_TRACKS :: 64
 PROJECT_TRACK_NAME_MAX :: 64
 PROJECT_NAME_MAX :: 64
@@ -83,11 +85,10 @@ project_master_default :: proc() -> Project_Master {
 	}
 }
 
-PROJECT_TRACK_NAMES := [4]string{"Track 1", "Track 2", "Track 3", "Track 4"}
 
 project_track_default :: proc(i: int) -> Project_Track {
 	return Project_Track {
-		name = PROJECT_TRACK_NAMES[clamp(i, 0, 3)],
+		name = ui.TRACK_NAMES[clamp(i, 0, ui.MAX_TRACKS - 1)],
 		input = i + 1,
 		level = 0.8,
 		pan = 0,
@@ -96,9 +97,10 @@ project_track_default :: proc(i: int) -> Project_Track {
 	}
 }
 
-project_default :: proc() -> Project_Doc {
-	tracks := make([]Project_Track, 4)
-	for i in 0 ..< 4 {
+project_default :: proc(count: int = ui.MIN_TRACKS) -> Project_Doc {
+	n := clamp(count, ui.MIN_TRACKS, ui.MAX_TRACKS)
+	tracks := make([]Project_Track, n)
+	for i in 0 ..< n {
 		tracks[i] = project_track_default(i)
 	}
 	return Project_Doc {
@@ -162,14 +164,14 @@ comp_params_from_view :: proc(v: ui.Comp_View) -> dsp.Comp_Params {
 
 settings_from_app :: proc(a: ^ui.App) -> dsp.Fx_Settings {
 	settings := dsp.fx_settings_default()
-	settings.tracks = make([]dsp.Track_Mix, 4)
+	settings.tracks = make([]dsp.Track_Mix, clamp(a.track_count, ui.MIN_TRACKS, ui.MAX_TRACKS))
 	any_solo := false
 	for t in a.tracks {
 		if t.soloed {
 			any_solo = true
 		}
 	}
-	for i in 0 ..< 4 {
+	for i in 0 ..< len(settings.tracks) {
 		t := a.tracks[i]
 		settings.tracks[i] = dsp.Track_Mix {
 			level = t.level,
@@ -213,7 +215,7 @@ settings_from_app :: proc(a: ^ui.App) -> dsp.Fx_Settings {
 }
 
 app_apply_settings :: proc(a: ^ui.App, s: dsp.Fx_Settings) {
-	for i in 0 ..< min(len(s.tracks), 4) {
+	for i in 0 ..< min(len(s.tracks), ui.MAX_TRACKS) {
 		t := s.tracks[i]
 		a.tracks[i].level = t.level
 		a.tracks[i].pan = t.pan
@@ -260,7 +262,7 @@ project_from_app :: proc(a: ^ui.App) -> Project_Doc {
 // `takes` is borrowed: the returned document only points at its slices and
 // strings, so the caller must keep it alive until `json.marshal` completes.
 project_from_app_with_takes :: proc(a: ^ui.App, takes: []Take_List) -> Project_Doc {
-	doc := project_default()
+	doc := project_default(a.track_count)
 	doc.name = ui.app_project(a)
 	doc.sample_rate = a.sample_rate
 	doc.bpm = a.bpm
@@ -268,7 +270,7 @@ project_from_app_with_takes :: proc(a: ^ui.App, takes: []Take_List) -> Project_D
 	doc.high_contrast = a.high_contrast
 	doc.reduced_motion = a.reduced_motion
 	doc.device = ui.app_device(a)
-	for i in 0 ..< 4 {
+	for i in 0 ..< len(doc.tracks) {
 		t := a.tracks[i]
 		doc.tracks[i].name = t.name
 		doc.tracks[i].file = fmt.tprintf("track%d.wav", i + 1) if t.has_audio else ""
@@ -543,7 +545,7 @@ project_load_with_takes :: proc(a: ^ui.App, dir, path: string, takes: []Take_Lis
 		master = project_master_default(),
 	}
 	for i in 0 ..< PROJECT_MAX_LOAD_TRACKS {
-		doc.tracks[i] = project_track_default(i % 4)
+		doc.tracks[i] = project_track_default(i)
 		// Keep the default name static; an empty name is mapped to it below.
 		doc.tracks[i].name = ""
 	}
@@ -573,6 +575,15 @@ project_load_with_takes :: proc(a: ^ui.App, dir, path: string, takes: []Take_Lis
 		bpm = clamp(bpm, PROJECT_BPM_MIN, PROJECT_BPM_MAX)
 	}
 
+	// The saved array length is the track count (old files: four).
+	track_count := ui.MIN_TRACKS
+	if root, is_obj := value.(json.Object); is_obj {
+		if arr, is_arr := root["tracks"].(json.Array); is_arr {
+			track_count = clamp(len(arr), ui.MIN_TRACKS, ui.MAX_TRACKS)
+		}
+	}
+	ui.app_set_track_count(a, track_count)
+
 	a.sample_rate = sample_rate
 	a.bpm = bpm
 	a.latency_ms = clamp(doc.latency_ms, 0, 10_000)
@@ -583,7 +594,7 @@ project_load_with_takes :: proc(a: ^ui.App, dir, path: string, takes: []Take_Lis
 		ui.app_set_device(a, truncate_utf8(doc.device, PROJECT_DEVICE_NAME_MAX))
 	}
 
-	for i in 0 ..< 4 {
+	for i in 0 ..< track_count {
 		tr := &a.tracks[i]
 		base := project_track_default(i)
 		src := doc.tracks[i]
@@ -670,7 +681,7 @@ project_load_with_takes :: proc(a: ^ui.App, dir, path: string, takes: []Take_Lis
 		lookahead_ms = lp.lookahead_ms,
 	}
 
-	for i in 0 ..< min(len(takes), 4) {
+	for i in 0 ..< min(len(takes), track_count) {
 		list := &takes[i]
 		take_list_clear(list)
 		src := doc.tracks[i]

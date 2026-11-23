@@ -279,7 +279,7 @@
     {
       "type": "assert",
       "path": "fx.channel",
-      "equals": "4"
+      "equals": "24"
     },
     {
       "type": "screenshot",

@@ -71,7 +71,7 @@ engine_save_as_to :: proc(a: ^ui.App, e: ^Engine, project_path: string) -> bool 
 		ui.status_buf_set(a, "folder already contains a tracker project")
 		return false
 	}
-	for i in 1 ..= 4 {
+	for i in 1 ..= MAX_ENGINE_TRACKS {
 		src := fmt.tprintf("%s/track%d.wav", e.session_dir, i)
 		if !os.exists(src) {
 			continue
@@ -117,7 +117,7 @@ save_dir_occupied :: proc(dir: string) -> bool {
 	if os.exists(fmt.tprintf("%s/project.json", dir)) {
 		return true
 	}
-	for i in 1 ..= 4 {
+	for i in 1 ..= MAX_ENGINE_TRACKS {
 		if os.exists(fmt.tprintf("%s/track%d.wav", dir, i)) {
 			return true
 		}

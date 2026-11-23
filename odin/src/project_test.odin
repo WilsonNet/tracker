@@ -581,3 +581,37 @@ project_latency_and_accessibility_roundtrip :: proc(t: ^testing.T) {
 	testing.expect(t, b.high_contrast, "high contrast")
 	testing.expect(t, b.reduced_motion, "reduced motion")
 }
+
+@(test)
+project_round_trips_variable_track_count :: proc(t: ^testing.T) {
+	dir := "/tmp/tracker-project-track-count"
+	os.remove_all(dir)
+	defer os.remove_all(dir)
+	_ = os.make_directory_all(dir)
+	path := fmt.tprintf("%s/project.json", dir)
+
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	ui.app_set_track_count(&a, 9)
+	a.tracks[7].level = 0.3
+	a.tracks[8].pan = -0.5
+	a.tracks[8].armed = true
+	testing.expect(t, project_save(&a, path), "save 9 tracks")
+
+	b: ui.App
+	ui.app_init(&b, 1180, 760)
+	defer ui.app_destroy(&b)
+	testing.expect(t, project_load(&b, dir, path), "load 9 tracks")
+	testing.expectf(t, b.track_count == 9, "count %d", b.track_count)
+	testing.expect(t, abs(b.tracks[7].level - 0.3) < 1e-4 && b.tracks[8].armed && abs(b.tracks[8].pan + 0.5) < 1e-4, "track 8/9 state")
+
+	// loading a smaller project resets the extra strips
+	small: ui.App
+	ui.app_init(&small, 1180, 760)
+	defer ui.app_destroy(&small)
+	testing.expect(t, project_save(&small, path), "save 4 tracks")
+	testing.expect(t, project_load(&b, dir, path), "load 4 tracks")
+	testing.expectf(t, b.track_count == 4, "count %d", b.track_count)
+	testing.expect(t, !b.tracks[8].armed && b.tracks[7].level == 0.8, "extra strips reset")
+}

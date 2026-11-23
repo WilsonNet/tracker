@@ -201,7 +201,7 @@ app_draw :: proc(a: ^App, c: ^Canvas) {
 
 	draw_header(a, c)
 	draw_transport(a, c)
-	for i in 0 ..< MAX_TRACKS {
+	for i in a.view_first ..< a.view_first + app_view_count(a) {
 		draw_track(a, c, i)
 	}
 	draw_master(a, c)
@@ -254,6 +254,8 @@ draw_header :: proc(a: ^App, c: ^Canvas) {
 		mode_text = "BOUNCE"; mode_col = T.color.red
 	case .Render:
 		mode_text = "RENDER"; mode_col = T.color.amber
+	case .Track_Bounce:
+		mode_text = "BOUNCE TO TRACK"; mode_col = T.color.amber
 	}
 	if a.transport == .Recording {
 		mode_text = "RECORDING"; mode_col = T.color.red
@@ -465,7 +467,7 @@ draw_master :: proc(a: ^App, c: ^Canvas) {
 
 	canvas_text_px(c, 16, l.bottom.y + 8, "PROJECT", T.color.ink_muted, 9, .Medium)
 	canvas_text_px(c, 16, l.bottom.y + 21, app_project(a), T.color.ink, T.type.body, .Medium)
-	canvas_text_px(c, 120, l.bottom.y + 23, fmt.tprintf("%d TRACK   %d ARM", MAX_TRACKS, arm_count(a)), T.color.ink_muted, T.type.micro, .Regular)
+	canvas_text_px(c, 120, l.bottom.y + 23, fmt.tprintf("%d TRACK   %d ARM", a.track_count, arm_count(a)), T.color.ink_muted, T.type.micro, .Regular)
 
 	hint := "SPACE play    R rec    B bounce    X fx    : commands"
 	if a.width <= 1080 {
@@ -512,6 +514,8 @@ draw_status :: proc(a: ^App, c: ^Canvas) {
 		mode_text = "CLOUD"; mode_col = T.color.teal
 	case .Render:
 		mode_text = "RENDER"; mode_col = T.color.amber
+	case .Track_Bounce:
+		mode_text = "BOUNCE TO TRACK"; mode_col = T.color.amber
 	}
 	if a.transport == .Recording {
 		mode_text = "REC"; mode_col = T.color.red
@@ -557,17 +561,21 @@ draw_fx :: proc(a: ^App, c: ^Canvas) {
 	canvas_text_px(c, l.fx_panel.x + 18, l.fx_panel.y + 17, "FX", T.color.amber, T.type.label, .SemiBold)
 
 	for i in 0 ..< 5 {
-		label := fmt.tprintf("%d", i + 1)
+		ch := app_fx_tab_channel(a, i)
+		if ch < 0 {
+			continue
+		}
+		label := fmt.tprintf("%d", ch + 1)
 		if i == 4 {
 			label = "MST"
 		}
-		active := a.fx_channel == i
+		active := a.fx_channel == ch
 		tr := l.fx_tab[i]
 		canvas_fill_round(c, tr, T.radius.sm, T.color.amber if active else T.color.surface_raised)
 		canvas_stroke_round(c, tr, T.radius.sm, T.color.amber if active else T.color.line_subtle, 1)
 		canvas_text_px_center(c, tr.x + tr.w * 0.5, text_middle_y(c, tr, label, T.type.caption, .Medium), label,
 			T.color.on_amber if active else T.color.ink_dim, T.type.caption, .Medium)
-		if fx_channel_active(a, i) && !active {
+		if fx_channel_active(a, ch) && !active {
 			canvas_disc(c, tr.x + tr.w * 0.5, tr.y + tr.h + 5, 2, T.color.amber)
 		}
 	}
@@ -663,8 +671,10 @@ command_hint :: proc(kind: Command_Kind) -> string {
 	#partial switch kind {
 	case .Play, .Stop, .Record_Start, .Record_Stop, .Seek, .Seek_Zero, .Shuttle_Back, .Shuttle_Forward, .Jog_Back, .Jog_Forward:
 		return "transport"
-	case .Bounce, .Render_Mix, .Render_File:
+	case .Bounce, .Render_Mix, .Render_File, .Bounce_Tracks, .Bounce_To_Track:
 		return "render"
+	case .Track_Add, .Track_Remove, .Zoom_In, .Zoom_Out, .Page_Next, .Page_Prev:
+		return "tracks"
 	case .Save, .Load, .Save_As, .Rename_Project, .Apply_Project_Name:
 		return "project"
 	case .Open_Project, .Recent, .Open_Recent:

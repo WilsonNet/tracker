@@ -10,7 +10,11 @@ fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
 
 ## Features
 
-- **4-track recording** with true mono 32-bit float WAVs and RF64/BW64 support
+- **4-track recording, up to 24 tracks** — four strips by default (tape-deck
+  layout); `N`/`D` add or remove tracks, `{ }` zoom how many show, `( )` page
+- **Bounce marked tracks to a track** — `v` marks, `V` opens the target dialog;
+  sources stay, the target gets a new mono take
+- **Contextual key help** — `F1` lists only the keys that work where you are
 - **Multi-take recording and comping** — stable take files, active-take cycling, comp regions
 - **Overdub** — hear the existing mix while recording the next part
 - **Native effects** — 3-band EQ and compressor per track, shared FDN reverb and

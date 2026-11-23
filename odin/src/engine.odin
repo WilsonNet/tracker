@@ -19,7 +19,7 @@ import dsp "dsp"
 import ui "ui"
 import ma "vendor:miniaudio"
 
-MAX_ENGINE_TRACKS :: 4
+MAX_ENGINE_TRACKS :: ui.MAX_TRACKS
 RING_CHUNK_FRAMES :: 2048
 
 Recorder :: struct {
