@@ -24,6 +24,7 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"back up to google drive", .Cloud_Backup},
 	{"connect google drive", .Cloud_Connect},
 	{"save project", .Save},
+	{"rename project", .Rename_Project},
 	{"load project", .Load},
 	{"arm all", .Arm_All},
 	{"clear arms", .Clear_Arms},
@@ -740,6 +741,8 @@ app_recent_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
 @(private)
 app_settings_activate :: proc(a: ^App) {
 	switch a.settings_sel {
+	case .Project_Name:
+		app_project_begin_edit(a, false)
 	case .Path:
 		app_settings_begin_edit(a)
 	case .Browse:
@@ -792,8 +795,10 @@ app_text_editing :: proc(a: ^App) -> bool {
 	case .Palette, .Recent:
 		return true
 	case .Settings:
-		return a.settings_path_edit || a.cloud_edit != .None
-	case .Normal, .Fx, .Io, .Bounce, .Cloud, .Render:
+		return a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None
+	case .Normal:
+		return a.project_name_edit
+	case .Fx, .Io, .Bounce, .Cloud, .Render:
 		return false
 	}
 	return false
@@ -862,7 +867,7 @@ app_paste_text :: proc(a: ^App, text: string) {
 				_ = text_paste(a, clean)
 				bump_revision(a)
 			}
-		} else if a.settings_path_edit {
+		} else if a.project_name_edit || a.settings_path_edit {
 			clean := paste_sanitize(text, false)
 			defer delete(clean)
 			if clean != "" {
@@ -870,7 +875,16 @@ app_paste_text :: proc(a: ^App, text: string) {
 				bump_revision(a)
 			}
 		}
-	case .Normal, .Fx, .Io, .Bounce, .Cloud, .Render:
+	case .Normal:
+		if a.project_name_edit {
+			clean := paste_sanitize(text, false)
+			defer delete(clean)
+			if clean != "" {
+				_ = text_paste(a, clean)
+				bump_revision(a)
+			}
+		}
+	case .Fx, .Io, .Bounce, .Cloud, .Render:
 	}
 }
 
@@ -912,6 +926,7 @@ app_render_key :: proc(a: ^App, key: Key, ch: u8, shift, ctrl: bool) {
 }
 
 SETTINGS_TEXT_INPUTS := [?]Settings_Item{
+	.Project_Name,
 	.Path,
 	.Cloud_Folder,
 	.Cloud_Client_ID,
@@ -920,28 +935,33 @@ SETTINGS_TEXT_INPUTS := [?]Settings_Item{
 
 @(private)
 settings_text_index :: proc(a: ^App) -> int {
-	if a.settings_path_edit {
+	if a.project_name_edit {
 		return 0
+	}
+	if a.settings_path_edit {
+		return 1
 	}
 	switch a.cloud_edit {
 	case .Folder:
-		return 1
-	case .Client_ID:
 		return 2
-	case .Client_Secret:
+	case .Client_ID:
 		return 3
+	case .Client_Secret:
+		return 4
 	case .None:
 	}
 	switch a.settings_sel {
+	case .Project_Name:
+		return 0
 	case .Cloud_Folder:
-		return 1
-	case .Cloud_Client_ID:
 		return 2
-	case .Cloud_Client_Secret, .Cloud_Connect, .Cloud_Backup, .Cloud_Restore:
+	case .Cloud_Client_ID:
 		return 3
+	case .Cloud_Client_Secret, .Cloud_Connect, .Cloud_Backup, .Cloud_Restore:
+		return 4
 	case .Path, .Browse, .Apply, .Default, .Inputs, .Backend,
 	     .Latency_Down, .Latency_Up, .Monitor, .High_Contrast, .Reduced_Motion:
-		return 0
+		return 1
 	}
 	return 0
 }
@@ -951,6 +971,8 @@ settings_focus_text :: proc(a: ^App, index: int) {
 	item := SETTINGS_TEXT_INPUTS[index]
 	a.settings_sel = item
 	switch item {
+	case .Project_Name:
+		app_project_begin_edit(a, false)
 	case .Path:
 		app_settings_begin_edit(a)
 	case .Cloud_Folder:
@@ -982,7 +1004,7 @@ app_settings_key :: proc(a: ^App, key: Key, ch: u8, shift, ctrl: bool) -> bool {
 	// Clipboard shortcuts that need no OS callback. Copy/cut are handled by
 	// the window (which owns the desktop clipboard); redo accepts Ctrl+Y and
 	// Ctrl+Shift+Z like a native text field.
-	if ctrl && (a.cloud_edit != .None || a.settings_path_edit) {
+	if ctrl && (a.cloud_edit != .None || a.settings_path_edit || a.project_name_edit) {
 		switch ch {
 		case 'a', 'A':
 			text_select_all(a)
@@ -1005,6 +1027,27 @@ app_settings_key :: proc(a: ^App, key: Key, ch: u8, shift, ctrl: bool) -> bool {
 			// Owned by app_copy_text in the window layer.
 			return true
 		}
+	}
+	if a.project_name_edit {
+		#partial switch key {
+		case .Escape:
+			if a.edit_confirm {
+				app_project_cancel_edit(a)
+			} else {
+				a.edit_confirm = true
+				status_buf_set(a, "discard changes? enter save · esc again cancel")
+				bump_revision(a)
+			}
+		case .Enter:
+			app_execute(a, .Apply_Project_Name)
+		case:
+			if text_key(a, key, ch, shift, ctrl) {
+				a.edit_confirm = false
+				bump_revision(a)
+				return true
+			}
+		}
+		return true
 	}
 	if a.cloud_edit != .None {
 		#partial switch key {
@@ -1108,6 +1151,8 @@ app_cloud_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
 			bump_revision(a)
 		case 'u':
 			app_execute(a, .Cloud_Backup)
+		case 'n':
+			app_execute(a, .Rename_Project)
 		case 'r':
 			app_execute(a, .Cloud_List)
 		}
@@ -1544,6 +1589,43 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 		app_render_key(a, key, ch, shift, ctrl)
 		return
 	}
+	if a.mode == .Normal && a.project_name_edit {
+		if ctrl {
+			switch ch {
+			case 'a', 'A':
+				text_select_all(a)
+				a.text_scroll_x = 0
+				bump_revision(a)
+				return
+			case 'z', 'Z':
+				if shift {
+					_ = text_redo(a)
+				} else {
+					_ = text_undo(a)
+				}
+				bump_revision(a)
+				return
+			case 'y', 'Y':
+				_ = text_redo(a)
+				bump_revision(a)
+				return
+			case 'c', 'C', 'x', 'X':
+				return
+			}
+		}
+		#partial switch key {
+		case .Escape:
+			app_project_cancel_edit(a)
+		case .Enter:
+			app_execute(a, .Apply_Project_Name)
+		case .Tab:
+		case:
+			if text_key(a, key, ch, shift, ctrl) {
+				bump_revision(a)
+			}
+		}
+		return
+	}
 
 	#partial switch key {
 	case .Escape:
@@ -1587,6 +1669,9 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 			return
 		case 'g':
 			app_execute(a, .Cloud)
+			return
+		case 'n':
+			app_execute(a, .Rename_Project)
 			return
 		case 'I':
 			if a.selected < MAX_TRACKS && a.transport != .Recording {
@@ -2037,6 +2122,10 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Open_Project"
 	case .Save_As:
 		return "Save_As"
+	case .Rename_Project:
+		return "Rename_Project"
+	case .Apply_Project_Name:
+		return "Apply_Project_Name"
 	case .Recent:
 		return "Recent"
 	case .Open_Recent:
@@ -2129,6 +2218,10 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 		return app_device(a), true
 	case "project":
 		return app_project(a), true
+	case "project.editing":
+		return "true" if a.project_name_edit else "false", true
+	case "project.draft":
+		return app_project_draft(a), true
 	case "status":
 		return app_status(a), true
 	case "palette.open":

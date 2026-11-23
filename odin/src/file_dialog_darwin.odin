@@ -24,6 +24,11 @@ applescript_quote :: proc(s: string) -> string {
 
 @(private)
 run_osascript_dialog :: proc(script: string) -> (string, bool) {
+	hidden := os.get_env("VUI_HIDDEN", context.allocator)
+	defer delete(hidden)
+	if hidden == "1" {
+		return "", false
+	}
 	state, stdout, stderr, err := os.process_exec(
 		os.Process_Desc{command = []string{"osascript", "-e", script}},
 		context.allocator,

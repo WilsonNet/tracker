@@ -85,7 +85,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 271 unit tests
+make test         # 274 unit tests (Linux) / 268 (macOS)
 make check        # unit + headless UI tour + offline end-to-end
 
 # 4. Run the app
@@ -114,9 +114,9 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | unit tests: 71 DSP, 129 core (Linux) / 123 core (macOS), 71 UI = 271 (Linux) / 265 (macOS) |
+| `test` | unit tests: 71 DSP, 130 core (Linux) / 124 core (macOS), 73 UI = 274 (Linux) / 268 (macOS) |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
-| `e2e` | 18 headless vinland-ui window cases (`tests/ui/window.vt`) |
+| `e2e` | 20 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
 | `ui-test` | run a harness script; `SCRIPT=... UI_OUT=...` |
@@ -155,21 +155,28 @@ directory is in `XDG_DATA_DIRS`.
   drag), bypass toggles, ping-pong, response visuals.
 - **I/O panel:** live PipeWire/JACK source list, JACK-backend toggle, latency
   ± controls, rescan and device selection.
-- **Settings:** `,` or the SET button. Edits the project folder (type, BROWSE…,
-  APPLY, DEFAULT); BROWSE starts in the parent of the current project so
-  sibling projects are visible. Shows the input device/backends, latency and monitoring, and
-  toggles high contrast and reduced motion. `j/k` selects a row and `Enter`
-  runs it. Clicking a text field enters EDIT with a real caret: click/drag or
-  Shift+click select, double-click selects a word, triple-click selects all,
-  arrows/Home/End and Ctrl+word movement work, and `Ctrl+C`/`X`/`V`/`Z`/`Y`
-  use the clipboard and undo. `Enter` applies, `Esc` asks before discarding,
-  and `Tab`/`Shift+Tab` switch inputs without losing drafts.
-  Client secrets render as `*` even while editing. The folder and
-  accessibility choices persist in
+- **Settings:** `,` or the SET button. Edits the **Project name** (`PROJECT`
+  section) and **Project folder** (type, BROWSE…, APPLY, DEFAULT); BROWSE starts
+  in the parent of the current project so sibling projects are visible. Shows the
+  input device/backends, latency and monitoring, and toggles high contrast and
+  reduced motion. `j/k` selects a row and `Enter` runs it. Clicking a text field
+  enters EDIT with a real caret: click/drag or Shift+click select, double-click
+  selects a word, triple-click selects all, arrows/Home/End and Ctrl+word
+  movement work, and `Ctrl+C`/`X`/`V`/`Z`/`Y` use the clipboard and undo.
+  `Enter` applies, `Esc` asks before discarding, and `Tab`/`Shift+Tab` switch
+  inputs without losing drafts. Client secrets render as `*` even while
+  editing. The folder and accessibility choices persist in
   `~/.config/tracker/settings.json`; changing the folder copies the current
   takes into it and leaves the old folder as a recovery copy. A folder that
   already contains `project.json` or `track1..4.wav` is refused, so applying
   cannot overwrite another session.
+- **Project title & Google Drive naming:** Click the project title in the
+  bottom status bar, press `n`, run `: rename project`, edit `Project name` in
+  Settings, or click `RENAME` inside Cloud projects (`g`). `Enter` trims and
+  persists the name to `project.json`, updates the window title
+  (`Tracker — <name>`), and renames the existing Google Drive backup folder
+  in place on the next backup (updating `index.json` without creating
+  duplicate/orphaned folders). Empty names are rejected.
 - **Render dialog:** `B` or `RENDER…` opens Range + Format around a
   dual-handle track. Drag either handle to trim; clicking the track moves the
   nearest handle there. `j/k` select FROM/TO/FORMAT, `h/l` nudge by 0.5 s
@@ -177,20 +184,21 @@ directory is in `XDG_DATA_DIRS`.
   PCM. `Enter` opens the save dialog. Rendering is non-destructive and always
   stereo at the project rate. Handles clamp at 0.1 s apart and at the mix
   bounds; an empty range is refused.
-- **Cloud projects:** Google Drive backup/restore. `Settings → CLOUD` holds
+- **Cloud projects:** Google Drive backup/restore. Shows the current project
+  title with quick `RENAME` and `BACK UP` actions. `Settings → CLOUD` holds
   the Drive folder name, OAuth client ID/secret, connect/disconnect, back up
-  and restore. `g` opens the cloud-project list; `u` backs up, `r` refreshes.
-  Setup, the new-machine restore path and the safety model are in
-  [`../docs/cloud-setup.md`](../docs/cloud-setup.md).
+  and restore. `g` opens the cloud-project list; `u` backs up, `n` renames the
+  project, `r` refreshes. Setup, the new-machine restore path and the safety
+  model are in [`../docs/cloud-setup.md`](../docs/cloud-setup.md).
 - **Headless UI harness:** `ui-test` (below) drives the exact same state
   machine without a browser or window.
 - **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `B` render dialog, `1–4` arm, `j/k`
-  select, `J/K` level, `m` mute, `s` solo, `a` arm, `I` input, `x` FX,
+  select, `J/K` level, `m` mute, `s` solo, `a` arm, `n` rename project, `I` input, `x` FX,
   `c` click, `o` monitor, `y` JACK backend, `t`/`T` next/previous take,
   `u`/`U` undo/redo, `[`/`]` FX channel, `Tab`/`Shift+Tab` FX focus,
   `,` settings, `g` cloud projects, `:` command palette, `Esc` close. Recent
   projects and open/save-as live in the palette; the dialogs use zenity or
-  kdialog. Double-click resets a fader/pan/knob.
+  kdialog on Linux and Cocoa panels on macOS. Double-click resets a fader/pan/knob.
 
 ### Google Drive
 

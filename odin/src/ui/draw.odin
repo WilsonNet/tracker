@@ -665,7 +665,7 @@ command_hint :: proc(kind: Command_Kind) -> string {
 		return "transport"
 	case .Bounce, .Render_Mix, .Render_File:
 		return "render"
-	case .Save, .Load, .Save_As:
+	case .Save, .Load, .Save_As, .Rename_Project, .Apply_Project_Name:
 		return "project"
 	case .Open_Project, .Recent, .Open_Recent:
 		return "project"

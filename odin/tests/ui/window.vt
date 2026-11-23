@@ -138,8 +138,10 @@ test "shift drag is fine"
 
 test "settings menu edits project folder"
   click-text SET
+  expect-text "Project name"
   expect-text "Project folder"
   expect-text "Capture backend"
+  key down
   key down
   key down
   expect-class APPLY ring-sig
@@ -168,8 +170,11 @@ test "settings text field selection and secret mask"
   key down
   key down
   key down
+  key down
+  wait 15
   click-text "Client ID"
   expect-class "Client ID" cursor-text
+  expect-text EDIT
   type "alpha-beta"
   # Keyboard selection replaces exactly the selected word.
   key home
@@ -212,6 +217,7 @@ test "cloud settings and overlay are reachable"
   key down
   key down
   key down
+  key down
   expect-text "Drive folder"
   key escape
   type g
@@ -219,3 +225,31 @@ test "cloud settings and overlay are reachable"
   expect-text "Connect Google Drive in Settings"
   key escape
   expect-no-text "Google Drive · hidden app data"
+
+test "rename project inline from status bar"
+  click-text "untitled"
+  expect-text EDIT
+  type "Midnight Tape"
+  key enter
+  expect-text "Midnight Tape"
+  expect-text "project named Midnight Tape"
+  expect-no-text EDIT
+
+test "rename project in settings and cloud overlay"
+  click-text SET
+  expect-text "Project name"
+  key enter
+  key a ctrl
+  type "Studio Session"
+  key enter
+  expect-text "project named Studio Session"
+  key escape
+  expect-no-text "Machine preferences"
+  type g
+  expect-text "Studio Session"
+  expect-text "RENAME"
+  click RENAME
+  expect-text EDIT
+  key escape
+  expect-no-text EDIT
+  expect-text "Studio Session"

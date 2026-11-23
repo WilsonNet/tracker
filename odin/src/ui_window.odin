@@ -9,6 +9,7 @@ package main
 
 import "core:fmt"
 import "core:os"
+import "core:strings"
 import "core:time"
 
 import sdl "vendor:sdl3"
@@ -192,6 +193,9 @@ run_ui_window :: proc(args: []string) -> bool {
 
 	a11y_log := has_flag(args, "--a11y-log")
 	a11y_revision: u64 = a.state_revision
+	last_title: string
+	defer delete(last_title)
+	window_sync_title(&va, &a, &last_title)
 	last := time.now()
 	for {
 		// vui-ctl keys bypass window_on_event and reach vinland's input, so a
@@ -217,6 +221,7 @@ run_ui_window :: proc(args: []string) -> bool {
 		engine_update(&e, &a)
 		cloud_sync_ui(&cloud, &a, &e, recent_store)
 		ui_sync_takes(&a, &e)
+		window_sync_title(&va, &a, &last_title)
 		if a11y_log && a.state_revision != a11y_revision {
 			a11y_revision = a.state_revision
 			fmt.println(ui.app_describe(&a))
@@ -226,11 +231,12 @@ run_ui_window :: proc(args: []string) -> bool {
 		vapp.end_frame(&va)
 		// clicks in the tree emit commands; run them before the next idle wait
 		window_run_commands(&a, &e, recent_store, &cloud)
+		window_sync_title(&va, &a, &last_title)
 		dirty_settings := a.settings_dirty
 		if dirty_settings {
 			ui_persist_settings(&a, settings_store)
 		}
-		if ui.view_busy(&a) || len(a.commands) > a.cmd_read || dirty_settings || a.settings_path_edit {
+		if ui.view_busy(&a) || len(a.commands) > a.cmd_read || dirty_settings || ui.app_text_editing(&a) {
 			vapp.request_redraw(&va)
 		}
 	}
@@ -498,6 +504,21 @@ window_apply_save_dir :: proc(a: ^ui.App, e: ^Engine, dir: string, recent_store:
 }
 
 @(private)
+window_sync_title :: proc(va: ^vapp.App, a: ^ui.App, last_title: ^string) {
+	if va == nil || va.window == nil || a == nil {
+		return
+	}
+	name := ui.app_project(a)
+	desired := "Tracker" if name == "" || name == "untitled" else fmt.tprintf("Tracker — %s", name)
+	if desired == last_title^ {
+		return
+	}
+	delete(last_title^)
+	last_title^ = strings.clone(desired)
+	sdl.SetWindowTitle(va.window, strings.clone_to_cstring(desired, context.temp_allocator))
+}
+
+@(private)
 window_cloud_commit :: proc(a: ^ui.App, cloud: ^Cloud) -> bool {
 	if cloud == nil {
 		return false
@@ -679,6 +700,15 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 				delete(path)
 			} else {
 				ui.status_buf_set(a, "save-as picker cancelled")
+			}
+		case .Rename_Project:
+			// Pure UI state transition; editing starts inline.
+		case .Apply_Project_Name:
+			if window_save_project(a, e) {
+				ui_add_recent(a, e.project_path, recent_store)
+			} else {
+				ui.status_buf_set(a, "save failed")
+				ui.toast(a, "save failed")
 			}
 		case .Settings:
 			// The mode transition is pure App state; nothing to do here.

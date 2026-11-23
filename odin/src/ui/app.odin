@@ -18,6 +18,7 @@ MAX_RECENT :: 8
 RECENT_PATH_MAX :: 192
 RECENT_QUERY_MAX :: 40
 SAVE_DIR_MAX :: 4096
+PROJECT_NAME_MAX :: 64
 MAX_CLOUD_PROJECTS :: 32
 CLOUD_PROJECT_ID_MAX :: 64
 CLOUD_PROJECT_NAME_MAX :: 96
@@ -42,6 +43,7 @@ RENDER_COARSE_STEP_SECONDS :: f32(5.0)
 // Keyboard order of the settings rows. Keep view_settings, app_settings_key
 // and this enum in the same order.
 Settings_Item :: enum u8 {
+	Project_Name,
 	Path,
 	Browse,
 	Apply,
@@ -121,6 +123,8 @@ Command_Kind :: enum {
 	Redo,
 	Open_Project,
 	Save_As,
+	Rename_Project,
+	Apply_Project_Name,
 	Recent,
 	Open_Recent,
 	High_Contrast,
@@ -451,13 +455,16 @@ App :: struct {
 	// Machine-local settings. `save_dir` is the project folder currently in
 	// use; `settings_path` is the editable candidate shown in the overlay.
 	// `settings_dirty` asks the window to persist settings.json.
-	save_dir:          [SAVE_DIR_MAX]u8,
-	save_dir_len:      int,
-	settings_path:     [SAVE_DIR_MAX]u8,
-	settings_path_len: int,
-	settings_path_edit: bool,
-	settings_sel:      Settings_Item,
-	settings_dirty:    bool,
+	save_dir:               [SAVE_DIR_MAX]u8,
+	save_dir_len:           int,
+	settings_path:          [SAVE_DIR_MAX]u8,
+	settings_path_len:      int,
+	settings_path_edit:     bool,
+	project_name_draft:     [PROJECT_NAME_MAX]u8,
+	project_name_draft_len: int,
+	project_name_edit:      bool,
+	settings_sel:           Settings_Item,
+	settings_dirty:         bool,
 
 	// Cloud display state. The worker in cloud_jobs.odin owns tokens and
 	// network I/O; these fields are copied on the UI thread.
@@ -543,6 +550,7 @@ app_init :: proc(a: ^App, width, height: int) {
 	a.fx_focus = -1
 	status_buf_set(a, "ready")
 	project_buf_set(a, "untitled")
+	project_name_draft_set(a, "untitled")
 	device_buf_set(a, "no input")
 	save_dir_set(a, "")
 	settings_path_set(a, "")
@@ -980,6 +988,10 @@ app_settings_path :: proc(a: ^App) -> string {
 	return string(a.settings_path[:a.settings_path_len])
 }
 
+app_project_draft :: proc(a: ^App) -> string {
+	return string(a.project_name_draft[:a.project_name_draft_len])
+}
+
 @(private)
 save_dir_set :: proc(a: ^App, s: string) {
 	buf_set(a.save_dir[:], &a.save_dir_len, s)
@@ -988,6 +1000,26 @@ save_dir_set :: proc(a: ^App, s: string) {
 @(private)
 settings_path_set :: proc(a: ^App, s: string) {
 	buf_set(a.settings_path[:], &a.settings_path_len, s)
+}
+
+@(private)
+project_name_draft_set :: proc(a: ^App, s: string) {
+	buf_set(a.project_name_draft[:], &a.project_name_draft_len, s)
+}
+
+@(private)
+project_edit_clear :: proc(a: ^App) {
+	if !a.project_name_edit {
+		return
+	}
+	a.project_name_edit = false
+	a.edit_confirm = false
+	a.edit_select_all = false
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	text_history_reset(a)
+	project_name_draft_set(a, app_project(a))
 }
 
 app_set_save_dir :: proc(a: ^App, s: string) {
@@ -1004,23 +1036,86 @@ app_mark_settings_dirty :: proc(a: ^App) {
 	a.settings_dirty = true
 }
 
-app_settings_open :: proc(a: ^App) {
-	a.mode = .Settings
+app_project_begin_edit :: proc(a: ^App, select_all: bool = true) {
+	a.project_name_edit = true
 	a.settings_path_edit = false
 	a.cloud_edit = .None
 	a.edit_confirm = false
-	a.settings_sel = .Path
+	a.edit_select_all = false
+	a.text_scroll_x = 0
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	text_history_reset(a)
+	if a.mode != .Settings || app_project_draft(a) == "" {
+		project_name_draft_set(a, app_project(a))
+	}
+	a.text_cursor = a.project_name_draft_len
+	a.text_anchor = a.text_cursor
+	if select_all && a.project_name_draft_len > 0 {
+		text_select_all(a)
+	}
+	bump_revision(a)
+}
+
+app_project_cancel_edit :: proc(a: ^App) {
+	a.project_name_edit = false
+	a.edit_confirm = false
+	a.edit_select_all = false
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	text_history_reset(a)
+	project_name_draft_set(a, app_project(a))
+	if a.mode == .Normal {
+		status_buf_set(a, "rename cancelled")
+	}
+	bump_revision(a)
+}
+
+app_project_commit_edit :: proc(a: ^App) -> bool {
+	trimmed := strings.trim_space(app_project_draft(a))
+	if trimmed == "" {
+		toast(a, "project name cannot be empty")
+		status_buf_set(a, "project name cannot be empty")
+		bump_revision(a)
+		return false
+	}
+	project_buf_set(a, trimmed)
+	project_name_draft_set(a, app_project(a))
+	a.project_name_edit = false
+	a.edit_confirm = false
+	a.edit_select_all = false
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	text_history_reset(a)
+	a.dirty = true
+	status_buf_set(a, fmt.tprintf("project named %s", app_project(a)))
+	toast(a, fmt.tprintf("project: %s", app_project(a)))
+	bump_revision(a)
+	return true
+}
+
+app_settings_open :: proc(a: ^App) {
+	a.mode = .Settings
+	a.project_name_edit = false
+	a.settings_path_edit = false
+	a.cloud_edit = .None
+	a.edit_confirm = false
+	a.settings_sel = .Project_Name
+	project_name_draft_set(a, app_project(a))
 	settings_path_set(a, app_save_dir(a))
 	status_buf_set(a, "settings")
 	bump_revision(a)
 }
 
 app_settings_close :: proc(a: ^App) {
-	dirty := a.settings_path_edit || a.cloud_edit != .None || a.cloud_dirty ||
-		app_settings_path(a) != app_save_dir(a)
+	dirty := a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None || a.cloud_dirty ||
+		app_project_draft(a) != app_project(a) || app_settings_path(a) != app_save_dir(a)
 	if dirty && !a.edit_confirm {
 		a.edit_confirm = true
-		if a.settings_path_edit || a.cloud_edit != .None {
+		if a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None {
 			status_buf_set(a, "discard changes? enter apply · esc or close again")
 		} else {
 			status_buf_set(a, "unsaved changes · esc or close again")
@@ -1028,6 +1123,7 @@ app_settings_close :: proc(a: ^App) {
 		bump_revision(a)
 		return
 	}
+	a.project_name_edit = false
 	a.settings_path_edit = false
 	a.cloud_edit = .None
 	a.edit_confirm = false
@@ -1037,6 +1133,7 @@ app_settings_close :: proc(a: ^App) {
 	a.text_dragging = false
 	a.text_drag_multi = false
 	text_history_reset(a)
+	project_name_draft_set(a, app_project(a))
 	settings_path_set(a, app_save_dir(a))
 	a.mode = .Normal
 	status_buf_set(a, "settings closed")
@@ -1045,6 +1142,7 @@ app_settings_close :: proc(a: ^App) {
 
 app_settings_begin_edit :: proc(a: ^App) {
 	a.settings_path_edit = true
+	a.project_name_edit = false
 	a.cloud_edit = .None
 	a.edit_confirm = false
 	a.edit_select_all = false
@@ -1176,6 +1274,7 @@ app_cloud_selected_id :: proc(a: ^App) -> string {
 
 app_cloud_begin_edit :: proc(a: ^App, field: Cloud_Edit) {
 	a.cloud_edit = field
+	a.project_name_edit = false
 	a.settings_path_edit = false
 	a.edit_confirm = false
 	a.edit_select_all = false
@@ -1207,7 +1306,7 @@ app_cloud_mark_saved :: proc(a: ^App) {
 }
 
 app_select_all_text :: proc(a: ^App) {
-	if a.mode != .Settings || (a.cloud_edit == .None && !a.settings_path_edit) {
+	if _, _, ok := text_active(a); !ok {
 		return
 	}
 	text_select_all(a)
@@ -1342,6 +1441,10 @@ app_set_input_channels :: proc(a: ^App, count: int) {
 
 app_set_project :: proc(a: ^App, name: string) {
 	project_buf_set(a, name)
+	if !a.project_name_edit {
+		project_name_draft_set(a, app_project(a))
+	}
+	bump_revision(a)
 }
 
 app_set_takes :: proc(a: ^App, track, count, active: int) {
@@ -1676,6 +1779,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 			toast(a, "bounce already running")
 			return
 		}
+		project_edit_clear(a)
 		a.mode = .Bounce
 		a.bounce_progress = 0
 		a.bounce_active = true
@@ -1691,6 +1795,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		if a.mode == .Render {
 			return
 		}
+		project_edit_clear(a)
 		a.last_command = .Render_Mix
 		a.last_command_index = 0
 		app_render_open(a)
@@ -1723,6 +1828,19 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		emit(a, .Save_As)
 		status_buf_set(a, "save project as: waiting for picker")
 		toast(a, "choose a destination")
+	case .Rename_Project:
+		a.last_command = .Rename_Project
+		a.last_command_index = 0
+		a.mode = .Normal
+		a.fx_focus = -1
+		app_project_begin_edit(a, true)
+		status_buf_set(a, "rename project")
+	case .Apply_Project_Name:
+		if app_project_commit_edit(a) {
+			a.last_command = .Apply_Project_Name
+			a.last_command_index = 0
+			emit(a, .Apply_Project_Name)
+		}
 	case .Select_Device:
 		a.device_index = clamp(index, 0, max(len(a.devices) - 1, 0))
 		if len(a.devices) > 0 {
@@ -1732,6 +1850,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		status_buf_set(a, "input device selected")
 		bump_revision(a)
 	case .Fx:
+		project_edit_clear(a)
 		a.mode = .Fx if a.mode != .Fx else .Normal
 		if a.mode != .Fx {
 			a.fx_focus = -1
@@ -1739,6 +1858,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		status_buf_set(a, "fx rack")
 		bump_revision(a)
 	case .Io:
+		project_edit_clear(a)
 		a.mode = .Io if a.mode != .Io else .Normal
 		bump_revision(a)
 	case .Settings:
@@ -1775,6 +1895,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		status_buf_set(a, "reset to default folder")
 		bump_revision(a)
 	case .Cloud:
+		project_edit_clear(a)
 		if a.mode == .Cloud {
 			a.mode = .Normal
 			status_buf_set(a, "cloud projects closed")
@@ -1783,6 +1904,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 			app_execute(a, .Cloud_Open)
 		}
 	case .Cloud_Open:
+		project_edit_clear(a)
 		a.mode = .Cloud
 		a.cloud_selected = 0
 		status_buf_set(a, "cloud projects")
@@ -1803,6 +1925,13 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		bump_revision(a)
 	case .Cloud_Backup:
 		a.cloud_edit = .None
+		if a.mode == .Settings {
+			trimmed := strings.trim_space(app_project_draft(a))
+			if trimmed != "" && trimmed != app_project(a) {
+				_ = app_project_commit_edit(a)
+			}
+			a.project_name_edit = false
+		}
 		if a.transport == .Recording {
 			toast(a, "stop recording before backing up")
 			status_buf_set(a, "stop recording before backing up")
@@ -1839,6 +1968,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		status_buf_set(a, "saving Google credentials")
 		bump_revision(a)
 	case .Recent:
+		project_edit_clear(a)
 		if a.mode == .Recent {
 			a.mode = .Normal
 			status_buf_set(a, "recent projects closed")
@@ -1940,6 +2070,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		app_history_note(a, "arms")
 		app_touch(a)
 	case .Panic:
+		project_edit_clear(a)
 		a.transport = .Stopped
 		a.frames = 0
 		a.mode = .Normal

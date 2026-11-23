@@ -433,6 +433,13 @@ cloud_job_backup :: proc(c: ^Cloud, task: ^Cloud_Task) {
 		cloud_set_error(c, root_err)
 		return
 	}
+	index_err := ""
+	index, index_ok := cloud_index_load(token, root, &index_err)
+	if !index_ok {
+		cloud_set_error(c, index_err)
+		return
+	}
+	defer cloud_index_destroy(&index)
 	projects_folder, p_ok := cloud_drive_ensure_folder(token, "projects", root, &api_err)
 	defer delete(projects_folder)
 	if !p_ok {
@@ -449,7 +456,31 @@ cloud_job_backup :: proc(c: ^Cloud, task: ^Cloud_Task) {
 	defer delete(short_id)
 	remote_folder_name := fmt.aprintf("%s-%s", safe_name, short_id)
 	defer delete(remote_folder_name)
-	folder, f_ok := cloud_drive_ensure_folder(token, remote_folder_name, projects_folder, &api_err)
+
+	existing_folder_id := ""
+	for e in index.projects {
+		if e.id == id && e.folder_id != "" {
+			existing_folder_id = e.folder_id
+			break
+		}
+	}
+	folder := ""
+	f_ok := false
+	if existing_folder_id != "" {
+		rename_ok, not_found := cloud_drive_rename(token, existing_folder_id, remote_folder_name, &api_err)
+		if rename_ok {
+			folder = strings.clone(existing_folder_id)
+			f_ok = true
+		} else if not_found {
+			api_err = ""
+			folder, f_ok = cloud_drive_ensure_folder(token, remote_folder_name, projects_folder, &api_err)
+		} else {
+			cloud_set_error(c, api_err)
+			return
+		}
+	} else {
+		folder, f_ok = cloud_drive_ensure_folder(token, remote_folder_name, projects_folder, &api_err)
+	}
 	defer delete(folder)
 	if !f_ok {
 		cloud_set_error(c, api_err)
@@ -483,13 +514,6 @@ cloud_job_backup :: proc(c: ^Cloud, task: ^Cloud_Task) {
 	}
 	sync.atomic_store(&c.progress_done, u64(len(files)))
 
-	err := ""
-	index, index_ok := cloud_index_load(token, root, &err)
-	defer cloud_index_destroy(&index)
-	if !index_ok {
-		cloud_set_error(c, err)
-		return
-	}
 	entry := Cloud_Index_Entry {
 		id        = strings.clone(id),
 		folder_id = strings.clone(folder),

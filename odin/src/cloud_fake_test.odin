@@ -7,8 +7,12 @@ import "core:os"
 import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
+import "core:sync"
 import "core:testing"
 import "core:time"
+
+@(private)
+fake_drive_mutex: sync.Mutex
 
 Fake_Server :: struct {
 	pid: int,
@@ -116,6 +120,8 @@ fake_get_json :: proc(server: Fake_Server, path: string) -> ([]u8, bool) {
 
 @(test)
 cloud_fake_drive_roundtrip_never_touches_unrelated_files :: proc(t: ^testing.T) {
+	sync.mutex_lock(&fake_drive_mutex)
+	defer sync.mutex_unlock(&fake_drive_mutex)
 	server, sok := fake_start()
 	if !sok {
 		testing.fail_now(t, "fake Drive server did not start")
@@ -314,6 +320,149 @@ cloud_fake_drive_roundtrip_never_touches_unrelated_files :: proc(t: ^testing.T) 
 		testing.expect(t, index2.projects[1].name == "Test Project", index2.projects[1].name)
 		testing.expect(t, index2.projects[0].id != index2.projects[1].id, "cloud ids must differ")
 		testing.expect(t, index2.projects[0].folder_id != index2.projects[1].folder_id, "project folders must differ")
+	}
+
+	stats_data, stats_ok := fake_get_json(server, "/__stats")
+	testing.expect(t, stats_ok, "stats")
+	defer delete(stats_data)
+	if stats_ok {
+		Stats :: struct { deletes: int `json:"deletes"` }
+		stats: Stats
+		if json.unmarshal(stats_data, &stats) == nil {
+			testing.expect(t, stats.deletes == 0, "client issued a remote DELETE")
+		}
+	}
+}
+
+@(test)
+cloud_fake_drive_rename_reuses_folder_and_updates_index :: proc(t: ^testing.T) {
+	sync.mutex_lock(&fake_drive_mutex)
+	defer sync.mutex_unlock(&fake_drive_mutex)
+	server, sok := fake_start()
+	if !sok {
+		testing.fail_now(t, "fake Drive server did not start")
+	}
+	defer fake_stop(server)
+
+	old_api := cloud_api_base
+	old_upload := cloud_upload_base
+	cloud_api_base = fmt.aprintf("http://127.0.0.1:%d/drive/v3", server.port)
+	cloud_upload_base = fmt.aprintf("http://127.0.0.1:%d/upload/drive/v3", server.port)
+	defer {
+		delete(cloud_api_base)
+		delete(cloud_upload_base)
+		cloud_api_base = old_api
+		cloud_upload_base = old_upload
+	}
+
+	base := "/tmp/tracker-fake-drive-rename"
+	_ = os.remove_all(base)
+	_ = os.make_directory_all(base)
+	defer _ = os.remove_all(base)
+	session := fmt.tprintf("%s/session", base)
+	_ = os.make_directory_all(session)
+	testing.expect(t, os.write_entire_file(fmt.tprintf("%s/project.json", session), `{"version":1,"name":"untitled"}`) == nil, "initial project fixture")
+	testing.expect(t, os.write_entire_file(fmt.tprintf("%s/track1.wav", session), "AUDIO") == nil, "audio fixture")
+
+	c := Cloud{}
+	cloud_init(&c, fmt.tprintf("%s/cloud.json", base))
+	defer cloud_destroy(&c)
+	c.store.access_token = strings.clone("fake-token")
+	c.store.refresh_token = strings.clone("fake-refresh")
+	c.store.expires_unix = cloud_now() + 3600
+	c.store.folder_name = strings.clone("Studio")
+
+	b1 := new(Cloud_Task)
+	b1.kind = .Backup
+	b1.session_dir = strings.clone(session)
+	b1.project_name = strings.clone("untitled")
+	b1.takes = []string{}
+	defer {
+		delete(b1.session_dir)
+		delete(b1.project_name)
+		free(b1)
+	}
+	cloud_job_backup(&c, b1)
+	testing.expect(t, c.error_len == 0, string(c.error_buf[:c.error_len]))
+
+	token := "fake-token"
+	err := ""
+	root, root_ok := cloud_drive_root(token, "Studio", &err)
+	testing.expect(t, root_ok, err)
+	defer delete(root)
+	idx1, idx1_ok := cloud_index_load(token, root, &err)
+	testing.expect(t, idx1_ok, err)
+	defer cloud_index_destroy(&idx1)
+	testing.expect(t, len(idx1.projects) == 1, "one cloud project after first backup")
+	first_folder_id := strings.clone(idx1.projects[0].folder_id)
+	defer delete(first_folder_id)
+
+	// Rename locally and back up again: same Drive folder ID must be renamed in place.
+	testing.expect(t, os.write_entire_file(fmt.tprintf("%s/project.json", session), `{"version":1,"name":"Midnight Tape"}`) == nil, "renamed project fixture")
+	b2 := new(Cloud_Task)
+	b2.kind = .Backup
+	b2.session_dir = strings.clone(session)
+	b2.project_name = strings.clone("Midnight Tape")
+	b2.takes = []string{}
+	defer {
+		delete(b2.session_dir)
+		delete(b2.project_name)
+		free(b2)
+	}
+	cloud_job_backup(&c, b2)
+	testing.expect(t, c.error_len == 0, string(c.error_buf[:c.error_len]))
+
+	idx2, idx2_ok := cloud_index_load(token, root, &err)
+	testing.expect(t, idx2_ok, err)
+	defer cloud_index_destroy(&idx2)
+	testing.expect(t, len(idx2.projects) == 1, "rename must update existing cloud entry")
+	testing.expect(t, idx2.projects[0].name == "Midnight Tape", idx2.projects[0].name)
+	testing.expect(t, idx2.projects[0].folder_id == first_folder_id, "folder_id reused in place")
+
+	all_data, all_ok := fake_get_json(server, "/__all")
+	testing.expect(t, all_ok, "list fake files")
+	defer delete(all_data)
+	if all_ok {
+		All :: struct {
+			files: []struct {
+				id:   string `json:"id"`,
+				name: string `json:"name"`,
+			} `json:"files"`,
+		}
+		all: All
+		if json.unmarshal(all_data, &all) == nil {
+			untitled_folders := 0
+			renamed_folders := 0
+			for f in all.files {
+				if strings.has_prefix(f.name, "untitled-") {
+					untitled_folders += 1
+				}
+				if f.id == first_folder_id && strings.has_prefix(f.name, "Midnight-Tape-") {
+					renamed_folders += 1
+				}
+			}
+			testing.expect(t, untitled_folders == 0, "no orphaned untitled folder left behind")
+			testing.expect(t, renamed_folders == 1, "folder renamed to Midnight-Tape-<id>")
+		}
+	}
+
+	restore_root := fmt.tprintf("%s/restored", base)
+	_ = os.make_directory_all(restore_root)
+	restore := new(Cloud_Task)
+	restore.kind = .Restore
+	restore.project_id = strings.clone(idx2.projects[0].id)
+	restore.save_root = strings.clone(restore_root)
+	defer {
+		delete(restore.project_id)
+		delete(restore.save_root)
+		free(restore)
+	}
+	cloud_job_restore(&c, restore)
+	testing.expect(t, c.error_len == 0, string(c.error_buf[:c.error_len]))
+	if c.result.restored != "" {
+		pdata, perr := os.read_entire_file(fmt.tprintf("%s/project.json", c.result.restored), context.allocator)
+		defer delete(pdata)
+		testing.expect(t, perr == nil && strings.contains(string(pdata), `"Midnight Tape"`), "restored project.json has new title")
 	}
 
 	stats_data, stats_ok := fake_get_json(server, "/__stats")

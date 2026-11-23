@@ -237,6 +237,42 @@ cloud_drive_root :: proc(token, name: string, err: ^string) -> (id: string, ok: 
 	return cloud_drive_ensure_folder(token, folder_name, CLOUD_ROOT_ID, err)
 }
 
+// Renames an existing Drive file or folder in place via PATCH metadata.
+cloud_drive_rename :: proc(token, file_id, new_name: string, err: ^string) -> (ok: bool, not_found: bool) {
+	dir := cloud_temp_dir()
+	defer delete(dir)
+	meta := struct {
+		name: string `json:"name"`,
+	}{new_name}
+	data, merr := json.marshal(meta)
+	if merr != nil {
+		err^ = fmt.aprintf("cannot encode rename: %v", merr)
+		return false, false
+	}
+	defer delete(data)
+	body := cloud_write_temp(dir, "rename", data)
+	if body == "" {
+		err^ = strings.clone("cannot prepare cloud request")
+		return false, false
+	}
+	defer delete(body)
+	defer os.remove(body)
+	auth := fmt.aprintf("Authorization: Bearer %s", token)
+	defer delete(auth)
+	headers := []string{auth, "Content-Type: application/json; charset=UTF-8"}
+	url := fmt.tprintf("%s/files/%s?fields=id,name", cloud_api_base, file_id)
+	res := cloud_curl_request("PATCH", url, headers, body_file = body, max_time = 60)
+	defer cloud_curl_destroy(&res)
+	if !res.ok {
+		if strings.contains(string(res.headers), " 404 ") {
+			return false, true
+		}
+		err^ = cloud_error_text(&res)
+		return false, false
+	}
+	return true, false
+}
+
 // ---------------------------------------------------------------- upload / download
 
 cloud_drive_upload :: proc(token, local_path, name, parent, existing_id: string, progress_name: ^string) -> (ok: bool, err: string) {

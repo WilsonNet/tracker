@@ -79,10 +79,16 @@ text_snap :: proc(s: string, i: int) -> int {
 	return j
 }
 
-// Active settings buffer. Palette/recent have their own append query model.
+// Active editable buffer (inline project title or settings form fields).
 @(private)
 text_active :: proc(a: ^App) -> (buf: []u8, len_out: ^int, ok: bool) {
-	if a == nil || a.mode != .Settings {
+	if a == nil || (a.mode != .Settings && a.mode != .Normal) {
+		return nil, nil, false
+	}
+	if a.project_name_edit {
+		return a.project_name_draft[:], &a.project_name_draft_len, true
+	}
+	if a.mode != .Settings {
 		return nil, nil, false
 	}
 	if a.settings_path_edit {
@@ -101,49 +107,69 @@ text_active :: proc(a: ^App) -> (buf: []u8, len_out: ^int, ok: bool) {
 	return nil, nil, false
 }
 
-// Settings form order used by Tab and by the view's pointer hit testing.
+// Editable field order used by Tab and by pointer hit testing.
 text_field_index :: proc(a: ^App) -> int {
-	if a == nil || a.mode != .Settings {
+	if a == nil || (a.mode != .Settings && a.mode != .Normal) {
+		return -1
+	}
+	if a.project_name_edit {
+		return 0
+	}
+	if a.mode != .Settings {
 		return -1
 	}
 	if a.settings_path_edit {
-		return 0
+		return 1
 	}
 	switch a.cloud_edit {
 	case .Folder:
-		return 1
-	case .Client_ID:
 		return 2
-	case .Client_Secret:
+	case .Client_ID:
 		return 3
+	case .Client_Secret:
+		return 4
 	case .None:
 	}
 	return -1
 }
 
-// Starts editing the field at `index` (0..3) without clearing drafts in the
+// Starts editing the field at `index` (0..4) without clearing drafts in the
 // other fields. The selection item follows so j/k and Tab stay in sync.
 text_field_begin :: proc(a: ^App, index: int) {
-	if a == nil || a.mode != .Settings {
+	if a == nil {
+		return
+	}
+	if a.mode == .Normal {
+		if index == 0 && !a.project_name_edit {
+			app_project_begin_edit(a, false)
+		}
+		return
+	}
+	if a.mode != .Settings {
 		return
 	}
 	switch index {
 	case 0:
+		a.settings_sel = .Project_Name
+		if !a.project_name_edit {
+			app_project_begin_edit(a, false)
+		}
+	case 1:
 		a.settings_sel = .Path
 		if !a.settings_path_edit {
 			app_settings_begin_edit(a)
 		}
-	case 1:
+	case 2:
 		a.settings_sel = .Cloud_Folder
 		if a.cloud_edit != .Folder {
 			app_cloud_begin_edit(a, .Folder)
 		}
-	case 2:
+	case 3:
 		a.settings_sel = .Cloud_Client_ID
 		if a.cloud_edit != .Client_ID {
 			app_cloud_begin_edit(a, .Client_ID)
 		}
-	case 3:
+	case 4:
 		a.settings_sel = .Cloud_Client_Secret
 		if a.cloud_edit != .Client_Secret {
 			app_cloud_begin_edit(a, .Client_Secret)

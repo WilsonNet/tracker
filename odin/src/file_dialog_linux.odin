@@ -8,6 +8,11 @@ import "core:strings"
 
 @(private)
 run_dialog :: proc(argv: []string) -> (string, bool) {
+	hidden := os.get_env("VUI_HIDDEN", context.allocator)
+	defer delete(hidden)
+	if hidden == "1" {
+		return "", false
+	}
 	command := argv
 	forced: [dynamic]string
 	defer delete(forced)

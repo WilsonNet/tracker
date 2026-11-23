@@ -1637,6 +1637,7 @@ ui_settings_edits_and_applies_project_folder :: proc(t: ^testing.T) {
 	testing.expect(t, a.mode == .Settings, "settings mode")
 	testing.expect(t, app_settings_path(&a) == "/tmp/tracker-ui-settings", "path seeded from save dir")
 
+	app_key(&a, .Down)
 	app_key(&a, .Enter)
 	testing.expect(t, a.settings_path_edit, "enter starts editing")
 	suffix := "/studio"
@@ -1661,12 +1662,16 @@ ui_settings_keyboard_selection_reaches_every_row :: proc(t: ^testing.T) {
 	app_init(&a, 1180, 760)
 	defer app_destroy(&a)
 	app_execute(&a, .Settings)
-	testing.expect(t, a.settings_sel == .Path, "starts on path")
+	testing.expect(t, a.settings_sel == .Project_Name, "starts on project name")
 
+	app_key(&a, .Down)
+	testing.expect(t, a.settings_sel == .Path, "down moves to path")
 	app_key(&a, .Down)
 	testing.expect(t, a.settings_sel == .Browse, "down moves to browse")
 	app_key(&a, .Char, 'k')
 	testing.expect(t, a.settings_sel == .Path, "k moves up")
+	app_key(&a, .Char, 'k')
+	testing.expect(t, a.settings_sel == .Project_Name, "k reaches project name")
 
 	for _ in 0 ..< int(Settings_Item.High_Contrast) {
 		app_key(&a, .Down)
@@ -1683,7 +1688,7 @@ ui_settings_keyboard_selection_reaches_every_row :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, a.settings_sel == .Cloud_Restore, "reached cloud restore")
 	app_key(&a, .Down)
-	testing.expect(t, a.settings_sel == .Path, "selection wraps")
+	testing.expect(t, a.settings_sel == .Project_Name, "selection wraps")
 }
 
 @(test)
@@ -1693,6 +1698,7 @@ ui_settings_escape_cancels_path_edit :: proc(t: ^testing.T) {
 	defer app_destroy(&a)
 	app_set_save_dir(&a, "/tmp/tracker-ui-cancel")
 	app_execute(&a, .Settings)
+	app_key(&a, .Down)
 	app_key(&a, .Enter)
 	app_key(&a, .Char, 'x')
 	testing.expect(t, app_settings_path(&a) != app_save_dir(&a), "edit changed path")
@@ -1709,6 +1715,7 @@ ui_settings_escape_cancels_path_edit :: proc(t: ^testing.T) {
 	// Closing the overlay while editing must clear the edit flag so the
 	// window stops redrawing the caret.
 	app_execute(&a, .Settings)
+	app_key(&a, .Down)
 	app_key(&a, .Enter)
 	testing.expect(t, a.settings_path_edit, "entered edit")
 	app_settings_close(&a)
@@ -1770,6 +1777,7 @@ ui_paste_fills_cloud_and_project_fields :: proc(t: ^testing.T) {
 	app_set_save_dir(&a, "")
 
 	app_execute(&a, .Settings)
+	app_key(&a, .Down)
 	app_key(&a, .Enter)
 	app_paste_text(&a, "/tmp/pasted project\n")
 	testing.expect(t, app_settings_path(&a) == "/tmp/pasted project", app_settings_path(&a))
@@ -1808,6 +1816,7 @@ ui_cloud_edit_select_all_replaces_and_backspace_keeps_utf8 :: proc(t: ^testing.T
 	defer app_destroy(&a)
 	app_set_save_dir(&a, "/tmp/café")
 	app_execute(&a, .Settings)
+	app_key(&a, .Down)
 
 	app_key(&a, .Enter)
 	testing.expect(t, app_settings_path(&a) == "/tmp/café", app_settings_path(&a))
@@ -1868,6 +1877,7 @@ ui_input_switch_click_tab_preserves_drafts :: proc(t: ^testing.T) {
 	app_execute(&a, .Settings)
 
 	// Click path, then click Client ID: path draft survives and edit switches.
+	app_key(&a, .Down)
 	app_key(&a, .Enter)
 	app_select_all_text(&a)
 	app_paste_text(&a, "/tmp/switch-draft")
@@ -1896,7 +1906,11 @@ ui_input_switch_click_tab_preserves_drafts :: proc(t: ^testing.T) {
 	app_key(&a, .Tab, 0, false)
 	testing.expect(t, a.cloud_edit == .Client_Secret, "tab -> secret")
 	app_key(&a, .Tab, 0, false)
-	testing.expect(t, a.settings_path_edit, "tab wraps -> path")
+	testing.expect(t, a.project_name_edit, "tab wraps -> project name")
+	app_key(&a, .Tab, 0, false)
+	testing.expect(t, a.settings_path_edit, "tab -> path")
+	app_key(&a, .Tab, 0, true)
+	testing.expect(t, a.project_name_edit, "shift-tab -> project name")
 	app_key(&a, .Tab, 0, true)
 	testing.expect(t, a.cloud_edit == .Client_Secret, "shift-tab -> secret")
 
@@ -1916,6 +1930,7 @@ ui_text_caret_selection_and_word_navigation :: proc(t: ^testing.T) {
 	defer app_destroy(&a)
 	app_set_save_dir(&a, "/home/user/takes")
 	app_execute(&a, .Settings)
+	app_key(&a, .Down)
 	app_key(&a, .Enter)
 
 	// Caret starts at the end; plain arrows collapse/move, Shift extends.
@@ -1953,6 +1968,7 @@ ui_text_delete_backspace_and_word_ops :: proc(t: ^testing.T) {
 	defer app_destroy(&a)
 	app_set_save_dir(&a, "/tmp/café/session")
 	app_execute(&a, .Settings)
+	app_key(&a, .Down)
 	app_key(&a, .Enter)
 
 	// Delete forward removes a whole UTF-8 rune.
@@ -1988,6 +2004,7 @@ ui_text_copy_cut_paste_undo_redo :: proc(t: ^testing.T) {
 	defer app_destroy(&a)
 	app_set_save_dir(&a, "/tmp/original")
 	app_execute(&a, .Settings)
+	app_key(&a, .Down)
 	app_key(&a, .Enter)
 
 	// Copy leaves the buffer alone; cut removes and can be undone.
@@ -2114,4 +2131,101 @@ ui_runtime_text_is_deterministic :: proc(t: ^testing.T) {
 			return
 		}
 	}
+}
+
+@(test)
+ui_project_inline_rename_commits_trims_and_rejects_empty :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	testing.expect(t, app_project(&a) == "untitled", "starts untitled")
+
+	// `n` enters inline rename with the current title selected so typing replaces it cleanly.
+	app_key(&a, .Char, 'n')
+	testing.expect(t, a.project_name_edit, "n starts inline rename")
+	testing.expect(t, app_text_editing(&a), "app_text_editing true during inline rename")
+	testing.expect(t, a.edit_select_all, "existing title preselected")
+
+	title := "  Midnight Tape  "
+	for i in 0 ..< len(title) {
+		ch := title[i]
+		if ch == ' ' {
+			app_key(&a, .Space, ' ')
+		} else {
+			app_key(&a, .Char, ch)
+		}
+	}
+	testing.expectf(t, app_project_draft(&a) == "  Midnight Tape  ", "draft %q", app_project_draft(&a))
+	app_key(&a, .Enter)
+	testing.expect(t, !a.project_name_edit, "enter finishes rename")
+	testing.expectf(t, app_project(&a) == "Midnight Tape", "trimmed title %q", app_project(&a))
+	testing.expect(t, a.last_command == .Apply_Project_Name, "emits Apply_Project_Name")
+	testing.expect(t, a.dirty, "marks project dirty")
+
+	// Empty / whitespace-only title stays in edit mode and refuses to overwrite.
+	app_key(&a, .Char, 'n')
+	app_key(&a, .Space, ' ')
+	app_key(&a, .Space, ' ')
+	app_key(&a, .Enter)
+	testing.expect(t, a.project_name_edit, "empty commit keeps edit active")
+	testing.expect(t, app_project(&a) == "Midnight Tape", "empty commit keeps prior title")
+	testing.expect(t, app_status(&a) == "project name cannot be empty", app_status(&a))
+
+	// Esc cancels cleanly and restores the previous title.
+	app_key(&a, .Escape)
+	testing.expect(t, !a.project_name_edit, "esc cancels inline rename")
+	testing.expect(t, app_project(&a) == "Midnight Tape", "esc keeps prior title")
+	testing.expect(t, app_project_draft(&a) == "Midnight Tape", "esc syncs draft")
+
+	// Command palette ": rename project" enters rename and supports paste + Ctrl+Z undo / Ctrl+Y redo.
+	app_key(&a, .Char, ':')
+	rename_q := "rename"
+	for i in 0 ..< len(rename_q) {
+		app_key(&a, .Char, rename_q[i])
+	}
+	app_key(&a, .Enter)
+	testing.expect(t, a.project_name_edit, "palette rename project enters edit")
+	app_paste_text(&a, "Second Session")
+	testing.expect(t, app_project_draft(&a) == "Second Session", app_project_draft(&a))
+	app_key(&a, .Char, 'z', false, true)
+	testing.expect(t, app_project_draft(&a) == "Midnight Tape", "ctrl+z undoes paste")
+	app_key(&a, .Char, 'y', false, true)
+	testing.expect(t, app_project_draft(&a) == "Second Session", "ctrl+y redoes paste")
+	app_select_all_text(&a)
+	testing.expect(t, a.edit_select_all, "ctrl+a selects all in inline rename")
+	app_key(&a, .Enter)
+	testing.expect(t, app_project(&a) == "Second Session", "final commit")
+}
+
+@(test)
+ui_project_rename_in_settings_and_cloud_overlay :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	app_execute(&a, .Settings)
+	testing.expect(t, a.settings_sel == .Project_Name, "settings opens on project name")
+	app_key(&a, .Enter)
+	testing.expect(t, a.project_name_edit, "enter edits project name in settings")
+	app_select_all_text(&a)
+	app_paste_text(&a, "Draft Album")
+	app_key(&a, .Escape)
+	testing.expect(t, a.project_name_edit && a.edit_confirm, "settings first esc asks")
+	app_key(&a, .Escape)
+	testing.expect(t, !a.project_name_edit && app_project(&a) == "untitled", "second esc cancels settings rename")
+
+	app_key(&a, .Enter)
+	app_select_all_text(&a)
+	app_paste_text(&a, "Album Cut 1")
+	// Triggering Cloud_Backup while a Settings name draft is pending commits the new name automatically.
+	app_execute(&a, .Cloud_Backup)
+	testing.expect(t, app_project(&a) == "Album Cut 1", app_project(&a))
+	testing.expect(t, !a.project_name_edit, "cloud backup clears edit state")
+
+	// Cloud overlay `n` launches inline rename directly.
+	app_execute(&a, .Cloud)
+	testing.expect(t, a.mode == .Cloud, "cloud mode")
+	app_key(&a, .Char, 'n')
+	testing.expect(t, a.mode == .Normal && a.project_name_edit, "n from cloud starts inline rename")
 }

@@ -1248,7 +1248,8 @@ view_status :: proc(a: ^App) {
 	if vui.div("flex shrink-0 items-center gap-2 border-t border-line bg-panel px-4 py-1 text-[11px] text-ink-muted") {
 		mode, mcls := status_mode(a)
 		vui.text(mode if a.mode != .Palette else ":", vui.cx("rounded-[2px] px-2 py-px text-[10px] font-bold leading-[1.5] tracking-[0.08em]", mcls))
-		if a.mode == .Settings && (a.settings_path_edit || a.cloud_edit != .None) {
+		if (a.mode == .Settings && (a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None)) ||
+		   (a.mode == .Normal && a.project_name_edit) {
 			vui.text("EDIT", "rounded-[2px] bg-sig px-2 py-px text-[10px] font-bold leading-[1.5] tracking-[0.08em] text-canvas")
 		}
 		vui.text(app_status(a), "flex-1 truncate text-ink-dim")
@@ -1258,8 +1259,26 @@ view_status :: proc(a: ^App) {
 		if a.transport == .Recording {
 			vui.text(fmt.tprintf("● REC %d", arm_count(a)), "rounded-[2px] bg-rec px-2 py-px text-[10px] font-semibold tracking-[0.05em] text-ink")
 		}
-		vui.text(fmt.tprintf("%s · %s%s · %d kHz", app_project(a), app_device(a), " · JACK" if a.jack_backend else "", a.sample_rate / 1000), "truncate text-ink-muted")
-		hint := "j/k: nav  J/K: vol  : command"
+		if a.mode == .Normal && a.project_name_edit {
+			if vui.div("flex w-[200px] shrink-0 cursor-text items-center gap-1.5 rounded-[2px] border border-sig bg-canvas px-2 py-px") {
+				if vui.div("relative min-w-0 flex-1 cursor-text overflow-hidden") {
+					text_field_view(a, 0, app_project_draft(a), false, true, "untitled", vui.prev_rect())
+				}
+				vui.text("ALL" if a.edit_select_all else "EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+			}
+			vui.text(fmt.tprintf("· %s%s · %d kHz", app_device(a), " · JACK" if a.jack_backend else "", a.sample_rate / 1000), "truncate text-ink-muted")
+		} else {
+			if vui.div("flex min-w-0 items-center") {
+				if vui.div("shrink-0 cursor-text text-ink-muted transition-colors duration-150 hover:text-ink") {
+					vui.text(app_project(a), "whitespace-pre")
+					if vui.clicked() && a.mode == .Normal {
+						app_project_begin_edit(a, true)
+					}
+				}
+				vui.text(fmt.tprintf(" · %s%s · %d kHz", app_device(a), " · JACK" if a.jack_backend else "", a.sample_rate / 1000), "truncate text-ink-muted")
+			}
+		}
+		hint := "type: project name  enter: save  esc: cancel" if (a.mode == .Normal && a.project_name_edit) else "j/k: nav  J/K: vol  : command"
 		#partial switch a.mode {
 		case .Fx:
 			hint = "tab: focus  h/l: adjust  x: close"
@@ -1270,13 +1289,15 @@ view_status :: proc(a: ^App) {
 		case .Settings:
 			if a.edit_confirm {
 				hint = "unsaved: enter apply · esc again discard"
+			} else if a.project_name_edit {
+				hint = "type: project name  enter: save  esc: leave…"
 			} else if a.cloud_edit != .None {
 				hint = "type: edit credential  enter: save  esc: leave…"
 			} else {
 				hint = "type: edit path  enter: apply  esc: leave…" if a.settings_path_edit else "j/k: select  enter: run  b: browse  esc: close"
 			}
 		case .Cloud:
-			hint = "enter: restore  u: back up  r: refresh  esc: close"
+			hint = "enter: restore  u: back up  n: rename  r: refresh  esc: close"
 		case .Render:
 			hint = "drag: trim  j/k: row  h/l: nudge  enter: render  esc: close"
 		}
@@ -1306,6 +1327,7 @@ view_rhythm :: proc(a: ^App) {
 				app_execute(a, .Redo)
 			}
 			if vui.button(":", "rounded-[2px] border border-line px-2 py-0.5 text-[11px] font-bold text-sig hover:bg-sig-bg") {
+				project_edit_clear(a)
 				a.mode = .Palette
 				a.palette_len = 0
 				a.palette_sel = 0
@@ -1514,8 +1536,36 @@ view_settings :: proc(a: ^App, v: ^View) {
 				vui.text("ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
 			}
 
+			// ── project ───────────────────────────────────────────────
+			vui.text("PROJECT", "text-[10px] font-semibold tracking-[0.12em] text-ink-muted")
+			vui.text("Project name", "text-[12px] font-medium text-ink")
+			name_editing := a.project_name_edit
+			name_changed := app_project_draft(a) != app_project(a)
+			name_selected := a.settings_sel == .Project_Name
+			if vui.div(vui.cx("flex w-full cursor-text items-center gap-2 rounded-[2px] border bg-canvas px-3 py-2 text-left", name_editing ? "border-sig" : name_selected ? "border-sig ring-2 ring-sig" : "border-line hover:border-sig-dim")) {
+				if vui.div("relative min-w-0 flex-1 cursor-text overflow-hidden") {
+					text_field_view(a, 0, app_project_draft(a), false, name_editing, "untitled", vui.prev_rect())
+				}
+				name_editing = a.project_name_edit
+				if name_editing {
+					vui.text("ALL" if a.edit_select_all else "EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+				} else {
+					vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
+				}
+				if vui.clicked() {
+					a.settings_sel = .Project_Name
+					if !name_editing {
+						app_project_begin_edit(a, false)
+					}
+				}
+			}
+			vui.text("Saved in project.json and used for Google Drive backups.", "text-[10px] text-ink-muted")
+			if name_changed && !name_editing {
+				vui.text("Edited · press Enter to save.", "text-[10px] text-sig")
+			}
+
 			// ── storage ───────────────────────────────────────────────
-			vui.text("STORAGE", "text-[10px] font-semibold tracking-[0.12em] text-ink-muted")
+			vui.text("STORAGE", SETTINGS_HEAD)
 			vui.text("Project folder", "text-[12px] font-medium text-ink")
 			editing := a.settings_path_edit
 			changed := app_settings_path(a) != app_save_dir(a)
@@ -1526,7 +1576,7 @@ view_settings :: proc(a: ^App, v: ^View) {
 			if vui.div(vui.cx("flex w-full cursor-text items-center gap-2 rounded-[2px] border bg-canvas px-3 py-2 text-left", editing ? "border-sig" : path_selected ? "border-sig ring-2 ring-sig" : "border-line hover:border-sig-dim")) {
 				vui.text("$", "text-[12px] font-bold text-sig")
 				if vui.div("relative min-w-0 flex-1 cursor-text overflow-hidden") {
-					text_field_view(a, 0, app_settings_path(a), false, editing, "not set", vui.prev_rect())
+					text_field_view(a, 1, app_settings_path(a), false, editing, "not set", vui.prev_rect())
 				}
 				editing = a.settings_path_edit
 				if editing {
@@ -1610,7 +1660,7 @@ view_settings :: proc(a: ^App, v: ^View) {
 			if vui.div(vui.cx("flex cursor-text items-center gap-2 rounded-[2px] border px-2 py-1", folder_editing || folder_selected ? "border-sig" : "border-line")) {
 				vui.text("Drive folder", "w-28 shrink-0 text-[11px] text-ink-dim")
 				if vui.div("relative min-w-0 flex-1 cursor-text overflow-hidden") {
-					text_field_view(a, 1, app_cloud_folder(a), false, folder_editing, "Tracker", vui.prev_rect())
+					text_field_view(a, 2, app_cloud_folder(a), false, folder_editing, "Tracker", vui.prev_rect())
 				}
 				folder_editing = a.cloud_edit == .Folder
 				if folder_editing {
@@ -1633,7 +1683,7 @@ view_settings :: proc(a: ^App, v: ^View) {
 			if vui.div(vui.cx("flex cursor-text items-center gap-2 rounded-[2px] border px-2 py-1", client_editing || client_selected ? "border-sig" : "border-line")) {
 				vui.text("Client ID", "w-28 shrink-0 text-[11px] text-ink-dim")
 				if vui.div("relative min-w-0 flex-1 cursor-text overflow-hidden") {
-					text_field_view(a, 2, app_cloud_client_id(a), false, client_editing, "not set", vui.prev_rect())
+					text_field_view(a, 3, app_cloud_client_id(a), false, client_editing, "not set", vui.prev_rect())
 				}
 				client_editing = a.cloud_edit == .Client_ID
 				if client_editing {
@@ -1656,7 +1706,7 @@ view_settings :: proc(a: ^App, v: ^View) {
 			if vui.div(vui.cx("flex cursor-text items-center gap-2 rounded-[2px] border px-2 py-1", secret_editing || secret_selected ? "border-sig" : "border-line")) {
 				vui.text("Client secret", "w-28 shrink-0 text-[11px] text-ink-dim")
 				if vui.div("relative min-w-0 flex-1 cursor-text overflow-hidden") {
-					text_field_view(a, 3, app_cloud_client_secret(a), true, secret_editing, "not set", vui.prev_rect())
+					text_field_view(a, 4, app_cloud_client_secret(a), true, secret_editing, "not set", vui.prev_rect())
 				}
 				secret_editing = a.cloud_edit == .Client_Secret
 				if secret_editing {
@@ -1781,6 +1831,18 @@ view_cloud :: proc(a: ^App) {
 				vui.text("Google Drive · hidden app data", "text-[11px] text-ink-muted")
 				vui.text("ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
 			}
+			if vui.div("flex items-center gap-2 rounded-[2px] border border-line-subtle bg-canvas px-2.5 py-1.5") {
+				vui.text("Project", "text-[11px] text-ink-muted")
+				vui.text(app_project(a), "min-w-0 flex-1 truncate text-[12px] font-medium text-ink")
+				if vui.button("RENAME", vui.cx(BBTN, "px-2 py-0.5 text-[10px] border-line text-ink-dim hover:border-sig-dim hover:bg-panel-hover hover:text-ink")) {
+					app_execute(a, .Rename_Project)
+				}
+				if a.cloud_connected && !a.cloud_busy {
+					if vui.button("BACK UP", vui.cx(BBTN, "px-2 py-0.5 text-[10px] border-line-sig text-sig hover:bg-sig-bg")) {
+						app_execute(a, .Cloud_Backup)
+					}
+				}
+			}
 			if !a.cloud_connected {
 				vui.text("Connect Google Drive in Settings before restoring.", "text-[12px] text-ink-dim")
 				if vui.button("OPEN SETTINGS", vui.cx(BBTN, "border-line-sig text-sig hover:bg-sig-bg")) {
@@ -1830,7 +1892,7 @@ view_cloud :: proc(a: ^App) {
 					vui.text(fmt.tprintf("%d project%s · last backup %s", a.cloud_project_count, "" if a.cloud_project_count == 1 else "s", cloud_time_text(a.cloud_last_sync)), "text-[10px] text-ink-muted")
 				}
 			}
-			vui.text("ENTER restore   U back up   R refresh   ESC close", "whitespace-pre pt-1 text-[11px] text-ink-muted")
+			vui.text("ENTER restore   U back up   N rename   R refresh   ESC close", "whitespace-pre pt-1 text-[11px] text-ink-muted")
 		}
 	}
 }

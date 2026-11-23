@@ -29,14 +29,19 @@ Push logic into the model/engine and keep `view.odin` a pure render of `App`. Ne
 ## Text editing
 
 SDL key events are consumed before vinland sees them, so Tracker owns text
-entry. Clicking a text field enters **EDIT**; `Enter` applies/saves and `Esc`
-asks once before discarding (`Esc` again cancels). Clicking another field or
-`Tab`/`Shift+Tab` switches text inputs without losing drafts; the form stays in
-EDIT until your explicit save/cancel. The fields carry a real caret and anchor:
-click places it, drag selects, Shift+click extends, double-click selects a
-word and triple-click selects all. Arrows/Home/End move it, `Ctrl+arrow` moves
-by word, `Ctrl+Backspace`/`Delete` delete words, and `Ctrl+C`/`X`/`V`/`Z`/`Y`
-(plus `Shift+Insert`, `Shift+Delete`, `Ctrl+Insert`) use the desktop clipboard.
+entry. Clicking the project title in the status bar (or pressing `n` / running
+`: rename project` / opening Settings `PROJECT` / clicking `RENAME` in Cloud
+projects) enters inline or form **EDIT**; `Enter` saves (`project.json` +
+window title + next Google Drive backup), while `Esc` cancels inline or asks
+once before discarding in Settings (`Esc` again cancels). Clicking a text field
+enters **EDIT**; `Enter` applies/saves and `Esc` asks once before discarding
+(`Esc` again cancels). Clicking another field or `Tab`/`Shift+Tab` switches
+text inputs without losing drafts; the form stays in EDIT until your explicit
+save/cancel. The fields carry a real caret and anchor: click places it, drag
+selects, Shift+click extends, double-click selects a word and triple-click
+selects all. Arrows/Home/End move it, `Ctrl+arrow` moves by word,
+`Ctrl+Backspace`/`Delete` delete words, and `Ctrl+C`/`X`/`V`/`Z`/`Y` (plus
+`Shift+Insert`, `Shift+Delete`, `Ctrl+Insert`) use the desktop clipboard.
 `Ctrl+A` selects all and the next type/paste/backspace replaces it. Paste goes
 through `vapp.clipboard_read` and `ui.app_paste_text`; mirror the same path in
 `window_synthetic_keys` so `vui-ctl` behaves like the real keyboard. Synthetic
@@ -44,6 +49,8 @@ keys reach vinland's input even though real SDL keys are consumed, so clear
 vinland focus while a text field is editing or Tab/Enter can activate a button.
 Credential fields reject spaces and secrets always render as `*`, including
 while editing. Never put tokens in argv; clipboard helpers use fixed commands.
+Native file pickers (`file_dialog_{linux,darwin}.odin`) return `"", false` when
+`VUI_HIDDEN=1` so headless/e2e runs never pop OS dialogs onto the desktop.
 
 ## Feedback Loop (Critical)
 

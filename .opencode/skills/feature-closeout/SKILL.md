@@ -22,8 +22,8 @@ make build                 # must be green (the vui.init stack warning is known)
 make test-dsp              # DSP only
 make test-core             # engine / project / WAV / CLI
 make test-ui               # UI state, layout, HiDPI, PNG
-make test                  # all 271 unit tests (counts live in README/VERIFICATION)
-make e2e                   # 18 headless vinland-ui window cases
+make test                  # all 274 (Linux) / 268 (macOS) unit tests (counts live in README/VERIFICATION)
+make e2e                   # 20 headless vinland-ui window cases
 make check                 # tests + 220-action UI tour + offline bounce + format checks
 ```
 
@@ -348,3 +348,10 @@ message state:
   removal.
 - The Odin test counts are part of the docs contract; update every count when
   adding tests.
+
+### Project titling & headless dialog suppression (2026-11-23)
+
+- `text_field_view` + `text_edit.odin` can drive both Settings form fields and inline Normal-mode status-bar editing cleanly once `text_active` / `app_text_editing` / `window_synthetic_keys` / `ui_window.odin` redraw checks share the same predicate.
+- Package-global fake-server endpoints in `cloud_fake_test.odin` (`cloud_api_base`, `cloud_upload_base`) must be serialized with a mutex because `odin test` runs package tests across multiple threads.
+- Gate native OS file/folder pickers (`file_dialog_{linux,darwin}.odin`) on `VUI_HIDDEN=1` returning `"", false` so headless automation never pops OS dialogs onto the desktop.
+- In `tests/ui/window.vt`, give `view_settings` scroll-into-view `wait 15` before clicking a newly revealed row (`Client ID`) so `vui`'s animated `scroll_to` finishes moving the target rect before `click-text`.

@@ -36,7 +36,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | Comp regions + comp renderer | done | equal-power joins, CLI `comp` |
 | Whole-take comping in UI | done | palette “comp active take” |
 | Latency/a11y settings persisted | done | project fields + `settings.json` |
-| Settings overlay: project folder, audio, a11y, cloud | done | `vui-ctl`, settings tests, 18-case e2e |
+| Settings overlay: project name/folder, audio, a11y, cloud | done | `vui-ctl`, settings tests, 20-case e2e |
+| Project titling (status bar inline, `n`, `: rename project`, Settings, Cloud, Drive rename-in-place) | done | `vui-ctl`, `project.json` persistence, fake-Drive rename test, 20-case e2e |
 | Folder picker starts with sibling projects visible | done | `dialog_start_dir` unit test |
 | Text fields: caret, selection, click/drag/double/triple, clipboard, undo | done | native `vui-ctl` geometry + 4 UI tests + e2e case |
 | Google Drive backup/restore (`drive.file`, visible named folder) | done | live Google round-trip, innocent-file guard, fake-Drive no-delete tests |
@@ -47,7 +48,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | item | status | evidence |
 |---|---|---|
 | vinland-ui window (SDL3 Metal/Vulkan + GL), DESIGN.md palette | done | Hyprland/Vulkan (Linux), Cocoa/Metal + OpenGL (macOS), `vui-ctl` screenshots |
-| macOS port (Apple Silicon, CoreAudio, Metal + GL, `osascript`) | done | `PLATFORMS.md`, 265 unit tests, `make check`, 18/18 `e2e`, Scarlett 4i4 USB 2ch/6ch capture + UI monitor |
+| macOS port (Apple Silicon, CoreAudio, Metal + GL, `osascript`) | done | `PLATFORMS.md`, 268 unit tests, `make check`, 20/20 `e2e`, Scarlett 4i4 USB 2ch/6ch capture + UI monitor |
 | SDL2 window, software canvas | replaced | superseded by vinland-ui |
 | 4 track strips, master, meters, GR | done | 220-action tour |
 | Arm preview: live input meter + history before REC | done | `vui-ctl` screenshots, preview tests |
@@ -79,8 +80,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **271** (71 DSP, 129 core/engine/project/cloud, 71 UI) |
-| UI e2e | 18 headless vinland-ui cases |
+| unit tests | **274** Linux / **268** macOS (71 DSP, 130/124 core/engine/project/cloud, 73 UI) |
+| UI e2e | 20 headless vinland-ui cases |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |
 | hardware capture | 96,000 frames / 2.000 s |

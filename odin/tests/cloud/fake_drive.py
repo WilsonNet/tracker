@@ -141,6 +141,14 @@ class Handler(BaseHTTPRequestHandler):
             sid = secrets.token_hex(8)
             SESSIONS[sid] = {"id": fid}
             return self._send(200, b"", {"Location": f"http://127.0.0.1:{self.server.server_port}/upload-session/{sid}"})
+        if path.startswith("/drive/v3/files/"):
+            fid = path.rsplit("/", 1)[-1]
+            if fid not in FILES:
+                return self._send(404, json_bytes({"error": {"message": "missing file"}}))
+            meta = json.loads(body or b"{}")
+            if "name" in meta:
+                FILES[fid]["name"] = meta["name"]
+            return self._send(200, json_bytes(self._file_json(FILES[fid])))
         self._send(404, json_bytes({"error": {"message": "not found"}}))
 
     def do_GET(self):
