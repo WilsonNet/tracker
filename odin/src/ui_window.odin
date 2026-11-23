@@ -20,6 +20,9 @@ Window_State :: struct {
 	a: ^ui.App,
 }
 
+@(private)
+TRACKER_ICON_PNG := #load("../assets/tracker.png")
+
 run_ui_window :: proc(args: []string) -> bool {
 	width := flag_int(args, "--width", 1180)
 	height := flag_int(args, "--height", 760)
@@ -47,6 +50,7 @@ run_ui_window :: proc(args: []string) -> bool {
 		scale        = scale,
 		app_id       = "tracker", // Hyprland rule: open on the silent special workspace
 		control_port = flag_int(args, "--control-port", 0),
+		icon_png     = TRACKER_ICON_PNG,
 	}
 	if !vapp.init(&va, cfg, ctx) {
 		return false
