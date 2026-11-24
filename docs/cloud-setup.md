@@ -73,7 +73,7 @@ My Drive/
     projects/
       My-Song-a1b2c3/         <- name + short cloud id
         project.json
-        track1.wav ... track4.wav
+        track1.wav ... trackN.wav   (N = the project's track count, up to 24)
         take files
         bounce.wav
         .tracker-cloud-id

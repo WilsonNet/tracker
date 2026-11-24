@@ -169,10 +169,15 @@ The − / + glyphs must sit on the vertical centre of the 28px box.
 
 | key | expected |
 |---|---|
-| j / k, ↑ / ↓ | selection left / right (k past track 4 selects the master: "MST" turns amber with a ring) |
+| j / k, ↑ / ↓ | selection left / right (k past the last track selects the master: "MST" turns amber with a ring; the visible window follows) |
 | Tab / Shift-Tab | next / previous strip including master |
 | J / K | selected fader ∓0.05 |
-| a, 1-4 | arm selected / arm track n (and select it) |
+| a, 1-9 | arm selected / arm track n if it exists (and select it) |
+| N / D | add a track / remove the last empty track (4–24) |
+| { } / ( ) | show fewer / more strips; previous / next page |
+| v / V | mark selected for bounce / open bounce-to-track dialog (j/k target, Enter run, Esc cancel) |
+| R | rename selected track inline (Enter save, Esc cancel, empty = default) |
+| F1 | contextual key sheet; F1 or Esc closes; other keys ignored |
 | s / m | solo / mute selected |
 | I | cycle selected input |
 | ← / → | pan ∓5 % |

@@ -24,15 +24,15 @@ Measured on Linux (Arch Linux, PipeWire 1.6.11, Odin `dev-2026-11-nightly`, 2026
 |---|---|---|
 | clean build | `make clean && make build` | ≈0.8 s |
 | DSP | `odin test src/dsp` | **71 passed** |
-| engine / project / WAV / RF64 / takes / CLI / settings / cloud | `odin test src` | **129 passed** |
-| UI state, layout, HiDPI, harness zoom, PNG | `odin test src/ui` | **71 passed** |
+| engine / project / WAV / RF64 / takes / CLI / settings / cloud | `odin test src` | **138 passed** |
+| UI state, layout, HiDPI, harness zoom, PNG | `odin test src/ui` | **81 passed** |
 | native renderer | vinland-ui SDL3 + Vulkan/GL | JetBrains Mono, canvas charts, `vui-ctl` screenshots |
 | harness renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
 | charts | level history + 5 FX response graphs | 17 screenshots inspected |
 | static checks | `odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` | clean |
 | packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
-Total: **271 unit tests**.
+Total: **290 unit tests** (Linux, 2026-11-24).
 
 ## Headless UI harness
 
@@ -236,7 +236,7 @@ Enter cannot activate BROWSE and block on the native folder dialog.
 | check | result |
 |---|---|
 | `make test` | 71 DSP + 137 core + 80 UI, all green (new: variable-count project round trip, `bounce_tracks_mix` sum/refusals/label, `engine_bounce_to_track` take + mono WAV + sources untouched, Save As copies tracks > 4, add/remove limits, zoom/page/width cap, navigation + FX channel order, marks and target dialog, F1 contexts) |
-| `make e2e` | 25 cases; screenshots `help-mixer`, `help-palette`, `tracks-six`, `bounce-to-track`, `tracks-24-min` read back |
+| `make e2e` | 25 cases at the time (26 now, with `rename a track inline`); screenshots `help-mixer`, `help-palette`, `tracks-six`, `bounce-to-track`, `tracks-24-min` read back |
 | 24 tracks @ 900×620 | 11 strips shown (92 px minimum), `unknown_classes: []`, rail shows all 24 dots |
 | real window bounce | session with two 1 s tones: marks 1+2, `V`, Enter → `track3.wav` mono float 48 kHz, take `Bounce 1+2` in `project.json`, `tracks` length 4 |
 | `make check` | 220-action tour (master FX channel is now `24`) + format checks pass |

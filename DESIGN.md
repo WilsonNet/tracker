@@ -77,10 +77,16 @@ All native UI components live in `odin/src/ui/`; `odin/src/ui_window.odin` is th
 
 **Transport bar** — amber-bordered REC / PLAY / STOP, timecode in tabular mono, BPM stepper. State is carried by fill, not by shadow: recording red, playing teal, idle ink-dim. The mix row keeps BOUNCE (canonical project bounce) primary and RENDER… (external WAV) secondary. RENDER… opens a compact panel with a dual-handle range track, three WAV format chips, a non-destructive note and one primary action. The handles use the amber signal fill; the active handle is brighter and its label turns amber, while the inactive handle stays a dark grip with an amber edge. The same panel is keyboard-complete.
 
-**Track strip** — numbered header, `IN n` channel selector, `FX` badge row (lit label + `EQ · CMP · REV · DLY` summary), ARM/SOLO/MUTE toggles, pan knob, vertical fader, segmented meter. Selected = amber-dim border; armed = amber border; recording = red border with pulsing number.
+**Track strip** — numbered header, `IN n` channel selector, `FX` badge row (lit label + `EQ · CMP · REV · DLY` summary), ARM/SOLO/MUTE toggles, pan knob, vertical fader, segmented meter. Selected = amber-dim border; armed = amber border; recording = red border with pulsing number; marked for bounce = bright amber border with a filled tick box beside the `FX` badge. Double-clicking the name edits it inline (amber border field). Below 200 px a strip goes compact (`IN n` button, single-letter A/S/M row, no pan knob or history, pan shown as text); below 120 px it keeps only the number, tick box, fader and meter.
+
+**Track rail** — a thin row under the strips: `TRACKS − n +`, one small box per track (red = armed, amber = has audio, outlined = visible, ringed = marked or selected), the visible range with `‹ ›`, and `SHOW − n +` zoom. It keeps tracks that are off screen from being invisible.
+
+**Bounce-to-track dialog** — the standard overlay panel: sources as amber chips, a grid of target boxes (marked tracks disabled), one honest line about whether the target already holds audio, and `BOUNCE` / `CANCEL`.
+
+**Key sheet (F1)** — the standard overlay panel with the amber-bordered header "Keys · <context>" and three columns of sections; keys are amber mono, descriptions ink-dim. Only keys valid in the current context appear.
 
 **FX rack** (`view.odin` / `app.odin`) — a horizontal instrument rack above the bounce row.
-- Header: `FX`, channel tabs `1 2 3 4 MST` (a 3px dot marks a channel with active effects), channel name, interaction hint, close.
+- Header: `FX`, channel tabs for four tracks at a time plus `MST` (`‹ ›` page when there are more tracks) (a 3px dot marks a channel with active effects), channel name, interaction hint, close.
 - Modules: numbered `01…05`, power switch (`ON` amber / `BYP` dim), a response visual, a knob row, and a readout footer. Bypassed modules dim to 40% but stay editable-free (knobs disabled).
 - Overflow: the chain scrolls horizontally with edge chevrons; the wheel scrolls it too.
 - Channels: track = `EQ · COMP · SEND`; master = `COMP · REVERB · DELAY · WIDTH · LIMITER`.

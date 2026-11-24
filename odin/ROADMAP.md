@@ -50,7 +50,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | vinland-ui window (SDL3 Metal/Vulkan + GL), DESIGN.md palette | done | Hyprland/Vulkan (Linux), Cocoa/Metal + OpenGL (macOS), `vui-ctl` screenshots |
 | macOS port (Apple Silicon, CoreAudio, Metal + GL, `osascript`) | done | `PLATFORMS.md`, 268 unit tests, `make check`, 20/20 `e2e`, Scarlett 4i4 USB 2ch/6ch capture + UI monitor |
 | SDL2 window, software canvas | replaced | superseded by vinland-ui |
-| 4 track strips, master, meters, GR | done | 220-action tour |
+| 4–24 track strips (4 default), master, meters, GR | done | 220-action tour, e2e `tracks-24-min` |
 | Arm preview: live input meter + history before REC | done | `vui-ctl` screenshots, preview tests |
 | Reference density + design-token layers | done | `theme.odin`, geometry tests at 900/1180/1920 |
 | Headless responsive zoom / virtual frame | done | `ui_zoom_for_window`, 1.0–1.8x, 71 UI tests; native window uses SDL density + flexible layout |

@@ -85,7 +85,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 274 unit tests (Linux) / 268 (macOS)
+make test         # 290 unit tests (Linux) / 284 (macOS)
 make check        # unit + headless UI tour + offline end-to-end
 
 # 4. Run the app
@@ -114,9 +114,9 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | unit tests: 71 DSP, 130 core (Linux) / 124 core (macOS), 73 UI = 274 (Linux) / 268 (macOS) |
+| `test` | unit tests: 71 DSP, 138 core (Linux) / 132 core (macOS), 81 UI = 290 (Linux) / 284 (macOS) |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
-| `e2e` | 20 headless vinland-ui window cases (`tests/ui/window.vt`) |
+| `e2e` | 26 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
 | `ui-test` | run a harness script; `SCRIPT=... UI_OUT=...` |
@@ -132,8 +132,15 @@ directory is in `XDG_DATA_DIRS`.
 ./bin/tracker-odin ui --session DIR   # project/session directory
 ```
 
-- **Tracks:** 4 strips with input selector, arm/solo/mute, pan, fader, peak/RMS
-  meter and compressor gain-reduction meter. Arming a track opens a
+- **Tracks:** 4 strips by default, up to 24 (`N` adds, `D` removes the last empty
+  one, or the `TRACKS − +` rail under the strips). Each strip has an input
+  selector, arm/solo/mute, pan, fader, peak/RMS meter and compressor
+  gain-reduction meter. The rail also shows a dot per track (armed red, has
+  audio amber, outlined = on screen). `{`/`}` change how many strips show
+  (2/3/4/6/8/12, never narrower than 92 px) and `(`/`)` page through them; strips
+  under 200 px wide switch to a compact layout and under 120 px show only the
+  number. `R` or a double-click on the name renames a track (`Enter` saves,
+  `Esc` cancels, empty restores "Track N"); names live in `project.json`. Arming a track opens a
   capture-only preview, so its input meter and history graph are live before
   REC (the miniaudio/PipeWire path; JACK meters during the take).
 - **Transport & Tape Scrubber:** REC / PLAY / STOP / BOUNCE, timecode, armed count, BPM
@@ -146,6 +153,17 @@ directory is in `XDG_DATA_DIRS`.
   scroll, vertical-drag either wheel, double-click the wheel/timecode for RTZ, or
   scrub from the keyboard; when stopped, scrubbing cues playback and peeks the
   meters at the tape head without modifying takes.
+- **Bounce to track:** `v` (or the tick box on a strip) marks source tracks,
+  `V` or `→ TRACK` opens a dialog; `j/k` or a click picks the target and `Enter`
+  mixes the marked tracks into it as a new mono take named `Bounce 1+2…`. Sources
+  are untouched; the target's previous take stays selectable with `t`/`T`. The
+  bounce runs through each source's EQ, compressor, fader and pan, without sends
+  or master effects. It refuses while recording or when a marked track has no
+  audio.
+- **Key help:** `F1` opens a sheet with only the keys that work in the current
+  mode or sub-state (mixer, recording, FX rack, palette, settings, text edit,
+  render, bounce-to-track…). `F1` or `Esc` closes it; every other key is ignored
+  while it is open.
 - **Takes and mix:** multi-take recording (`T1/2` on each strip), active-take cycling,
   whole-take comping from the palette, and arbitrary comp regions through the
   `comp` CLI. `BOUNCE` writes the canonical `bounce.wav`; `RENDER…` opens a
@@ -158,7 +176,7 @@ directory is in `XDG_DATA_DIRS`.
   compositor's density (1×–3×). The native window expands or compresses the
   flexible layout; the headless harness scales the whole virtual frame up to
   1.8×. `--ui-scale` forces a physical density for testing.
-- **FX rack:** `x` or FX. Track tabs `1–4`, `MST`; draggable knobs (vertical
+- **FX rack:** `x` or FX. Track tabs (four tracks per page, `‹ ›` to page when there are more) plus `MST`; draggable knobs (vertical
   drag), bypass toggles, ping-pong, response visuals.
 - **I/O panel:** live PipeWire/JACK source list, JACK-backend toggle, latency
   ± controls, rescan and device selection.
@@ -199,10 +217,10 @@ directory is in `XDG_DATA_DIRS`.
   model are in [`../docs/cloud-setup.md`](../docs/cloud-setup.md).
 - **Headless UI harness:** `ui-test` (below) drives the exact same state
   machine without a browser or window.
-- **Keyboard:** `Space` play/stop, `R` record, `b` bounce, `B` render dialog, `1–4` arm, `j/k`
+- **Keyboard:** `F1` key help, `Space` play/stop, `r` record, `b` bounce, `B` render dialog, `1–9` arm track, `j/k`
   select, `J/K` level, `h/l` jog `±250 ms` (`H/L` fine `±50 ms`, `Alt|Ctrl+h/l`
   micro `±10 ms`), `</>` shuttle `±5.0 s`, `0` return to zero (`|◄`), `m` mute,
-  `s` solo, `a` arm, `n` rename project, `I` input, `x` FX, `c` click, `o`
+  `s` solo, `a` arm, `n` rename project, `R` rename track, `v`/`V` mark / bounce tracks to a track, `N`/`D` add / remove track, `{ }` zoom, `( )` page, `I` input, `x` FX, `c` click, `o`
   monitor, `y` JACK backend, `t`/`T` next/previous take, `u`/`U` undo/redo,
   `[`/`]` FX channel, `Tab`/`Shift+Tab` FX focus, `,` settings, `g` cloud projects,
   `:` command palette (`rewind to start`, `shuttle forward/back`, `jog forward/back`),
@@ -257,7 +275,7 @@ panels, `#1B1B1B` hairlines, `#F08A31` amber, `#BA022F` record red, `#00858D`
 solo/play teal, and the three-step ink ramp `#E8E8E8` / `#8F8F8F` / `#5D5D5D`.
 
 Sessions live in `~/.local/share/tracker/session` by default and contain
-`project.json`, `track1.wav` … `track4.wav`, and `bounce.wav` (plus a
+`project.json`, `track1.wav` … `track24.wav` (as many as the project has tracks), take files, and `bounce.wav` (plus a
 transient `take.raw` while a take is being captured).
 
 ## Headless UI harness
@@ -296,7 +314,7 @@ Targets: `track.N`, `master`, `arm.N`, `solo.N`, `mute.N`, `input.N`,
 `palette.row.N`, `io.row.N`. Targets are availability-gated by the current
 overlay/mode; clicking a track control while the FX rack is open fails instead
 of silently closing the rack.
-Track tabs expose `eq`, `comp` and `send`; the `MST` tab (`fx.tab.4`) exposes
+Track tabs expose `eq`, `comp` and `send`; the `MST` tab (`fx.tab.4`, which sets `fx.channel` to `24`) exposes
 the master `comp`, `reverb`, `delay`, `width` and `limiter` modules.
 `palette.row.N` requires the palette open and `io.row.N` a populated device
 list (set `devices` in the script).
@@ -369,7 +387,7 @@ persist the project. A malformed `project.json` is renamed to
 ## Tests and verification
 
 ```sh
-make test        # 71 DSP + 129 core/engine/project/cloud + 71 UI = 271 tests
+make test        # 71 DSP + 138 core/engine/project/cloud + 81 UI = 290 tests (Linux)
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui
@@ -534,7 +552,7 @@ high-DPI guidance, and the JetBrains Mono/Inter/Noto font licences.
   buffers each take while splitting it; it does not stream a take end-to-end.
 - Multi-take comping has whole-take UI and arbitrary-region CLI; there is no
   waveform/timeline region editor by product design.
-- Preview render, bounce and external render run synchronously on the UI
+- Preview render, bounce, bounce-to-track and external render run synchronously on the UI
   thread; a long mix can pause the window while it renders. Long bounces show
   the bounce overlay but do not make the render asynchronous.
 - External render is stereo WAV at the project rate: 32-bit float, 24-bit PCM
@@ -547,5 +565,6 @@ high-DPI guidance, and the JetBrains Mono/Inter/Noto font licences.
 - HiDPI density is sampled from the compositor's window/pixel ratio; densities
   outside 1–3× are clamped. `--ui-scale` is limited to the tested
   1/1.25/1.5/2/3 set.
+- A project has at most 24 tracks. Tracks holding audio cannot be removed, and a track bounce has no undo step (the target keeps its previous take). Track bounce targets are mono.
 - Google Drive transfer is explicit backup/restore, not live sync; a live Google
   account round-trip still needs the user's own OAuth client.
