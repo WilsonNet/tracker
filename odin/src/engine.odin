@@ -55,22 +55,62 @@ Recorder :: struct {
 }
 
 Playback :: struct {
-	active:  bool,
-	ctx:     ma.context_type,
-	device:  ma.device,
-	samples: []f32,
-	frames:  int,
-	cursor:  u64,
-	rate:    u32,
-	silent:  bool,
-	click_enabled: bool,
-	bpm:     int,
-	beat_frames: int,
-	beat_pos: int,
-	click_left: int,
-	click_phase: f32,
-	stop_expected: u64,
-	interrupt:     u64,
+	active:               bool,
+	ctx_open:             bool,
+	device_open:          bool,
+	device_rate:          u32,
+	ctx:                  ma.context_type,
+	device:               ma.device,
+	playing:              u32,
+	cb_active:            u32,
+	samples:              []f32,
+	frames:               int,
+	cursor:               i64,
+	rate:                 u32,
+	silent:               bool,
+	use_live_mixer:       bool,
+	mute_armed:           bool,
+	tracks:               [MAX_ENGINE_TRACKS][]f32,
+	track_count:          int,
+	mixer:                dsp.Live_Mixer,
+	mixer_rate:           u32,
+	mixer_seek_gen:       u64,
+	fade_in_left:         int,
+	fade_in_len:          int,
+	last_l:               f32,
+	last_r:               f32,
+	fade_out_left:        int,
+	fade_out_len:         int,
+	was_playing:          bool,
+	param_slots:          [3]dsp.Live_Mix_Params,
+	param_ui_slot:        int,
+	param_shared:         u32,
+	param_audio_slot:     int,
+	last_published_params: dsp.Live_Mix_Params,
+	has_published_params: bool,
+	track_peak:           [MAX_ENGINE_TRACKS]f32,
+	track_gr:             [MAX_ENGINE_TRACKS]f32,
+	master_peak:          f32,
+	master_gr:            f32,
+	click_enabled:        bool,
+	click_absolute:       bool,
+	click_origin:         i64,
+	countin_click_active: bool,
+	countin_click_until:  i64,
+	bpm:                  int,
+	sig_num:              int,
+	sig_den:              int,
+	seek_gen:             u64,
+	last_seek_gen:        u64,
+	last_beat_idx:        i64,
+	has_last_beat:        bool,
+	click_left:           int,
+	click_len:            int,
+	click_phase:          f32,
+	click_freq:           f32,
+	click_amp:            f32,
+	stop_expected:        u64,
+	interrupt:            u64,
 }
 
 // Input preview while at least one track is armed and the transport is idle.
@@ -115,14 +155,18 @@ Engine :: struct {
 	// frames of pre-roll are dropped from the capture when it is split.
 	rec_punch:    int,
 	rec_pre:      int,
-	loaded:       [MAX_ENGINE_TRACKS][]f32,
-	loaded_rate:  [MAX_ENGINE_TRACKS]u32,
-	rec:          Recorder,
-	preview:      Preview,
-	play:         Playback,
-	backend:      Capture_Backend,
-	jack:         Jack_Session,
-	takes:        [MAX_ENGINE_TRACKS]Take_List,
+	loaded:            [MAX_ENGINE_TRACKS][]f32,
+	loaded_rate:       [MAX_ENGINE_TRACKS]u32,
+	play_tracks:       [MAX_ENGINE_TRACKS][]f32,
+	play_tracks_owned: [MAX_ENGINE_TRACKS]bool,
+	play_tracks_rate:  u32,
+	play_tracks_dirty: bool,
+	rec:               Recorder,
+	preview:           Preview,
+	play:              Playback,
+	backend:           Capture_Backend,
+	jack:              Jack_Session,
+	takes:             [MAX_ENGINE_TRACKS]Take_List,
 }
 
 // ---------------------------------------------------------------- helpers
@@ -161,6 +205,7 @@ engine_init :: proc(e: ^Engine, args: []string) -> bool {
 	e.default_device_index = 0
 	e.monitor_enabled = false
 	e.latency_ms = 0
+	e.play_tracks_dirty = true
 	dir := flag_string(args, "--session", "")
 	if dir == "" {
 		dir = default_session_dir()
@@ -202,6 +247,8 @@ engine_init :: proc(e: ^Engine, args: []string) -> bool {
 engine_destroy :: proc(e: ^Engine) {
 	engine_preview_stop(e)
 	engine_stop_playback(e)
+	playback_release_device(e)
+	dsp.live_mixer_destroy(&e.play.mixer)
 	// Finalize an open take before dropping the take lists: the split needs the
 	// previous active take metadata to stabilize the old canonical WAV, otherwise
 	// the new partial capture overwrites the take project.json still points at.
@@ -215,6 +262,7 @@ engine_destroy :: proc(e: ^Engine) {
 		recorder_join_writer(e)
 		recorder_release(e, true, true)
 	}
+	engine_free_play_tracks(e)
 	for i in 0 ..< MAX_ENGINE_TRACKS {
 		delete(e.loaded[i])
 		e.loaded[i] = nil
@@ -803,7 +851,7 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 
 	// Punch-in position chosen in the UI (project-rate frames).
 	e.rec_punch = int(max(a.record_punch, 0))
-	e.rec_pre = int(clamp(a.record_pre, 0, a.record_punch))
+	e.rec_pre = int(max(a.record_pre, 0))
 
 	// The previous preview (if any) must not keep playing under a new take.
 	engine_stop_playback(e)
@@ -841,8 +889,10 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 				overdub = true
 			}
 		}
-		if overdub || a.metronome {
-			_ = engine_play(e, a, true, e.rec_punch - e.rec_pre)
+		start_pos := i64(e.rec_punch - e.rec_pre)
+		countin_only := e.rec_pre > 0 && !a.metronome && start_pos < 0
+		if overdub || a.metronome || countin_only {
+			_ = engine_play(e, a, true, start_pos, true, 0, countin_only)
 		}
 		ui.status_buf_set(a, fmt.tprintf("recording %d ch via JACK @ %d Hz%s", requested, e.jack.rate, " · overdub" if overdub else ""))
 		return true
@@ -991,13 +1041,15 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 			overdub = true
 		}
 	}
-	want_playback := overdub || a.metronome
+	start_pos := i64(e.rec_punch - e.rec_pre)
+	countin_only := e.rec_pre > 0 && !a.metronome && start_pos < 0
+	want_playback := overdub || a.metronome || countin_only
 
 	// Prepare the guide mix before the capture device starts. Rendering is the
 	// slow part of an overdub and must not become recorded pre-roll that
 	// shifts the new performance out of alignment with the existing tracks.
 	if want_playback {
-		if !playback_prepare(e, a, true, e.rec_punch - e.rec_pre) {
+		if !playback_prepare(e, a, true, start_pos, true, 0, countin_only) {
 			recorder_release(e, true, true)
 			_ = os.remove(e.take_path)
 			ui.status_buf_set(a, "cannot start playback")
@@ -1214,6 +1266,74 @@ engine_split_take :: proc(e: ^Engine, a: ^ui.App) -> bool {
 // ---------------------------------------------------------------- playback
 
 @(private)
+playback_click_step :: proc "contextless" (p: ^Playback, pos: i64) -> f32 {
+	seek_gen := sync.atomic_load(&p.seek_gen)
+	if seek_gen != p.last_seek_gen {
+		p.last_seek_gen = seek_gen
+		p.has_last_beat = false
+	}
+
+	want := p.click_enabled || (p.countin_click_active && pos < p.countin_click_until)
+	rate := max(p.rate, 1)
+	bpm := max(p.bpm, 1)
+	sig_num := max(p.sig_num, 1)
+	sig_den := max(p.sig_den, 1)
+	beat_f := max((60.0 / f64(bpm)) * (4.0 / f64(sig_den)) * f64(rate), 1.0)
+
+	rel_pos := pos if p.click_absolute else (pos - p.click_origin)
+	beat_idx := i64(math.floor(f64(rel_pos) / beat_f))
+
+	triggered := false
+	trig_idx: i64 = 0
+	if !p.has_last_beat {
+		p.has_last_beat = true
+		p.last_beat_idx = beat_idx
+		nearest := math.round(f64(rel_pos) / beat_f)
+		if want && abs(f64(rel_pos) - nearest * beat_f) <= 1.0 {
+			triggered = true
+			trig_idx = i64(nearest)
+		}
+	} else if beat_idx != p.last_beat_idx {
+		prev_idx := p.last_beat_idx
+		p.last_beat_idx = beat_idx
+		if want && beat_idx > prev_idx {
+			triggered = true
+			trig_idx = beat_idx
+		}
+	}
+
+	if triggered {
+		sn := i64(sig_num)
+		beat_in_bar := int(((trig_idx % sn) + sn) % sn)
+		switch {
+		case beat_in_bar == 0:
+			p.click_freq = 1500.0
+			p.click_amp = 0.28
+			p.click_len = max(int(f32(rate) * 0.014), 1)
+		case sig_num == 6 && sig_den == 8 && beat_in_bar == 3:
+			p.click_freq = 1150.0
+			p.click_amp = 0.22
+			p.click_len = max(int(f32(rate) * 0.012), 1)
+		case:
+			p.click_freq = 950.0
+			p.click_amp = 0.18
+			p.click_len = max(int(f32(rate) * 0.011), 1)
+		}
+		p.click_left = p.click_len
+		p.click_phase = 0
+	}
+
+	if p.click_left > 0 {
+		env := f32(p.click_left) / f32(max(p.click_len, 1))
+		v := math.sin(p.click_phase) * p.click_amp * env * env
+		p.click_phase += f32(math.TAU) * p.click_freq / f32(rate)
+		p.click_left -= 1
+		return v
+	}
+	return 0
+}
+
+@(private)
 playback_callback :: proc "c" (device: ^ma.device, output, input: rawptr, frame_count: u32) {
 	if device == nil {
 		return
@@ -1228,53 +1348,124 @@ playback_callback :: proc "c" (device: ^ma.device, output, input: rawptr, frame_
 	if channels <= 0 {
 		return
 	}
+	sync.atomic_store(&p.cb_active, 1)
 	out := cast([^]f32)output
-	cursor := sync.atomic_load(&p.cursor)
 	frames := int(frame_count)
-	click_len := max(int(f32(p.rate) * 0.012), 1)
+	is_playing := sync.atomic_load(&p.playing) != 0 || !p.device_open
+
+	if !is_playing {
+		if p.was_playing {
+			p.was_playing = false
+			fade_len := p.fade_out_len
+			if fade_len <= 0 {
+				fade_len = max(int(p.rate / 750), 16)
+			}
+			p.fade_out_len = fade_len
+			p.fade_out_left = fade_len
+		}
+		for f in 0 ..< frames {
+			l: f32 = 0
+			r: f32 = 0
+			if p.fade_out_left > 0 {
+				gain := f32(p.fade_out_left - 1) / f32(max(p.fade_out_len, 1))
+				l = p.last_l * gain
+				r = p.last_r * gain
+				p.fade_out_left -= 1
+			}
+			for c in 0 ..< channels {
+				out[f * channels + c] = (l + r) * 0.5 if channels == 1 else (l if c % 2 == 0 else r)
+			}
+		}
+		p.last_l = 0
+		p.last_r = 0
+		sync.atomic_store(&p.cb_active, 0)
+		return
+	}
+
+	if p.use_live_mixer {
+		seek_gen := sync.atomic_load(&p.seek_gen)
+		if seek_gen != p.mixer_seek_gen {
+			p.mixer_seek_gen = seek_gen
+			dsp.live_mixer_reset(&p.mixer)
+			p.fade_in_left = p.fade_in_len
+		}
+		if next_params := playback_params_consume(p); next_params != nil {
+			dsp.live_mixer_apply_params(&p.mixer, next_params, false)
+		}
+	}
+
+	has_audio: [MAX_ENGINE_TRACKS]bool
+	track_peaks: [MAX_ENGINE_TRACKS]f32
+	samples_in: [MAX_ENGINE_TRACKS]f32
+	track_count := clamp(p.track_count, 0, MAX_ENGINE_TRACKS)
+	for i in 0 ..< track_count {
+		has_audio[i] = len(p.tracks[i]) > 0
+	}
+
+	cursor := sync.atomic_load(&p.cursor)
+	master_peak: f32 = 0
 	for f in 0 ..< frames {
-		// Compare in u64 before narrowing: a preview that ended just before
-		// this callback must not turn into a negative array index.
-		pos := cursor + u64(f)
+		pos := cursor + i64(f)
 		l: f32 = 0
 		r: f32 = 0
-		if !p.silent && pos < u64(p.frames) {
+		if !p.silent && pos >= 0 && pos < i64(p.frames) {
 			idx := int(pos)
-			if idx >= 0 && idx * 2 + 1 < len(p.samples) {
+			if p.use_live_mixer {
+				for i in 0 ..< track_count {
+					if idx < len(p.tracks[i]) {
+						samples_in[i] = p.tracks[i][idx]
+					} else {
+						samples_in[i] = 0
+					}
+				}
+				l, r = dsp.live_mixer_step(&p.mixer, &samples_in, &has_audio, &track_peaks)
+			} else if idx >= 0 && idx * 2 + 1 < len(p.samples) {
 				l = p.samples[idx * 2 + 0]
 				r = p.samples[idx * 2 + 1]
 			}
 		}
-		if p.click_enabled {
-			if p.beat_pos <= 0 {
-				p.beat_pos = p.beat_frames
-				p.click_left = click_len
-				p.click_phase = 0
-			}
-			p.beat_pos -= 1
-			if p.click_left > 0 {
-				env := f32(p.click_left) / f32(click_len)
-				v := math.sin(p.click_phase) * 0.22 * env
-				l += v
-				r += v
-				p.click_phase += f32(math.TAU) * 1000.0 / f32(max(p.rate, 1))
-				p.click_left -= 1
-			}
+		if p.fade_in_left > 0 {
+			denom := max(p.fade_in_len, 1)
+			gain := f32(denom - p.fade_in_left + 1) / f32(denom)
+			l *= gain
+			r *= gain
+			p.fade_in_left -= 1
 		}
+		v := playback_click_step(p, pos)
+		l += v
+		r += v
+		master_peak = max(master_peak, abs(l), abs(r))
+		p.last_l = l
+		p.last_r = r
+		p.was_playing = true
 		for c in 0 ..< channels {
 			out[f * channels + c] = (l + r) * 0.5 if channels == 1 else (l if c % 2 == 0 else r)
 		}
 	}
 	// Saturate instead of wrapping if a callback arrives after the end.
 	next := cursor
-	if next < u64(p.frames) {
-		remaining := u64(p.frames) - next
-		next = u64(p.frames) if u64(frames) >= remaining else next + u64(frames)
+	end := i64(p.frames)
+	if next < end {
+		remaining := end - next
+		next = end if i64(frames) >= remaining else next + i64(frames)
 	}
 	sync.atomic_store(&p.cursor, next)
+
+	if p.use_live_mixer {
+		for i in 0 ..< track_count {
+			sync.atomic_store(&p.track_peak[i], track_peaks[i])
+			sync.atomic_store(&p.track_gr[i], dsp.comp_instantaneous_reduction_db(&p.mixer.comps[i]))
+		}
+		sync.atomic_store(&p.master_peak, master_peak)
+		mg := dsp.comp_instantaneous_reduction_db(&p.mixer.master_comp)
+		lg := dsp.limiter_instantaneous_reduction_db(&p.mixer.limiter)
+		sync.atomic_store(&p.master_gr, min(mg, lg))
+	}
+	sync.atomic_store(&p.cb_active, 0)
 }
 
 engine_load_tracks :: proc(e: ^Engine, a: ^ui.App) -> bool {
+	was_playing := engine_tracks_begin_edit(e)
 	// The project's rate is authoritative when loading takes. Callers used to
 	// forget this on startup/palette load, leaving a 44.1 kHz project mixing at
 	// the engine default 48 kHz.
@@ -1330,6 +1521,7 @@ engine_load_tracks :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		wav_destroy(&wav)
 		any = true
 	}
+	engine_tracks_end_edit(e, was_playing)
 	engine_sync_tape_length(e, a)
 	return any
 }
@@ -1376,9 +1568,11 @@ engine_seek :: proc(e: ^Engine, a: ^ui.App) {
 		}
 		target := clamp(a.frames, 0, i64(e.play.frames) - 1)
 		a.frames = target
-		sync.atomic_store(&e.play.cursor, u64(target))
-		beat := max(e.play.beat_frames, 1)
-		e.play.beat_pos = beat - (int(target) % beat)
+		sync.atomic_store(&e.play.cursor, target)
+		if !e.play.click_absolute {
+			e.play.click_origin = target
+		}
+		sync.atomic_add(&e.play.seek_gen, 1)
 		return
 	}
 	rate := max(e.sample_rate, 1)
@@ -1410,16 +1604,97 @@ engine_seek :: proc(e: ^Engine, a: ^ui.App) {
 }
 
 @(private)
-engine_track_audio :: proc(e: ^Engine) -> (tracks: [][]f32, owned: [MAX_ENGINE_TRACKS]bool) {
-	tracks = make([][]f32, MAX_ENGINE_TRACKS)
+engine_free_play_tracks :: proc(e: ^Engine) {
+	if e == nil {
+		return
+	}
+	for i in 0 ..< MAX_ENGINE_TRACKS {
+		if e.play_tracks_owned[i] {
+			delete(e.play_tracks[i])
+		}
+		e.play_tracks[i] = nil
+		e.play_tracks_owned[i] = false
+	}
+	e.play_tracks_rate = 0
+	e.play_tracks_dirty = true
+}
+
+@(private)
+engine_sync_play_tracks :: proc(e: ^Engine) {
+	if e == nil {
+		return
+	}
+	rate := e.sample_rate if e.sample_rate != 0 else 48_000
+	if !e.play_tracks_dirty && e.play_tracks_rate == rate {
+		return
+	}
+	for i in 0 ..< MAX_ENGINE_TRACKS {
+		if e.play_tracks_owned[i] {
+			delete(e.play_tracks[i])
+			e.play_tracks_owned[i] = false
+		}
+		e.play_tracks[i] = nil
+	}
 	for i in 0 ..< MAX_ENGINE_TRACKS {
 		src := e.loaded[i]
-		if src == nil || e.loaded_rate[i] == e.sample_rate {
-			tracks[i] = src
+		if src == nil || len(src) == 0 {
 			continue
 		}
-		tracks[i] = dsp.resample(src, e.loaded_rate[i], e.sample_rate)
-		owned[i] = true
+		src_rate := e.loaded_rate[i]
+		if src_rate == 0 || src_rate == rate {
+			e.play_tracks[i] = src
+		} else {
+			e.play_tracks[i] = dsp.resample(src, src_rate, rate)
+			e.play_tracks_owned[i] = true
+		}
+	}
+	e.play_tracks_rate = rate
+	e.play_tracks_dirty = false
+}
+
+@(private)
+engine_tracks_begin_edit :: proc(e: ^Engine) -> (was_playing: bool) {
+	if e == nil {
+		return false
+	}
+	was_playing = e.play.active && sync.atomic_load(&e.play.playing) != 0
+	playback_quiesce(e)
+	e.play_tracks_dirty = true
+	return was_playing
+}
+
+@(private)
+engine_tracks_end_edit :: proc(e: ^Engine, was_playing: bool) {
+	if e == nil {
+		return
+	}
+	engine_sync_play_tracks(e)
+	if e.play.active && e.play.use_live_mixer {
+		max_len := 0
+		have_audio := false
+		for i in 0 ..< MAX_ENGINE_TRACKS {
+			e.play.tracks[i] = e.play_tracks[i]
+			if len(e.play_tracks[i]) > 0 {
+				have_audio = true
+				max_len = max(max_len, len(e.play_tracks[i]))
+			}
+		}
+		rate := max(e.play.rate, 1)
+		tail_frames := int(dsp.live_mix_tail_seconds(&e.play.last_published_params) * f32(rate))
+		e.play.frames = max_len + tail_frames if have_audio else int(rate) * 3_600
+		e.play.silent = !have_audio
+		if was_playing {
+			sync.atomic_store(&e.play.playing, 1)
+		}
+	}
+}
+
+@(private)
+engine_track_audio :: proc(e: ^Engine) -> (tracks: [][]f32, owned: [MAX_ENGINE_TRACKS]bool) {
+	engine_sync_play_tracks(e)
+	tracks = make([][]f32, MAX_ENGINE_TRACKS)
+	for i in 0 ..< MAX_ENGINE_TRACKS {
+		tracks[i] = e.play_tracks[i]
 	}
 	return
 }
@@ -1457,105 +1732,355 @@ engine_render_mix :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool = false, skip
 	return out, true
 }
 
-// Renders the guide mix and opens the output device, but does not start it.
-// Splitting preparation from `playback_start` lets record start render before
-// the capture device runs, then start both clocks back to back.
 @(private)
-playback_prepare :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool, start_frame: int = -1) -> bool {
-	engine_stop_playback(e)
-	out, have_audio := engine_render_mix(e, a, mute_armed)
-	if !have_audio && !a.metronome {
-		dsp.render_destroy(&out)
-		return false
+live_mix_params_from_app :: proc(a: ^ui.App, mute_armed: bool) -> dsp.Live_Mix_Params {
+	p: dsp.Live_Mix_Params
+	def := dsp.fx_settings_default()
+	p.master_comp = def.master_comp
+	p.reverb = def.reverb
+	p.delay = def.delay
+	p.width = def.width
+	p.limiter = def.limiter
+	if a == nil {
+		p.track_count = ui.MIN_TRACKS
+		for i in 0 ..< p.track_count {
+			p.tracks[i] = dsp.track_mix_default()
+		}
+		return p
 	}
+	count := clamp(a.track_count, ui.MIN_TRACKS, MAX_ENGINE_TRACKS)
+	p.track_count = count
+	any_solo := false
+	for i in 0 ..< count {
+		if a.tracks[i].soloed {
+			any_solo = true
+			break
+		}
+	}
+	for i in 0 ..< count {
+		t := a.tracks[i]
+		muted := t.muted || (any_solo && !t.soloed) || (mute_armed && t.armed)
+		p.tracks[i] = dsp.Track_Mix {
+			level = t.level,
+			pan = t.pan,
+			muted = muted,
+			send_reverb = t.send_reverb,
+			send_delay = t.send_delay,
+			eq = eq_params_from_view(t.eq),
+			comp = comp_params_from_view(t.comp),
+		}
+	}
+	p.master_comp = comp_params_from_view(a.master.comp)
+	p.reverb = dsp.Reverb_Params {
+		enabled = a.master.reverb.enabled,
+		size = a.master.reverb.size,
+		decay = a.master.reverb.decay,
+		tone = a.master.reverb.tone,
+		predelay_ms = a.master.reverb.predelay_ms,
+		return_level = a.master.reverb.return_level,
+	}
+	p.delay = dsp.Delay_Params {
+		enabled = a.master.delay.enabled,
+		time_ms = a.master.delay.time_ms,
+		feedback = a.master.delay.feedback,
+		tone = a.master.delay.tone,
+		ping_pong = a.master.delay.ping_pong,
+		return_level = a.master.delay.return_level,
+	}
+	p.width = dsp.Width_Params {
+		enabled = a.master.width.enabled,
+		width = a.master.width.width,
+		bass_hz = a.master.width.bass_hz,
+	}
+	p.limiter = dsp.Limiter_Params {
+		enabled = a.master.limiter.enabled,
+		ceiling_db = a.master.limiter.ceiling_db,
+		release_ms = a.master.limiter.release_ms,
+		lookahead_ms = a.master.limiter.lookahead_ms,
+	}
+	return p
+}
 
+@(private)
+playback_params_reset :: proc(p: ^Playback, initial: dsp.Live_Mix_Params) {
+	p.param_slots[0] = initial
+	p.param_slots[1] = initial
+	p.param_slots[2] = initial
+	p.param_ui_slot = 0
+	p.param_audio_slot = 2
+	sync.atomic_store(&p.param_shared, u32(1))
+	p.last_published_params = initial
+	p.has_published_params = true
+}
+
+@(private)
+playback_params_publish :: proc(p: ^Playback, params: dsp.Live_Mix_Params) {
+	slot := p.param_ui_slot
+	p.param_slots[slot] = params
+	prev := sync.atomic_exchange(&p.param_shared, u32(slot) | 0x4)
+	p.param_ui_slot = int(prev & 0x3)
+	p.last_published_params = params
+	p.has_published_params = true
+}
+
+@(private)
+playback_params_consume :: proc "contextless" (p: ^Playback) -> ^dsp.Live_Mix_Params {
+	if (sync.atomic_load(&p.param_shared) & 0x4) == 0 {
+		return nil
+	}
+	prev := sync.atomic_exchange(&p.param_shared, u32(p.param_audio_slot))
+	p.param_audio_slot = int(prev & 0x3)
+	return &p.param_slots[p.param_audio_slot]
+}
+
+@(private)
+playback_quiesce :: proc(e: ^Engine) {
+	if e == nil {
+		return
+	}
+	sync.atomic_store(&e.play.playing, 0)
+	if !e.play.device_open {
+		return
+	}
+	for _ in 0 ..< 256 {
+		if sync.atomic_load(&e.play.cb_active) == 0 {
+			return
+		}
+		sync.cpu_relax()
+	}
+	for _ in 0 ..< 1_000 {
+		if sync.atomic_load(&e.play.cb_active) == 0 {
+			return
+		}
+		time.sleep(100 * time.Microsecond)
+	}
+}
+
+@(private)
+playback_ensure_mixer :: proc(e: ^Engine, rate: u32) {
+	r := max(rate, 8_000)
+	if e.play.mixer.initialized && e.play.mixer_rate == r {
+		return
+	}
+	dsp.live_mixer_destroy(&e.play.mixer)
+	dsp.live_mixer_init(&e.play.mixer, f32(r))
+	e.play.mixer_rate = r
+}
+
+playback_release_device :: proc(e: ^Engine) {
+	if e == nil {
+		return
+	}
+	playback_quiesce(e)
 	p := &e.play
+	if p.device_open {
+		sync.atomic_store(&p.stop_expected, 1)
+		_ = ma.device_stop(&p.device)
+		ma.device_uninit(&p.device)
+		p.device_open = false
+	}
+	if p.ctx_open {
+		ma.context_uninit(&p.ctx)
+		p.ctx_open = false
+		p.ctx = {}
+	}
+	p.device_rate = 0
+	p.interrupt = 0
+	p.stop_expected = 0
+	p.was_playing = false
+	p.fade_out_left = 0
+}
+
+@(private)
+playback_ensure_device :: proc(e: ^Engine, rate: u32) -> bool {
+	p := &e.play
+	r := rate if rate != 0 else 48_000
+	if p.device_open {
+		if sync.atomic_load(&p.interrupt) == 0 && p.device_rate == r {
+			return true
+		}
+		playback_release_device(e)
+	}
 	p.ctx = {}
 	if ma.context_init(nil, 0, nil, &p.ctx) != .SUCCESS {
-		dsp.render_destroy(&out)
 		return false
 	}
-	p.samples = out.samples
-	out.samples = nil
-	p.frames = out.frames if have_audio else max(int(e.sample_rate), 1) * 3_600
-	p.silent = !have_audio
-	p.cursor = 0
-	p.rate = e.sample_rate
-	p.click_enabled = a.metronome
-	p.bpm = a.bpm
-	p.beat_frames = max(int(60.0 / f32(max(a.bpm, 1)) * f32(max(e.sample_rate, 1))), 1)
-	p.beat_pos = 0
-	if start_frame >= 0 {
-		// recording from the playhead: the guide starts at the pre-roll point
-		p.cursor = u64(start_frame)
-		p.beat_pos = p.beat_frames - (start_frame % p.beat_frames)
-	} else if !mute_armed && a.tape_cued && a.frames > 0 && a.frames < i64(p.frames) {
-		p.cursor = u64(a.frames)
-		p.beat_pos = p.beat_frames - (int(p.cursor) % p.beat_frames)
-	}
-	p.click_left = 0
-	p.click_phase = 0
+	p.ctx_open = true
 
 	cfg := ma.device_config_init(.playback)
-	cfg.sampleRate = e.sample_rate
+	cfg.sampleRate = r
 	cfg.playback.format = .f32
 	cfg.playback.channels = 2
+	cfg.performanceProfile = .low_latency
+	cfg.noPreSilencedOutputBuffer = true
+	cfg.noFixedSizedCallback = true
+	platform_audio_configure_playback(&cfg)
 	cfg.dataCallback = playback_callback
 	cfg.notificationCallback = playback_notification
 	cfg.pUserData = p
-	cfg.periodSizeInFrames = 1024
-	p.stop_expected = 0
-	p.interrupt = 0
+
+	sync.atomic_store(&p.playing, 0)
+	sync.atomic_store(&p.stop_expected, 0)
+	sync.atomic_store(&p.interrupt, 0)
 	if ma.device_init(&p.ctx, &cfg, &p.device) != .SUCCESS {
 		ma.context_uninit(&p.ctx)
+		p.ctx_open = false
 		p.ctx = {}
-		delete(p.samples)
-		p.samples = nil
-		p.frames = 0
-		dsp.render_destroy(&out)
 		return false
 	}
-	dsp.render_destroy(&out)
+	p.device_open = true
+	p.device_rate = r
+	if ma.device_start(&p.device) != .SUCCESS {
+		playback_release_device(e)
+		return false
+	}
+	return true
+}
+
+engine_playback_warm :: proc(e: ^Engine) {
+	if e == nil {
+		return
+	}
+	rate := e.sample_rate if e.sample_rate != 0 else 48_000
+	engine_sync_play_tracks(e)
+	playback_ensure_mixer(e, rate)
+	_ = playback_ensure_device(e, rate)
+}
+
+// Prepares the live mixer, track pointers and warm output device without
+// starting transport. Splitting preparation from `playback_start` lets record
+// start open capture first, then flip `playing = 1` back-to-back.
+@(private)
+playback_prepare :: proc(
+	e: ^Engine,
+	a: ^ui.App,
+	mute_armed: bool,
+	start_frame: i64 = 0,
+	has_start: bool = false,
+	countin_click_until: i64 = 0,
+	countin_click_active: bool = false,
+) -> bool {
+	engine_stop_playback(e)
+	engine_sync_play_tracks(e)
+
+	max_len := 0
+	have_audio := false
+	for i in 0 ..< MAX_ENGINE_TRACKS {
+		if len(e.play_tracks[i]) > 0 {
+			have_audio = true
+			max_len = max(max_len, len(e.play_tracks[i]))
+		}
+	}
+	if !have_audio && !a.metronome && !countin_click_active {
+		return false
+	}
+
+	rate := e.sample_rate if e.sample_rate != 0 else 48_000
+	params := live_mix_params_from_app(a, mute_armed)
+	tail_frames := int(dsp.live_mix_tail_seconds(&params) * f32(rate))
+	total_frames := max_len + tail_frames if have_audio else max(int(rate), 1) * 3_600
+
+	p := &e.play
+	playback_ensure_mixer(e, rate)
+	dsp.live_mixer_apply_params(&p.mixer, &params, true)
+	dsp.live_mixer_reset(&p.mixer)
+	playback_params_reset(p, params)
+
+	p.tracks = e.play_tracks
+	p.track_count = params.track_count
+	p.use_live_mixer = true
+	p.mute_armed = mute_armed
+	p.frames = total_frames
+	p.silent = !have_audio
+	p.rate = rate
+	sig := ui.app_time_sig(a)
+	p.click_enabled = a.metronome
+	p.click_absolute = a.timing_mode == .Grid
+	p.countin_click_active = countin_click_active
+	p.countin_click_until = countin_click_until
+	p.bpm = a.bpm
+	p.sig_num = int(sig.num)
+	p.sig_den = int(sig.den)
+	p.seek_gen = 0
+	p.last_seek_gen = 0
+	p.mixer_seek_gen = 0
+	p.has_last_beat = false
+	p.last_beat_idx = 0
+	p.fade_in_len = max(int(rate / 750), 16)
+	p.fade_in_left = p.fade_in_len
+	for i in 0 ..< MAX_ENGINE_TRACKS {
+		sync.atomic_store(&p.track_peak[i], 0)
+		sync.atomic_store(&p.track_gr[i], 0)
+	}
+	sync.atomic_store(&p.master_peak, 0)
+	sync.atomic_store(&p.master_gr, 0)
+
+	cursor: i64 = 0
+	if has_start {
+		// recording from the playhead: the guide starts at the pre-roll point (can be < 0)
+		cursor = start_frame
+	} else if !mute_armed && a.tape_cued && a.frames > 0 && a.frames < i64(p.frames) {
+		cursor = a.frames
+	}
+	sync.atomic_store(&p.cursor, cursor)
+	p.click_origin = cursor
+	p.click_left = 0
+	p.click_len = 0
+	p.click_phase = 0
+	p.click_freq = 950.0
+	p.click_amp = 0.18
+
+	if !playback_ensure_device(e, rate) {
+		p.frames = 0
+		p.use_live_mixer = false
+		return false
+	}
 	p.active = true
 	return true
 }
 
 @(private)
 playback_start :: proc(e: ^Engine) -> bool {
-	if !e.play.active {
+	if !e.play.active || !e.play.device_open {
 		return false
 	}
 	sync.atomic_store(&e.play.stop_expected, 0)
 	sync.atomic_store(&e.play.interrupt, 0)
-	if ma.device_start(&e.play.device) != .SUCCESS {
-		engine_stop_playback(e)
-		return false
-	}
+	sync.atomic_store(&e.play.playing, 1)
 	return true
 }
 
-engine_play :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool = false, start_frame: int = -1) -> bool {
-	if !playback_prepare(e, a, mute_armed, start_frame) {
+engine_play :: proc(
+	e: ^Engine,
+	a: ^ui.App,
+	mute_armed: bool = false,
+	start_frame: i64 = 0,
+	has_start: bool = false,
+	countin_click_until: i64 = 0,
+	countin_click_active: bool = false,
+) -> bool {
+	if !playback_prepare(e, a, mute_armed, start_frame, has_start, countin_click_until, countin_click_active) {
 		return false
 	}
 	return playback_start(e)
 }
 
 engine_stop_playback :: proc(e: ^Engine) {
-	if !e.play.active {
+	if e == nil || !e.play.active {
 		return
 	}
-	sync.atomic_store(&e.play.stop_expected, 1)
-	ma.device_stop(&e.play.device)
-	ma.device_uninit(&e.play.device)
-	ma.context_uninit(&e.play.ctx)
-	delete(e.play.samples)
-	e.play.samples = nil
+	playback_quiesce(e)
+	if e.play.samples != nil {
+		delete(e.play.samples)
+		e.play.samples = nil
+	}
 	e.play.active = false
 	e.play.cursor = 0
 	e.play.frames = 0
-	e.play.interrupt = 0
-	e.play.stop_expected = 0
+	e.play.use_live_mixer = false
+	if sync.atomic_load(&e.play.interrupt) != 0 {
+		playback_release_device(e)
+	}
 }
 
 // Full rendered length: the longest loaded take at the project rate plus the
@@ -1647,17 +2172,30 @@ engine_update :: proc(e: ^Engine, a: ^ui.App) {
 	}
 	if e.play.active && sync.atomic_load(&e.play.interrupt) != 0 {
 		engine_stop_playback(e)
+		playback_release_device(e)
 		if a != nil {
 			ui.app_force_stopped(a, "output device lost · playback stopped")
 		}
 		return
 	}
+	if !e.play.active && e.play.device_open && sync.atomic_load(&e.play.interrupt) != 0 {
+		playback_release_device(e)
+	}
 	engine_preview_sync(e, a)
 	if e.rec.active {
-		if e.play.active {
+		if e.play.active && a != nil {
+			sig := ui.app_time_sig(a)
 			e.play.click_enabled = a.metronome
+			e.play.click_absolute = a.timing_mode == .Grid
 			e.play.bpm = a.bpm
-			e.play.beat_frames = max(int(60.0 / f32(max(a.bpm, 1)) * f32(max(e.sample_rate, 1))), 1)
+			e.play.sig_num = int(sig.num)
+			e.play.sig_den = int(sig.den)
+			if e.play.use_live_mixer {
+				params := live_mix_params_from_app(a, e.play.mute_armed)
+				if !e.play.has_published_params || params != e.play.last_published_params {
+					playback_params_publish(&e.play, params)
+				}
+			}
 		}
 		a.frames = i64(e.rec_punch - e.rec_pre) + i64(sync.atomic_load(&e.rec.write_frame))
 		for i in 0 ..< MAX_ENGINE_TRACKS {
@@ -1679,20 +2217,48 @@ engine_update :: proc(e: ^Engine, a: ^ui.App) {
 		return
 	}
 	if e.play.active {
+		sig := ui.app_time_sig(a)
 		e.play.click_enabled = a.metronome
+		e.play.click_absolute = a.timing_mode == .Grid
 		e.play.bpm = a.bpm
-		e.play.beat_frames = max(int(60.0 / f32(max(a.bpm, 1)) * f32(max(e.sample_rate, 1))), 1)
+		e.play.sig_num = int(sig.num)
+		e.play.sig_den = int(sig.den)
+		if e.play.use_live_mixer {
+			params := live_mix_params_from_app(a, e.play.mute_armed)
+			if !e.play.has_published_params || params != e.play.last_published_params {
+				playback_params_publish(&e.play, params)
+			}
+		}
 		cursor := sync.atomic_load(&e.play.cursor)
-		if cursor >= u64(e.play.frames) {
+		if cursor >= i64(e.play.frames) {
 			engine_stop_playback(e)
 			ui.app_force_stopped(a, "preview finished")
 			return
 		}
-		a.frames = i64(cursor)
+		a.frames = cursor
+		if e.play.use_live_mixer {
+			for i in 0 ..< MAX_ENGINE_TRACKS {
+				if i >= e.play.track_count || len(e.play.tracks[i]) == 0 || int(cursor) >= len(e.play.tracks[i]) {
+					a.tracks[i].peak_db = -60
+					a.tracks[i].rms_db = -60
+					a.tracks[i].gr_db = 0
+					continue
+				}
+				pk := sync.atomic_load(&e.play.track_peak[i])
+				a.tracks[i].peak_db = dsp.lin_to_db(pk)
+				a.tracks[i].rms_db = a.tracks[i].peak_db - 6
+				a.tracks[i].gr_db = sync.atomic_load(&e.play.track_gr[i])
+			}
+			mp := sync.atomic_load(&e.play.master_peak)
+			a.master.peak_db = dsp.lin_to_db(mp)
+			a.master.rms_db = a.master.peak_db - 6
+			a.master.gr_db = sync.atomic_load(&e.play.master_gr)
+			return
+		}
 		idx := int(cursor)
 		for i in 0 ..< MAX_ENGINE_TRACKS {
 			src := e.loaded[i]
-			if src == nil || idx >= len(src) {
+			if src == nil || idx < 0 || idx >= len(src) {
 				a.tracks[i].peak_db = -60
 				continue
 			}
@@ -1703,7 +2269,7 @@ engine_update :: proc(e: ^Engine, a: ^ui.App) {
 			a.tracks[i].peak_db = dsp.lin_to_db(peak * a.tracks[i].level)
 			a.tracks[i].rms_db = a.tracks[i].peak_db - 6
 		}
-		if idx * 2 + 1 < len(e.play.samples) {
+		if idx >= 0 && idx * 2 + 1 < len(e.play.samples) {
 			peak: f32 = 0
 			for f in idx ..< min(idx + 512, e.play.frames) {
 				peak = max(peak, abs(e.play.samples[f * 2]), abs(e.play.samples[f * 2 + 1]))
@@ -1750,6 +2316,7 @@ engine_update :: proc(e: ^Engine, a: ^ui.App) {
 	}
 	a.master.peak_db += (-60 - a.master.peak_db) * 0.12
 	a.master.rms_db += (-60 - a.master.rms_db) * 0.12
+	a.master.gr_db += (0 - a.master.gr_db) * 0.2
 }
 
 // ---------------------------------------------------------------- monitoring

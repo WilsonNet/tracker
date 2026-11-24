@@ -32,7 +32,7 @@ eq_params_default :: proc() -> Eq_Params {
 	}
 }
 
-eq_params_sanitized :: proc(params: Eq_Params) -> Eq_Params {
+eq_params_sanitized :: proc "contextless" (params: Eq_Params) -> Eq_Params {
 	p := params
 	p.low_db = clamp(p.low_db, -18.0, 18.0)
 	p.mid_db = clamp(p.mid_db, -18.0, 18.0)
@@ -42,7 +42,7 @@ eq_params_sanitized :: proc(params: Eq_Params) -> Eq_Params {
 	return p
 }
 
-eq_params_is_active :: proc(params: Eq_Params) -> bool {
+eq_params_is_active :: proc "contextless" (params: Eq_Params) -> bool {
 	return params.enabled &&
 	       (abs(params.low_db) > 0.05 || abs(params.mid_db) > 0.05 || abs(params.high_db) > 0.05)
 }
@@ -60,7 +60,7 @@ eq_new :: proc(sample_rate: f32, params: Eq_Params) -> Eq_State {
 	return eq
 }
 
-eq_update :: proc(eq: ^Eq_State, sample_rate: f32, params: Eq_Params) {
+eq_update :: proc "contextless" (eq: ^Eq_State, sample_rate: f32, params: Eq_Params) {
 	p := eq_params_sanitized(params)
 	eq.active = eq_params_is_active(p)
 	eq.low_l = biquad_low_shelf(sample_rate, LOW_SHELF_HZ, p.low_db, 1.0)
@@ -71,7 +71,30 @@ eq_update :: proc(eq: ^Eq_State, sample_rate: f32, params: Eq_Params) {
 	eq.high_r = biquad_high_shelf(sample_rate, HIGH_SHELF_HZ, p.high_db, 1.0)
 }
 
-eq_process :: proc(eq: ^Eq_State, l, r: f32) -> (f32, f32) {
+eq_set_params :: proc "contextless" (eq: ^Eq_State, sample_rate: f32, params: Eq_Params) {
+	p := eq_params_sanitized(params)
+	eq.active = eq_params_is_active(p)
+	low := biquad_low_shelf(sample_rate, LOW_SHELF_HZ, p.low_db, 1.0)
+	mid := biquad_peaking(sample_rate, p.mid_hz, p.mid_q, p.mid_db)
+	high := biquad_high_shelf(sample_rate, HIGH_SHELF_HZ, p.high_db, 1.0)
+	biquad_copy_coeffs(&eq.low_l, low)
+	biquad_copy_coeffs(&eq.low_r, low)
+	biquad_copy_coeffs(&eq.mid_l, mid)
+	biquad_copy_coeffs(&eq.mid_r, mid)
+	biquad_copy_coeffs(&eq.high_l, high)
+	biquad_copy_coeffs(&eq.high_r, high)
+}
+
+eq_reset :: proc "contextless" (eq: ^Eq_State) {
+	biquad_reset(&eq.low_l)
+	biquad_reset(&eq.low_r)
+	biquad_reset(&eq.mid_l)
+	biquad_reset(&eq.mid_r)
+	biquad_reset(&eq.high_l)
+	biquad_reset(&eq.high_r)
+}
+
+eq_process :: proc "contextless" (eq: ^Eq_State, l, r: f32) -> (f32, f32) {
 	if !eq.active {
 		return l, r
 	}

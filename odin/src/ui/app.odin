@@ -17,7 +17,7 @@ MIN_TRACKS :: 4
 MAX_KNOBS :: 24
 MAX_TOGGLES :: 16
 MAX_DEVICES :: 16
-MAX_PALETTE :: 64
+MAX_PALETTE :: 80
 MAX_HISTORY :: 64
 MAX_RECENT :: 8
 RECENT_PATH_MAX :: 192
@@ -60,6 +60,8 @@ Settings_Item :: enum u8 {
 	Latency_Down,
 	Latency_Up,
 	Monitor,
+	Timing_Mode,
+	Time_Sig,
 	Preroll,
 	High_Contrast,
 	Reduced_Motion,
@@ -182,6 +184,8 @@ Command_Kind :: enum {
 	Audition,      // play the lead-in up to the playhead, then pause there
 	Record_Now,    // record at the playhead without pre-roll
 	Preroll_Next,  // cycle the pre-roll length
+	Timing_Mode,   // toggle Grid (clicktrack + magnetic scrub) / Free tape (seconds)
+	Time_Sig_Next, // cycle time signature (4/4, 3/4, 6/8, 5/4, 7/8, 2/4)
 }
 
 Command :: struct {
@@ -303,10 +307,11 @@ Master_Snapshot :: struct {
 }
 
 Snapshot :: struct {
-	tracks:    [MAX_TRACKS]Track_Snapshot,
-	master:    Master_Snapshot,
-	bpm:       int,
-	metronome: bool,
+	tracks:       [MAX_TRACKS]Track_Snapshot,
+	master:       Master_Snapshot,
+	bpm:          int,
+	metronome:    bool,
+	time_sig_idx: int,
 }
 
 History_Entry :: struct {
@@ -408,6 +413,8 @@ App :: struct {
 	sample_rate:   u32,
 	bpm:           int,
 	metronome:     bool,
+	timing_mode:   Timing_Mode,
+	time_sig_idx:  int,
 	monitor:       bool,
 	latency_ms:    f32,
 	jack_backend:  bool,
@@ -419,7 +426,8 @@ App :: struct {
 	// Single return marker: STOP and the RTZ button go back to it (then to 0).
 	marker:        i64,
 	marker_set:    bool,
-	preroll_idx:   int, // index into PREROLL_STEPS
+	preroll_idx:      int, // index into PREROLL_STEPS (Free mode)
+	preroll_grid_idx: int, // index into PREROLL_GRID_STEPS (Grid mode)
 	record_punch:  i64, // frame where the take starts (read by the engine)
 	record_pre:    i64, // pre-roll frames before the punch (guide only, not recorded)
 	audition_end:  i64, // >0 while auditioning the lead-in
@@ -601,6 +609,8 @@ app_init :: proc(a: ^App, width, height: int) {
 	a.height = height
 	a.sample_rate = 48_000
 	a.bpm = 120
+	a.timing_mode = .Grid
+	a.time_sig_idx = TIME_SIG_DEFAULT_IDX
 	a.selected = 0
 	a.mode = .Normal
 	a.transport = .Stopped
@@ -609,6 +619,7 @@ app_init :: proc(a: ^App, width, height: int) {
 	a.input_count = MIN_TRACKS
 	a.track_count = MIN_TRACKS
 	a.preroll_idx = PREROLL_DEFAULT_IDX
+	a.preroll_grid_idx = PREROLL_GRID_DEFAULT_IDX
 	a.view_want = MIN_TRACKS
 	a.fx_focus = -1
 	status_buf_set(a, "ready")
@@ -774,6 +785,7 @@ app_snapshot :: proc(a: ^App) -> Snapshot {
 	}
 	s.bpm = a.bpm
 	s.metronome = a.metronome
+	s.time_sig_idx = a.time_sig_idx
 	return s
 }
 
@@ -799,6 +811,7 @@ app_apply_snapshot :: proc(a: ^App, s: Snapshot) {
 	a.master.limiter = s.master.limiter
 	a.bpm = s.bpm
 	a.metronome = s.metronome
+	a.time_sig_idx = clamp(s.time_sig_idx, 0, len(TIME_SIGS) - 1)
 	a.dirty = true
 	bump_revision(a)
 }
@@ -1451,8 +1464,8 @@ app_describe :: proc(a: ^App) -> string {
 	} else {
 		describe_append(out[:], &n, "selected track %d. ", a.selected + 1)
 	}
-	describe_append(out[:], &n, "tempo %d bpm. metronome %s. monitor %s. latency %.0f ms. capture %s. high contrast %s. reduced motion %s. project folder %s. ",
-		a.bpm, "on" if a.metronome else "off",
+	describe_append(out[:], &n, "tempo %d bpm. time signature %s. timing %s. metronome %s. monitor %s. latency %.0f ms. capture %s. high contrast %s. reduced motion %s. project folder %s. ",
+		a.bpm, app_time_sig(a).label, "free" if a.timing_mode == .Free else "grid", "on" if a.metronome else "off",
 		"on" if a.monitor else "off", a.latency_ms,
 		"Jack" if a.jack_backend else platform_audio_backend_name(),
 		"on" if a.high_contrast else "off",
@@ -1834,11 +1847,16 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		app_record_start(a, true)
 	case .Preroll_Next:
 		app_preroll_cycle(a)
+	case .Timing_Mode:
+		app_timing_mode_toggle(a)
+	case .Time_Sig_Next:
+		app_time_sig_cycle(a)
 	case .Record_Start:
 		app_record_start(a, a.shift_down)
 	case .Record_Stop:
 		a.audition_end = 0
 		a.transport = .Stopped
+		a.frames = max(a.frames, 0)
 		a.tape_cued = a.frames > 0
 		status_buf_set(a, "take captured (undo keeps audio) · STOP returns to the marker")
 		emit(a, .Record_Stop)
@@ -2493,7 +2511,7 @@ app_scrub_seconds :: proc(a: ^App, delta_s: f32) -> bool {
 	next := clamp(a.frames + delta_frames, 0, limit)
 	a.frames = next
 	a.tape_cued = next > 0
-	status_buf_set(a, fmt.tprintf("cue %s", timecode(a.frames, a.sample_rate)))
+	status_buf_set(a, fmt.tprintf("cue %s", app_position_text(a, a.frames)))
 	a.last_command = .Seek
 	a.last_command_index = 0
 	emit(a, .Seek)
@@ -2501,11 +2519,64 @@ app_scrub_seconds :: proc(a: ^App, delta_s: f32) -> bool {
 	return true
 }
 
+scrub_grid_step_beats :: proc(a: ^App, wheel: Scrub_Wheel, speed: Scrub_Speed) -> f64 {
+	sig := app_time_sig(a)
+	switch wheel {
+	case .Shuttle:
+		switch speed {
+		case .Normal: return f64(max(int(sig.num), 1))
+		case .Slow:   return 1.0
+		case .Micro:  return 0.25
+		}
+	case .Jog:
+		switch speed {
+		case .Normal: return 1.0
+		case .Slow:   return 0.25
+		case .Micro:  return 0.25
+		}
+	}
+	return 1.0
+}
+
 app_scrub_wheel :: proc(a: ^App, wheel: Scrub_Wheel, steps: f32, speed: Scrub_Speed) -> bool {
-	if steps == 0 {
+	if a == nil || steps == 0 {
 		return false
 	}
-	return app_scrub_seconds(a, steps * scrub_step_seconds(wheel, speed))
+	if a.transport == .Recording {
+		toast(a, "stop recording to scrub")
+		status_buf_set(a, "stop recording to scrub")
+		return false
+	}
+	if a.timing_mode == .Free || (wheel == .Jog && speed == .Micro) {
+		return app_scrub_seconds(a, steps * scrub_step_seconds(wheel, speed))
+	}
+	unit := max(scrub_grid_step_beats(a, wheel, speed) * app_beat_frames_f64(a), 1.0)
+	n := int(math.round(steps))
+	if n == 0 {
+		n = 1 if steps > 0 else -1
+	}
+	cur := max(a.frames, 0)
+	g := f64(cur) / unit
+	eps := 1e-4
+	k: i64
+	if n > 0 {
+		first := i64(math.floor(g + eps)) + 1
+		k = first + i64(n - 1)
+	} else {
+		first := i64(math.ceil(g - eps)) - 1
+		k = first + i64(n + 1)
+	}
+	rate := app_rate(a)
+	limit := a.tape_frames if a.tape_frames > 0 else rate * 3_600
+	target := clamp(i64(math.round(f64(k) * unit)), 0, limit)
+	a.frames = target
+	a.tape_cued = target > 0
+	status_buf_set(a, fmt.tprintf("cue %s", app_position_text(a, a.frames)))
+	a.last_command = .Seek
+	a.last_command_index = 0
+	emit(a, .Seek)
+	bump_revision(a)
+	return true
 }
 
 app_seek_zero :: proc(a: ^App) -> bool {
@@ -2519,7 +2590,7 @@ app_seek_zero :: proc(a: ^App) -> bool {
 	}
 	a.frames = 0
 	a.tape_cued = false
-	status_buf_set(a, "rewound to 00:00:00.000")
+	status_buf_set(a, fmt.tprintf("rewound to %s", app_position_text(a, 0)))
 	a.last_command = .Seek_Zero
 	a.last_command_index = 0
 	emit(a, .Seek)

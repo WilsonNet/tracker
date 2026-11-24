@@ -399,3 +399,11 @@ message state:
 - PipeWire device names include profile suffixes (`"Scarlett 4i4 USB Analog Surround 5.1"`) that CoreAudio omits (`"Scarlett 4i4 USB"`). `engine_resolve_device_index_ex` falls back from exact match to a unique word-boundary prefix match (`device_name_prefix_match`, ignoring `"Monitor of ..."`), and `engine_match_device` / `engine_sync_ui_device` keep `e.device_index`, `a.device_index`, and `a.device` in sync across startup, `--open`/Open/Cloud-restore (`engine_open_project`), preview, and record start (toasting on fallback).
 - `capture_config_unmixed` sets `cfg.capture.channelMixMode = .simple` so falling back from native width `0` to an explicit channel count drops extra hardware channels instead of spatially downmixing them.
 - When verifying with `VUI_HIDDEN=1`, pick an unused `VUI_PORT` and poll `vui-ctl info` rather than grepping stdout for `"vui: control server"` (which also matches `"could not listen ... (Address_In_Use)"`).
+
+### Musical Grid mode & Free tape mode (2026-11-24)
+
+- `Playback.cursor` is signed `i64` so Bar-1 count-in can start at negative frames (`-pre` before frame 0) while keeping `playback_prepare`'s explicit `has_start: bool` flag instead of a `-1` sentinel.
+- `playback_click_step` is `proc "contextless"` inside the `"c"` audio callback, computing exact `f64` beat boundaries from `pos` (`click_absolute = true` anchored to frame 0 in Grid, `pos - click_origin` in Free) with zero cumulative drift across non-integer BPMs and an atomic `seek_gen` counter for lock-free seek resync.
+- Grid scrubbing snaps magnetically to bar/beat/1/4-beat boundaries (`floor(g + eps) + 1` forward, `ceil(g - eps) - 1` backward) while preserving `Ctrl|Alt + Jog` (`10 ms`) as a micro escape hatch; drag gestures accumulate pointer travel in `View.scrub_accum` (`18 px` detents) so dragging feels stepped like hardware.
+- Adding `Timing_Mode` and `Time_Sig` to `Settings_Item` before `Preroll` shifts keyboard-walk `key down` counts in `tests/ui/window.vt` by +2; remember to free any new string field (`timing_mode`) in both `project_load_doc_free` and `settings_destroy`.
+- Counts now: 306 Linux / 300 macOS unit tests, 29 e2e cases.

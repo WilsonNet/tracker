@@ -165,7 +165,9 @@ engine_take_select :: proc(e: ^Engine, a: ^ui.App, track, id: int) -> bool {
 	if !take_list_select(&e.takes[track], id) {
 		return false
 	}
+	was_playing := engine_tracks_begin_edit(e)
 	handled, ok := engine_load_track_from_takes(e, a, track)
+	engine_tracks_end_edit(e, was_playing)
 	if !handled {
 		return false
 	}
@@ -266,16 +268,18 @@ engine_commit_recorded_take :: proc(e: ^Engine, a: ^ui.App, track: int, rate: u3
 	}
 	if punch <= 0 {
 		engine_take_register_new(e, track, rate)
+		was_playing := engine_tracks_begin_edit(e)
 		delete(e.loaded[track])
 		e.loaded[track] = mono
 		e.loaded_rate[track] = rate
+		engine_tracks_end_edit(e, was_playing)
 		if a != nil {
 			a.tracks[track].has_audio = true
 		}
 		return true
 	}
 
-	label := fmt.tprintf("Punch @%.1fs", f32(punch) / f32(max(e.sample_rate, 1)))
+	label := fmt.tprintf("Punch @%s", ui.app_short_pos_text(a, i64(punch))) if a != nil && a.timing_mode == .Grid else fmt.tprintf("Punch @%.1fs", f32(punch) / f32(max(e.sample_rate, 1)))
 	engine_take_register_new(e, track, rate, label, punch)
 	new_id := take_list_next_id(list) - 1
 	end := punch + len(mono)
@@ -285,7 +289,9 @@ engine_commit_recorded_take :: proc(e: ^Engine, a: ^ui.App, track: int, rate: u3
 	// If no comp can be built the new take simply stays the active take.
 	_ = comp_punch(list, old_active, new_id, punch, end, old_len)
 	delete(mono)
+	was_playing := engine_tracks_begin_edit(e)
 	_, _ = engine_load_track_from_takes(e, a, track)
+	engine_tracks_end_edit(e, was_playing)
 	if a != nil {
 		a.tracks[track].has_audio = true
 	}

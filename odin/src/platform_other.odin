@@ -8,6 +8,11 @@ import ma "vendor:miniaudio"
 platform_audio_configure_capture :: proc(cfg: ^ma.device_config, channels: int) {
 }
 
+platform_audio_configure_playback :: proc(cfg: ^ma.device_config) {
+	cfg.periodSizeInFrames = 512
+	cfg.periods = 2
+}
+
 platform_supports_jack :: proc() -> bool {
 	return false
 }

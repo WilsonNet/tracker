@@ -25,7 +25,7 @@ limiter_params_default :: proc() -> Limiter_Params {
 	}
 }
 
-limiter_params_sanitized :: proc(params: Limiter_Params) -> Limiter_Params {
+limiter_params_sanitized :: proc "contextless" (params: Limiter_Params) -> Limiter_Params {
 	p := params
 	p.ceiling_db = clamp(p.ceiling_db, -12.0, 0.0)
 	p.release_ms = clamp(p.release_ms, 10.0, 1_000.0)
@@ -65,7 +65,7 @@ limiter_destroy :: proc(lim: ^Limiter) {
 	lim.right = nil
 }
 
-limiter_update :: proc(lim: ^Limiter, sample_rate: f32, params: Limiter_Params) {
+limiter_update :: proc "contextless" (lim: ^Limiter, sample_rate: f32, params: Limiter_Params) {
 	lim.sample_rate = sample_rate
 	lim.params = limiter_params_sanitized(params)
 	lim.lookahead = max(int(lim.params.lookahead_ms * 0.001 * sample_rate), 1)
@@ -83,6 +83,16 @@ limiter_update :: proc(lim: ^Limiter, sample_rate: f32, params: Limiter_Params) 
 	lim.min_gain_db = 0.0
 }
 
+limiter_reset :: proc "contextless" (lim: ^Limiter) {
+	for i in 0 ..< len(lim.left) {
+		lim.left[i] = 0.0
+		lim.right[i] = 0.0
+	}
+	lim.write = 0
+	lim.envelope = 1.0
+	lim.min_gain_db = 0.0
+}
+
 limiter_gain_reduction_db :: proc(lim: ^Limiter) -> f32 {
 	return lim.min_gain_db
 }
@@ -90,16 +100,16 @@ limiter_gain_reduction_db :: proc(lim: ^Limiter) -> f32 {
 // Reduction currently applied to the delayed sample, dB (<= 0). Unlike
 // `limiter_gain_reduction_db` this is not a running minimum, so meter
 // timelines can show the release instead of staying at the worst value.
-limiter_instantaneous_reduction_db :: proc(lim: ^Limiter) -> f32 {
+limiter_instantaneous_reduction_db :: proc "contextless" (lim: ^Limiter) -> f32 {
 	return lin_to_db(lim.envelope)
 }
 
-limiter_reset_meter :: proc(lim: ^Limiter) {
+limiter_reset_meter :: proc "contextless" (lim: ^Limiter) {
 	lim.min_gain_db = 0.0
 }
 
 @(private)
-limiter_delayed :: proc(lim: ^Limiter, l, r: f32) -> (f32, f32) {
+limiter_delayed :: proc "contextless" (lim: ^Limiter, l, r: f32) -> (f32, f32) {
 	read := (lim.write + len(lim.left) - lim.lookahead) % len(lim.left)
 	out_l := lim.left[read]
 	out_r := lim.right[read]
@@ -110,7 +120,7 @@ limiter_delayed :: proc(lim: ^Limiter, l, r: f32) -> (f32, f32) {
 }
 
 // Returns limited output. A disabled limiter is a true bypass.
-limiter_process :: proc(lim: ^Limiter, l, r: f32) -> (f32, f32) {
+limiter_process :: proc "contextless" (lim: ^Limiter, l, r: f32) -> (f32, f32) {
 	if !lim.params.enabled {
 		return l, r
 	}

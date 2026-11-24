@@ -18,7 +18,7 @@ Tracker runs natively on **Linux** and **macOS** from one Odin codebase, with OS
 | **Native File/Folder Picker** | `zenity` (fallback `kdialog`) | `osascript` Cocoa panels | Disabled (`"", false`) |
 | **Browser OAuth Opener** | `xdg-open` / `gio open` / `sensible-browser` | `open <url>` | Disabled (`false`) |
 | **Primary Text Shortcut** | `Ctrl` (`.LCTRL` / `.RCTRL`) | `Cmd` (`.LGUI` / `.RGUI`) and `Ctrl` | `Ctrl` |
-| **Unit Test Count (`make test`)** | **303** (71 DSP + 146 core + 86 UI) | **297** (71 DSP + 140 core + 86 UI; 6 JACK session tests Linux-only) | **297** |
+| **Unit Test Count (`make test`)** | **313** (74 DSP + 152 core + 87 UI) | **307** (74 DSP + 146 core + 87 UI; 6 JACK session tests Linux-only) | **307** |
 
 ---
 
@@ -66,3 +66,4 @@ odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui
 ## Pending Cross-OS Verification
 
 - [ ] **Linux (`linux_amd64`)**: Verify split `#+build linux` modules (`platform_linux.odin`, `file_dialog_linux.odin`, `jack_capture_linux.odin`, `jack_session_linux.odin`, `jack_session_test.odin`, `ui/platform_linux.odin`, `ui/cairo_ffi.odin`, `ui/canvas_cairo_linux.odin`, `ui/font_runtime_linux.odin`), updated `odin/Makefile` (`$(ODIN) root`), `odin/scripts/check.sh`, `VUI_HIDDEN=1` file-dialog suppression in `file_dialog_linux.odin`, Tape Scrubber (`Ctrl`/`Alt` + `Shift` scroll/key modifiers and updated `main.png`/`min-size.png` baselines), and the 21-case `odin/tests/ui/window.vt` (`make build && make test && make check && make e2e && odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui`).
+- [ ] **Linux (`linux_amd64`)**: Verify `platform_audio_configure_playback` (512×2 low-latency buffer on PipeWire) and persistent warm playback stream (`playback_ensure_device` / `dsp.Live_Mixer` live playback + Rescan recovery) on real Linux audio hardware (`make test && make check`).

@@ -36,7 +36,7 @@ delay_params_default :: proc() -> Delay_Params {
 	}
 }
 
-delay_params_sanitized :: proc(params: Delay_Params) -> Delay_Params {
+delay_params_sanitized :: proc "contextless" (params: Delay_Params) -> Delay_Params {
 	p := params
 	p.time_ms = clamp(p.time_ms, 1.0, 2_000.0)
 	p.feedback = clamp(p.feedback, 0.0, 0.9)
@@ -69,7 +69,7 @@ delay_line_destroy :: proc(line: ^Delay_Line) {
 // delayed position. The read happens before this call's write, so an integer
 // delay of D returns the sample written D calls ago.
 @(private)
-delay_line_read :: proc(line: ^Delay_Line, delay: f32) -> f32 {
+delay_line_read :: proc "contextless" (line: ^Delay_Line, delay: f32) -> f32 {
 	n := len(line.buffer)
 	d := clamp(delay, 1.0, f32(n - 2))
 	read := f32(line.write) - d
@@ -84,7 +84,7 @@ delay_line_read :: proc(line: ^Delay_Line, delay: f32) -> f32 {
 }
 
 @(private)
-delay_line_write :: proc(line: ^Delay_Line, x: f32) {
+delay_line_write :: proc "contextless" (line: ^Delay_Line, x: f32) {
 	line.buffer[line.write] = flush_denormal(x)
 	line.write += 1
 	if line.write >= len(line.buffer) {
@@ -133,7 +133,7 @@ delay_destroy :: proc(d: ^Stereo_Delay) {
 	d.target_samples = 0.0
 }
 
-delay_update :: proc(d: ^Stereo_Delay, sample_rate: f32, params: Delay_Params) {
+delay_update :: proc "contextless" (d: ^Stereo_Delay, sample_rate: f32, params: Delay_Params) {
 	d.sample_rate = sample_rate
 	d.params = delay_params_sanitized(params)
 	d.target_samples = d.params.time_ms * 0.001 * sample_rate
@@ -143,11 +143,29 @@ delay_update :: proc(d: ^Stereo_Delay, sample_rate: f32, params: Delay_Params) {
 	d.tone_coeff = 1.0 - math.exp(-f32(math.TAU) * cutoff / sample_rate)
 }
 
+delay_reset :: proc "contextless" (d: ^Stereo_Delay) {
+	for i in 0 ..< len(d.left.buffer) {
+		d.left.buffer[i] = 0.0
+	}
+	for i in 0 ..< len(d.right.buffer) {
+		d.right.buffer[i] = 0.0
+	}
+	d.left.write = 0
+	d.right.write = 0
+	d.tone_l = 0.0
+	d.tone_r = 0.0
+	d.dc_x_l = 0.0
+	d.dc_y_l = 0.0
+	d.dc_x_r = 0.0
+	d.dc_y_r = 0.0
+	d.delay_samples = d.target_samples
+}
+
 // Soft saturation plus a DC blocker, applied inside the feedback loop. Bounds
 // the state at any feedback setting and keeps repeats from building a DC
 // offset.
 @(private)
-delay_shape :: proc(d: ^Stereo_Delay, x: f32, channel: int) -> f32 {
+delay_shape :: proc "contextless" (d: ^Stereo_Delay, x: f32, channel: int) -> f32 {
 	saturated := math.tanh(1.5 * x) * 0.6667
 	x1: ^f32
 	y1: ^f32
@@ -166,7 +184,7 @@ delay_shape :: proc(d: ^Stereo_Delay, x: f32, channel: int) -> f32 {
 
 // Wet return only; the dry signal is mixed by the caller. A disabled delay (or
 // a silent return) is a true bypass that does not advance the lines.
-delay_process :: proc(d: ^Stereo_Delay, l, r: f32) -> (f32, f32) {
+delay_process :: proc "contextless" (d: ^Stereo_Delay, l, r: f32) -> (f32, f32) {
 	if !d.params.enabled || d.params.return_level <= 0.0001 {
 		return 0.0, 0.0
 	}

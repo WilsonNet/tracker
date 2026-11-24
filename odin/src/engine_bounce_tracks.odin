@@ -135,9 +135,11 @@ engine_put_bounce_take :: proc(e: ^Engine, a: ^ui.App, target: int, mono: []f32,
 		return false, fmt.tprintf("cannot write track%d.wav", target + 1)
 	}
 	engine_take_register_new(e, target, e.sample_rate, label)
+	was_playing := engine_tracks_begin_edit(e)
 	delete(e.loaded[target])
 	e.loaded[target] = mono
 	e.loaded_rate[target] = e.sample_rate
+	engine_tracks_end_edit(e, was_playing)
 	a.tracks[target].has_audio = true
 	return true, ""
 }

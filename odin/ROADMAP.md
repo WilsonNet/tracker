@@ -15,12 +15,12 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | Master chain, limiter latency compensation | done | short-take and tail tests |
 | Lock-free capture ring + writer thread | done | writer drains while recording, overflow reporting |
 | Multi-channel capture to per-track float WAV | done | 2 s and 10 s captures exact |
-| Preview playback and overdub | done | live window checks |
+| Preview playback and overdub | done | real-time streaming `dsp.Live_Mixer` + pre-resampled `play_tracks` cache + persistent warm low-latency playback stream (`1.67 ms` prepare+block for 60 s × 4 tr full FX), triple-buffered live mix/FX updates, live window checks |
 | Live input monitoring | done | duplex callback, engine API + MON toggle |
 | Latency compensation | done | manual `--latency-ms` / I/O ±, take trim test |
 | Device hotplug/unplug recovery | done | notification flag, safe split, fallback + rescan |
 | Cooperative JACK capture (CLI + GUI) | done | async `/tmp` session, 1.0 s live take |
-| Metronome with BPM 40–240 | done | playback callback click |
+| Metronome with BPM 40–240, time signatures, absolute/relative click | done | `playback_click_step` callback tests (absolute, relative, negative count-in, accented downbeat, 100-beat zero drift) |
 
 ## Data and persistence
 
@@ -84,7 +84,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | 4–24 tracks (`App.track_count`, `project.json` `tracks` length) | done; old 4-track files load unchanged |
 | visible window (`view_want`, zoom 2/3/4/6/8/12, paging, rail with a dot per track) | done; strips never narrower than 92 px, compact strips below 200 px |
 | `v` mark / `V` bounce marked tracks → target (new mono take, sources kept, no sends/master FX) | done (`engine_bounce_tracks.odin`) |
-| pause in place, return marker, pre-roll, punch-in, audition (2026-11-24) | done: Space = play/pause (punches out while recording), STOP → marker → 00:00, `M` marker (saved in `project.json` `markerFrame`), pre-roll 0/1/2/3/5/10 s (`settings.json` `prerollS`, REC chip / Settings, Ctrl+r skips), record from the playhead auto-comps only the punched range, `p` auditions the lead-in |
+| pause in place, return marker, pre-roll, punch-in, audition (2026-11-24) | done: Space = play/pause (punches out while recording), STOP → marker → start, `M` marker (saved in `project.json` `markerFrame`), pre-roll (`OFF / 2 BT / 1 BAR / 2 BAR / 4 BAR` in Grid with Bar-1 count-in, `0/1/2/3/5/10 s` in Free; `settings.json` `prerollGrid`/`prerollS`, REC chip / Settings, Ctrl+r skips), record from the playhead auto-comps only the punched range, `p` auditions the lead-in |
+| musical Grid mode vs Free tape mode (2026-11-24) | done: Grid default (absolute clicktrack anchored to frame 0, accented beat 1, `4/4, 3/4, 6/8, 5/4, 7/8, 2/4`, `001.1.00 \| 00:00.0` readout, magnetic bar/beat/16th scrub + `10 ms` micro-nudge); Free opt-in in Settings → TIMING, `: timing mode`, `G` (relative click, seconds scrub/pre-roll, quiet `FREE` chip); persisted in `project.json` + `settings.json` |
 | track rename (`R` / double-click the name; empty = default; saved in `project.json`, survives Drive backup/restore) | done |
 | `F1` contextual key sheet (`ui/help.odin`) | done; covers every mode and sub-state |
 | not done | removing a track that holds audio (refused on purpose), undo of a bounce (the target's previous take stays selectable with `t`/`T`), stereo bounce targets, headless Cairo/soft canvas overlays for the help sheet and bounce dialog |
@@ -93,8 +94,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **303** Linux / **297** macOS (71 DSP, 146/140 core/engine/project/cloud, 86 UI) |
-| UI e2e | 28 headless vinland-ui cases |
+| unit tests | **313** Linux / **307** macOS (74 DSP, 152/146 core/engine/project/cloud, 87 UI) |
+| UI e2e | 29 headless vinland-ui cases |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |
 | hardware capture | 96,000 frames / 2.000 s |

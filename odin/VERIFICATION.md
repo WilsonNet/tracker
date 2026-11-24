@@ -398,3 +398,25 @@ RF64/EBU, JACK, XDG, Odin core/vendor).
 | `make test` + `-vet` (macOS) | **297 passed** (71 DSP + 140 core + 86 UI), `odin check -vet` clean; new tests cover `capture_config_unmixed` (`channelMixMode = .simple`), `capture_find_default_index`, `engine_resolve_device_index_ex` cross-OS prefix match & ambiguity/monitor guards, and `engine_match_device` / `engine_set_device` UI sync |
 | `make check` & `make e2e` | **PASS** (220-action UI tour, offline bounce, `ffprobe`, **28/28** `window.vt` cases on Metal) |
 | restored Linux project on macOS (`VUI_HIDDEN=1`, copy of `wilson-1` with `"Scarlett 4i4 USB Analog Surround 5.1"`) | Header I/O, status bar, and I/O overlay resolve and show `Scarlett 4i4 USB`; clicking `REC` opens `recording 6 ch · Scarlett 4i4 USB @ 48000 Hz · overdub` instead of falling back to `MX Brio`; `unknown_classes: []` |
+
+## Musical Grid mode & Free tape mode (2026-11-24)
+
+| check | result |
+|---|---|
+| `make build` & `-vet` (macOS) | clean (`darwin_arm64`) |
+| `make test` (macOS) | **300 passed** (**71** DSP + **142** core + **87** UI; +2 core clicktrack/project tests, +1 UI bar·beat formatting test, updated magnetic scrub / Bar-1 count-in / audition / settings tests) |
+| `make check` | **PASS** (unit tests, `selftest`, 220-action UI tour, offline bounce, `ffprobe`) |
+| `make e2e` | **29/29 passed** on Metal (`VUI_HIDDEN=1`), including updated Grid `tape scrubber` magnetic snap (`002.2.25` + `>` → `003.1`) and new `timing mode switches between grid and free tape` |
+| live `vui-ctl` & XDG persistence (`VUI_HIDDEN=1`) | Verified `001.1.00 \| 00:00.0` transport readout, `RHYTHM ON` + `3/4` beat LEDs + `MARK 2.2.25` at `1180×760` and `900×620` (no wrapping/clipping), Settings → `TIMING` toggle to `FREE · TAPE`, `FREE` chip + `5.0s`/`250ms`/`3 s`/`00:00:02.125`, restart from isolated `XDG_CONFIG_HOME` loading `"timingMode": "free"` cleanly, `unknown_classes: []`, `frame_ms: 0.75`, idle when stopped (`frame 12 → 16` over 1.5 s) |
+| not verified | Live audible clicktrack / count-in over CoreAudio/PipeWire speakers (callback math verified by `playback_clicktrack_absolute_relative_countin_and_accents` unit test); Linux `make e2e` baseline diff (`window.vt`) pending next Linux pass |
+
+## Real-time streaming playback & instant start (2026-11-24)
+
+| check | result |
+|---|---|
+| `make build` & `-vet` (macOS) | clean (`darwin_arm64`) |
+| `make test` (macOS) | **307 passed** (**74** DSP + **146** core + **87** UI; +3 DSP `Live_Mixer` parity/live-update/tail tests, +4 core `engine_sync_play_tracks`, `live_mix_params_from_app`, `playback_callback_live_mixer_updates_seeks_and_ramps_to_idle`, and `playback_live_prepare_60s_4tracks_is_instant`) |
+| 60 s × 4 tracks full-FX start benchmark (`playback_live_prepare_60s_4tracks_is_instant`) | **1.674 ms** (prepare + first 256-frame callback block, vs ~1,500–3,200 ms synchronous offline `render_mix` previously) |
+| `make check` & `make e2e` | **PASS** (unit tests, `selftest`, 220-action UI tour, offline bounce, `ffprobe`; **29/29** `window.vt` cases on Metal) |
+| Live CoreAudio window playback (`VUI_HIDDEN=1`, 3 s 440 Hz tone) | `Space` play → `PAUSE` advancing cleanly (`001.1.81 \| 00:00.4`), pause, resume, quit (`unknown_classes: []`, `frame_ms: 1.12`); OS period sizes `256×2` on CoreAudio (`platform_darwin.odin`), `512×2` on PipeWire/other (`platform_{linux,other}.odin`) |
+| not verified | Linux `make test`/`make check` and real PipeWire `512×2` playback hardware pass (tracked in `../PLATFORMS.md`) |

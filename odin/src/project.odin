@@ -56,18 +56,21 @@ Project_Master :: struct {
 }
 
 Project_Doc :: struct {
-	version:     int             `json:"version"`,
-	name:        string          `json:"name"`,
-	sample_rate: u32             `json:"sampleRate"`,
-	bpm:         int             `json:"bpm"`,
-	latency_ms:  f32             `json:"latencyMs"`,
-	high_contrast: bool          `json:"highContrast"`,
-	reduced_motion: bool         `json:"reducedMotion"`,
+	version:       int             `json:"version"`,
+	name:          string          `json:"name"`,
+	sample_rate:   u32             `json:"sampleRate"`,
+	bpm:           int             `json:"bpm"`,
+	time_sig_num:  int             `json:"timeSigNum"`,
+	time_sig_den:  int             `json:"timeSigDen"`,
+	timing_mode:   string          `json:"timingMode,omitempty"`,
+	latency_ms:    f32             `json:"latencyMs"`,
+	high_contrast: bool            `json:"highContrast"`,
+	reduced_motion: bool           `json:"reducedMotion"`,
 	// Return marker in frames at `sampleRate`; -1 = none.
-	marker_frame: int            `json:"markerFrame"`,
-	device:      string          `json:"device"`,
-	tracks:      []Project_Track `json:"tracks"`,
-	master:      Project_Master  `json:"master"`,
+	marker_frame:  int             `json:"markerFrame"`,
+	device:        string          `json:"device"`,
+	tracks:        []Project_Track `json:"tracks"`,
+	master:        Project_Master  `json:"master"`,
 }
 
 project_master_default :: proc() -> Project_Master {
@@ -110,6 +113,9 @@ project_default :: proc(count: int = ui.MIN_TRACKS) -> Project_Doc {
 		name = "untitled",
 		sample_rate = 48_000,
 		bpm = 120,
+		time_sig_num = 4,
+		time_sig_den = 4,
+		timing_mode = "grid",
 		device = "",
 		marker_frame = -1,
 		tracks = tracks,
@@ -269,6 +275,10 @@ project_from_app_with_takes :: proc(a: ^ui.App, takes: []Take_List) -> Project_D
 	doc.name = ui.app_project(a)
 	doc.sample_rate = a.sample_rate
 	doc.bpm = a.bpm
+	sig := ui.app_time_sig(a)
+	doc.time_sig_num = int(sig.num)
+	doc.time_sig_den = int(sig.den)
+	doc.timing_mode = "free" if a.timing_mode == .Free else "grid"
 	doc.latency_ms = a.latency_ms
 	doc.high_contrast = a.high_contrast
 	doc.reduced_motion = a.reduced_motion
@@ -333,17 +343,20 @@ project_from_app_with_takes :: proc(a: ^ui.App, takes: []Take_List) -> Project_D
 // zero. Explicit values survive, including level 0 and enabled=false.
 @(private)
 Project_Load_Doc :: struct {
-	version:     int                     `json:"version"`,
-	name:        string                  `json:"name"`,
-	sample_rate: u32                     `json:"sampleRate"`,
-	bpm:         int                     `json:"bpm"`,
-	latency_ms:  f32                     `json:"latencyMs"`,
-	high_contrast: bool                  `json:"highContrast"`,
-	reduced_motion: bool                 `json:"reducedMotion"`,
-	marker_frame: int                    `json:"markerFrame"`,
-	device:      string                  `json:"device"`,
-	tracks:      [PROJECT_MAX_LOAD_TRACKS]Project_Track `json:"tracks"`,
-	master:      Project_Master          `json:"master"`,
+	version:       int                     `json:"version"`,
+	name:          string                  `json:"name"`,
+	sample_rate:   u32                     `json:"sampleRate"`,
+	bpm:           int                     `json:"bpm"`,
+	time_sig_num:  int                     `json:"timeSigNum"`,
+	time_sig_den:  int                     `json:"timeSigDen"`,
+	timing_mode:   string                  `json:"timingMode"`,
+	latency_ms:    f32                     `json:"latencyMs"`,
+	high_contrast: bool                    `json:"highContrast"`,
+	reduced_motion: bool                   `json:"reducedMotion"`,
+	marker_frame:  int                     `json:"markerFrame"`,
+	device:        string                  `json:"device"`,
+	tracks:        [PROJECT_MAX_LOAD_TRACKS]Project_Track `json:"tracks"`,
+	master:        Project_Master          `json:"master"`,
 }
 
 // JSON null would zero an otherwise pre-filled struct or array (and silently
@@ -378,6 +391,10 @@ project_load_doc_free :: proc(d: ^Project_Load_Doc) {
 	if len(d.name) > 0 {
 		delete(d.name)
 		d.name = ""
+	}
+	if len(d.timing_mode) > 0 {
+		delete(d.timing_mode)
+		d.timing_mode = ""
 	}
 	if len(d.device) > 0 {
 		delete(d.device)
@@ -547,6 +564,8 @@ project_load_with_takes :: proc(a: ^ui.App, dir, path: string, takes: []Take_Lis
 		version = PROJECT_VERSION,
 		sample_rate = 48_000,
 		bpm = 120,
+		time_sig_num = 4,
+		time_sig_den = 4,
 		marker_frame = -1,
 		master = project_master_default(),
 	}
@@ -592,6 +611,8 @@ project_load_with_takes :: proc(a: ^ui.App, dir, path: string, takes: []Take_Lis
 
 	a.sample_rate = sample_rate
 	a.bpm = bpm
+	ui.app_set_time_sig(a, doc.time_sig_num, doc.time_sig_den)
+	a.timing_mode = .Free if doc.timing_mode == "free" else .Grid
 	a.latency_ms = clamp(doc.latency_ms, 0, 10_000)
 	a.high_contrast = doc.high_contrast
 	a.reduced_motion = doc.reduced_motion

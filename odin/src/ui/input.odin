@@ -22,6 +22,8 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"audition lead-in", .Audition},
 	{"record without pre-roll", .Record_Now},
 	{"cycle pre-roll", .Preroll_Next},
+	{"timing mode (grid / free tape)", .Timing_Mode},
+	{"cycle time signature", .Time_Sig_Next},
 	{"rewind to start", .Seek_Zero},
 	{"shuttle forward", .Shuttle_Forward},
 	{"shuttle back", .Shuttle_Back},
@@ -781,6 +783,10 @@ app_settings_activate :: proc(a: ^App) {
 		app_execute(a, .Latency_Up)
 	case .Monitor:
 		app_execute(a, .Monitor)
+	case .Timing_Mode:
+		app_execute(a, .Timing_Mode)
+	case .Time_Sig:
+		app_execute(a, .Time_Sig_Next)
 	case .Preroll:
 		app_execute(a, .Preroll_Next)
 	case .High_Contrast:
@@ -982,7 +988,7 @@ settings_text_index :: proc(a: ^App) -> int {
 	case .Cloud_Client_Secret, .Cloud_Connect, .Cloud_Backup, .Cloud_Restore:
 		return 4
 	case .Path, .Browse, .Apply, .Default, .Inputs, .Backend,
-	     .Latency_Down, .Latency_Up, .Monitor, .Preroll, .High_Contrast, .Reduced_Motion:
+	     .Latency_Down, .Latency_Up, .Monitor, .Timing_Mode, .Time_Sig, .Preroll, .High_Contrast, .Reduced_Motion:
 		return 1
 	}
 	return 0
@@ -1004,7 +1010,7 @@ settings_focus_text :: proc(a: ^App, index: int) {
 	case .Cloud_Client_Secret:
 		app_cloud_begin_edit(a, .Client_Secret)
 	case .Browse, .Apply, .Default, .Inputs, .Backend,
-	     .Latency_Down, .Latency_Up, .Monitor, .Preroll, .High_Contrast, .Reduced_Motion,
+	     .Latency_Down, .Latency_Up, .Monitor, .Timing_Mode, .Time_Sig, .Preroll, .High_Contrast, .Reduced_Motion,
 	     .Cloud_Connect, .Cloud_Backup, .Cloud_Restore:
 	}
 	bump_revision(a)
@@ -1765,6 +1771,15 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 		case 'p':
 			app_execute(a, .Audition)
 			return
+		case 'P':
+			app_execute(a, .Preroll_Next)
+			return
+		case 'G':
+			app_execute(a, .Timing_Mode)
+			return
+		case 'C':
+			app_execute(a, .Time_Sig_Next)
+			return
 		case 'I':
 			if a.selected < MAX_TRACKS && a.transport != .Recording {
 				a.tracks[a.selected].input = (a.tracks[a.selected].input % max(a.input_count, 1)) + 1
@@ -2340,6 +2355,10 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Record_Now"
 	case .Preroll_Next:
 		return "Preroll_Next"
+	case .Timing_Mode:
+		return "Timing_Mode"
+	case .Time_Sig_Next:
+		return "Time_Sig_Next"
 	case .Rename_Track:
 		return "Rename_Track"
 	case .Apply_Track_Name:
@@ -2489,6 +2508,14 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 		return fmt.tprintf("%d", a.bpm), true
 	case "metronome":
 		return "true" if a.metronome else "false", true
+	case "timing_mode":
+		return "free" if a.timing_mode == .Free else "grid", true
+	case "time_sig":
+		return app_time_sig(a).label, true
+	case "bar_beat":
+		return app_position_text(a, a.frames), true
+	case "preroll":
+		return app_preroll_label(a), true
 	case "monitor":
 		return "true" if a.monitor else "false", true
 	case "latency":

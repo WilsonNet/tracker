@@ -85,7 +85,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 303 unit tests (Linux) / 297 (macOS)
+make test         # 313 unit tests (Linux) / 307 (macOS)
 make check        # unit + headless UI tour + offline end-to-end
 
 # 4. Run the app
@@ -114,9 +114,9 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | unit tests: 71 DSP, 146 core (Linux) / 140 core (macOS), 86 UI = 303 (Linux) / 297 (macOS) |
+| `test` | unit tests: 74 DSP, 152 core (Linux) / 146 core (macOS), 87 UI = 313 (Linux) / 307 (macOS) |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
-| `e2e` | 28 headless vinland-ui window cases (`tests/ui/window.vt`) |
+| `e2e` | 29 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
 | `ui-test` | run a harness script; `SCRIPT=... UI_OUT=...` |
@@ -154,28 +154,39 @@ directory is in `XDG_DATA_DIRS`.
   with the mouse (click the time to cue there, `x` clears). The marker is saved in
   `project.json` (`markerFrame`). Jog (`h/l`, `H/L`, `Ctrl+h/l`, `< >`, the
   wheels) to choose a spot, press `p` to **audition** the lead-in up to it (it
-  plays the pre-roll length, at least 2 s, and pauses exactly at the playhead),
-  then `r`. Recording starts **at the playhead**: the guide plays for the
-  **pre-roll** first (OFF/1/2/3/5/10 s, default 3 s; the `PRE-ROLL` chip next to
-  RHYTHM or Settings → Pre-roll changes it and it is saved in `settings.json`),
-  the take begins at the punch point, and the REC button counts the pre-roll down
-  (`PRE 3`). `Ctrl+r` / `Alt+r`, or Shift+click on REC, records immediately. When
-  the track already has audio, the take is **auto-comped over the old audio only
-  between punch-in and punch-out**: the old take is untouched and shown as `C/2`,
-  before and after the punch keep playing, and `t`/`T` or the take arrows pick a
-  take outright. Punching at 00:00 keeps the old behaviour (the new take
-  replaces the track). With nothing to listen to (no audio, no click) there is
-  no pre-roll, and it never reaches before 00:00.
-- **Transport & Tape Scrubber:** REC / PLAY·PAUSE / STOP / BOUNCE, timecode, armed count, BPM
-  stepper, metronome click, live input **MON**itoring, latency trim and a
-  PipeWire/cooperative-JACK backend switch. Centered in the bottom deck bar is a
-  hardware-inspired **Tape Scrubber** with a **`|◄` RTZ** button and dual rotary
-  wheels: **SHUTTLE** (`5.0 s` normal / `1.0 s` `Shift` / `0.25 s` `Ctrl|Alt`)
-  and **JOG** (`250 ms` normal / `50 ms` `Shift` / `10 ms` `Ctrl|Alt`), plus loaded
-  tape length (`/ MM:SS.s`). Hover either wheel (or the transport timecode) and
-  scroll, vertical-drag either wheel, double-click the wheel/timecode for RTZ, or
-  scrub from the keyboard; when stopped, scrubbing cues playback and peeks the
-  meters at the tape head without modifying takes.
+  plays the pre-roll length, or 1 bar / 2 s min, and pauses exactly at the
+  playhead), then `r`. Recording starts **at the playhead**: the guide plays
+  for the **pre-roll** first (Grid mode default: `OFF`, `2 BT`, `1 BAR`,
+  `2 BAR`, `4 BAR`, default `1 BAR`, including a count-in before Bar 1 Beat 1;
+  Free mode: `OFF`/1/2/3/5/10 s, default `3 s`; the `PRE-ROLL` chip or
+  Settings → TIMING changes it and it is saved in `settings.json`), the take
+  begins at the punch point, and the REC button counts the pre-roll down
+  (`PRE 4` beats in Grid / `PRE 3` s in Free). `Ctrl+r` / `Alt+r`, or
+  Shift+click on REC, records immediately. When the track already has audio, the
+  take is **auto-comped over the old audio only between punch-in and
+  punch-out**: the old take is untouched and shown as `C/2`, before and after
+  the punch keep playing, and `t`/`T` or the take arrows pick a take outright.
+  Punching at Bar 1 Beat 1 (`00:00`) keeps the old behaviour (the new take
+  replaces the track). In Free mode, with nothing to listen to (no audio, no
+  click) there is no pre-roll, and it never reaches before 00:00.
+- **Timing mode, Clicktrack & Tape Scrubber:** **Grid mode** (default) runs an
+  **absolute clicktrack** anchored to Bar 1 Beat 1 (frame 0) with accented
+  downbeats (`4/4`, `3/4`, `6/8`, `5/4`, `7/8`, `2/4`; cycle with `C`, the
+  bottom-deck chip, or Settings → TIMING), shows `001.1.00 | 00:00.0` in the
+  transport bar plus a beat LED strip when `RHYTHM` or count-in is active, and
+  snaps the **Tape Scrubber** magnetically (`SHUTTLE`: `1 BAR` / `1 BEAT` Shift /
+  `1/4 BEAT` Ctrl|Alt; `JOG`: `1 BEAT` / `1/4 BEAT` Shift / `10 ms` micro-nudge
+  Ctrl|Alt; loaded length `/ N BAR`). For live, no-click, or organic tape
+  sessions, switch to **Free tape mode** in **Settings → TIMING**, `: timing
+  mode`, or `G`: the clicktrack runs relative to the play/record start point,
+  the readout switches to `00:00:00.000`, scrubbing steps in seconds (`5.0 s` /
+  `1.0 s` / `0.25 s` and `250 ms` / `50 ms` / `10 ms`), and a quiet `FREE` chip
+  appears beside `RHYTHM` (click to return to Grid). Timing mode and time
+  signature persist in `project.json` (`timingMode`, `timeSigNum`, `timeSigDen`)
+  and `settings.json` (`timingMode`, `prerollGrid`). Hover either wheel (or the
+  transport readout) and scroll, vertical-drag either wheel, double-click the
+  wheel/readout for RTZ, or scrub from the keyboard; when stopped, scrubbing
+  cues playback and peeks the meters at the tape head without modifying takes.
 - **Bounce to track:** `v` (or the tick box on a strip) marks source tracks,
   `V` or `→ TRACK` opens a dialog; `j/k` or a click picks the target and `Enter`
   mixes the marked tracks into it as a new mono take named `Bounce 1+2…`. Sources
@@ -240,10 +251,9 @@ directory is in `XDG_DATA_DIRS`.
   model are in [`../docs/cloud-setup.md`](../docs/cloud-setup.md).
 - **Headless UI harness:** `ui-test` (below) drives the exact same state
   machine without a browser or window.
-- **Keyboard:** `F1` key help, `Space` play/pause (punch out while recording), `r` record at the playhead (`Ctrl+r` no pre-roll), `M` marker, `p` audition, `0` stop → marker → 00:00, `b` bounce, `B` render dialog, `1–9` arm track, `j/k`
-  select, `J/K` level, `h/l` jog `±250 ms` (`H/L` fine `±50 ms`, `Alt|Ctrl+h/l`
-  micro `±10 ms`), `</>` shuttle `±5.0 s`, `|◄` return to marker, then zero, `m` mute,
-  `s` solo, `a` arm, `n` rename project, `R` rename track, `v`/`V` mark / bounce tracks to a track, `N`/`D` add / delete track, `{ }` zoom, `( )` page, `I` input, `x` FX, `c` click, `o`
+- **Keyboard:** `F1` key help, `Space` play/pause (punch out while recording), `r` record at the playhead (`Ctrl+r` no pre-roll), `M` marker, `p` audition, `P` cycle pre-roll, `0` stop → marker → start, `b` bounce, `B` render dialog, `1–9` arm track, `j/k`
+  select, `J/K` level, `h/l` jog (`±1 beat` in Grid / `±250 ms` in Free; `H/L` `±1/4 beat` / `±50 ms`; `Alt|Ctrl+h/l` micro `±10 ms`), `</>` shuttle (`±1 bar` in Grid / `±5.0 s` in Free), `|◄` return to marker, then zero, `m` mute,
+  `s` solo, `a` arm, `n` rename project, `R` rename track, `v`/`V` mark / bounce tracks to a track, `N`/`D` add / delete track, `{ }` zoom, `( )` page, `I` input, `x` FX, `c` click, `C` time signature, `G` grid / free timing mode, `o`
   monitor, `y` JACK backend, `t`/`T` next/previous take, `u`/`U` undo/redo,
   `[`/`]` FX channel, `Tab`/`Shift+Tab` FX focus, `,` settings, `g` cloud projects,
   `:` command palette (`rewind to start`, `shuttle forward/back`, `jog forward/back`),

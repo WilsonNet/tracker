@@ -27,7 +27,7 @@ width_params_default :: proc() -> Width_Params {
 	}
 }
 
-width_params_sanitized :: proc(params: Width_Params) -> Width_Params {
+width_params_sanitized :: proc "contextless" (params: Width_Params) -> Width_Params {
 	p := params
 	p.width = clamp(p.width, 0.0, 2.0)
 	p.bass_hz = clamp(p.bass_hz, 40.0, 400.0)
@@ -35,7 +35,7 @@ width_params_sanitized :: proc(params: Width_Params) -> Width_Params {
 }
 
 // How much of the low side content is removed, 0..1.
-width_bass_mono_amount :: proc(p: Width_Params) -> f32 {
+width_bass_mono_amount :: proc "contextless" (p: Width_Params) -> f32 {
 	if p.width <= 1.0 {
 		return 0.0
 	}
@@ -62,7 +62,7 @@ widener_new :: proc(sample_rate: f32, params: Width_Params) -> Widener {
 	return w
 }
 
-widener_update :: proc(w: ^Widener, sample_rate: f32, params: Width_Params) {
+widener_update :: proc "contextless" (w: ^Widener, sample_rate: f32, params: Width_Params) {
 	w.sample_rate = sample_rate
 	w.params = width_params_sanitized(params)
 	// 12 dB/oct side split: two cascaded one-poles.
@@ -71,8 +71,13 @@ widener_update :: proc(w: ^Widener, sample_rate: f32, params: Width_Params) {
 	_ = coeff_for_ms(10.0, sample_rate)
 }
 
+widener_reset :: proc "contextless" (w: ^Widener) {
+	w.lp_l = 0.0
+	w.lp_r = 0.0
+}
+
 // Disabled, or unity width, is a true bypass.
-widener_process :: proc(w: ^Widener, l, r: f32) -> (f32, f32) {
+widener_process :: proc "contextless" (w: ^Widener, l, r: f32) -> (f32, f32) {
 	if !w.params.enabled || abs(w.params.width - 1.0) < 0.001 {
 		return l, r
 	}

@@ -8,19 +8,19 @@ package dsp
 import "core:math"
 
 // Linear amplitude -> decibels. Silence floors at -120 dB.
-lin_to_db :: proc(x: f32) -> f32 {
+lin_to_db :: proc "contextless" (x: f32) -> f32 {
 	if x <= 1e-6 {
 		return -120.0
 	}
 	return 20.0 * math.log10(x)
 }
 
-db_to_lin :: proc(db: f32) -> f32 {
+db_to_lin :: proc "contextless" (db: f32) -> f32 {
 	return math.pow(10.0, db / 20.0)
 }
 
 // One-pole coefficient for a time constant in milliseconds.
-coeff_for_ms :: proc(ms, sample_rate: f32) -> f32 {
+coeff_for_ms :: proc "contextless" (ms, sample_rate: f32) -> f32 {
 	return math.exp(-1.0 / (max(ms, 0.01) * 0.001 * sample_rate))
 }
 
@@ -28,7 +28,7 @@ coeff_for_ms :: proc(ms, sample_rate: f32) -> f32 {
 // unity slope at the knee, zero slope at the ceiling. A NaN input would
 // otherwise turn into a full-scale DC sample at the output of the safety
 // stage, so it is treated as silence.
-soft_clip :: proc(x, ceiling: f32) -> f32 {
+soft_clip :: proc "contextless" (x, ceiling: f32) -> f32 {
 	if math.is_nan(x) {
 		return 0.0
 	}
@@ -52,7 +52,7 @@ soft_clip :: proc(x, ceiling: f32) -> f32 {
 }
 
 @(private)
-flush_denormal :: proc(x: f32) -> f32 {
+flush_denormal :: proc "contextless" (x: f32) -> f32 {
 	return 0.0 if abs(x) < 1e-20 else x
 }
 

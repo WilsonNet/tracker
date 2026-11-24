@@ -53,6 +53,7 @@ View :: struct {
 	settings_sel_last: Settings_Item,
 	settings_panel_h:  f32,
 	chain_w:       f32,
+	scrub_accum:   f32,
 }
 
 @(private = "file")
@@ -151,6 +152,7 @@ view_frame :: proc(a: ^App, v: ^View) {
 	view_drag_update(a, v)
 	if .Left in ctx.input.released {
 		v.drag.kind = .None
+		v.scrub_accum = 0
 		app_history_commit(a)
 	}
 
@@ -243,7 +245,16 @@ view_drag_update :: proc(a: ^App, v: ^View) {
 		if abs(delta) > 0.01 && a.transport != .Recording {
 			wheel: Scrub_Wheel = .Shuttle if d.kind == .Scrub_Shuttle else .Jog
 			speed := app_scrub_speed(v.fine, v.micro, false)
-			_ = app_scrub_wheel(a, wheel, delta / 18.0, speed)
+			if a.timing_mode == .Grid && !(wheel == .Jog && speed == .Micro) {
+				v.scrub_accum += delta
+				if abs(v.scrub_accum) >= 18.0 {
+					steps := int(v.scrub_accum / 18.0)
+					v.scrub_accum -= f32(steps) * 18.0
+					_ = app_scrub_wheel(a, wheel, f32(steps), speed)
+				}
+			} else {
+				_ = app_scrub_wheel(a, wheel, delta / 18.0, speed)
+			}
 		}
 	case .None:
 	}
@@ -336,7 +347,8 @@ view_transport :: proc(a: ^App, v: ^View) {
 			pre := app_in_preroll(a)
 			if vui.button_box(vui.cx(TBTN, pre ? "animate-pulse bg-sig text-canvas" : rec ? "animate-pulse bg-rec text-ink" : "text-rec hover:bg-rec-bg")) {
 				vui.el("size-2 rounded-full bg-canvas" if pre else "size-2 rounded-full bg-rec" if !rec else "size-2 rounded-full bg-ink")
-				vui.text(fmt.tprintf("PRE %.0f", math.ceil(app_preroll_left_seconds(a))) if pre else "REC")
+				pre_text := fmt.tprintf("PRE %.0f", max(math.ceil(app_preroll_left_beats(a)), 1)) if a.timing_mode == .Grid else fmt.tprintf("PRE %.0f", max(math.ceil(app_preroll_left_seconds(a)), 1))
+				vui.text(pre_text if pre else "REC")
 				if vui.clicked() {
 					// Shift+click records straight away, skipping the pre-roll
 					app_toggle_record(a, a.shift_down)
@@ -367,15 +379,24 @@ view_transport :: proc(a: ^App, v: ^View) {
 			}
 		}
 
-		scrubbing := a.tape_cued || v.drag.kind == .Scrub_Shuttle || v.drag.kind == .Scrub_Jog
-		if vui.div("ml-auto flex shrink-0 cursor-ew-resize items-center rounded-[2px] px-1.5 py-0.5 hover:bg-panel-hover") {
+		scrubbing := a.tape_cued || v.drag.kind == .Scrub_Shuttle || v.drag.kind == .Scrub_Jog || app_in_preroll(a)
+		if vui.div("ml-auto flex shrink-0 cursor-ew-resize items-center gap-2 rounded-[2px] px-1.5 py-0.5 hover:bg-panel-hover") {
 			if w := wheel_here(); w != 0 {
 				_ = app_scrub_wheel(a, .Jog, w, app_scrub_speed(v.fine, v.micro, false))
 			}
 			if vui.double_clicked() {
 				_ = app_return_to_marker_or_zero(a)
 			}
-			vui.text(timecode(a.frames, a.sample_rate), vui.cx("whitespace-nowrap text-[13px] tabular-nums tracking-[0.02em]", scrubbing ? "text-sig" : "text-ink"))
+			if a.timing_mode == .Grid {
+				main_bb, sub_bb := app_bar_beat_parts(a, a.frames)
+				if vui.div("flex items-baseline") {
+					vui.text(main_bb, vui.cx("whitespace-nowrap text-[13px] font-semibold tabular-nums tracking-[0.02em]", scrubbing ? "text-sig" : "text-ink"))
+					vui.text(sub_bb, vui.cx("whitespace-nowrap text-[11px] tabular-nums tracking-[0.02em]", scrubbing ? "text-sig-dim" : "text-ink-muted"))
+				}
+				vui.text(app_clock_short(a.frames, a.sample_rate), "whitespace-nowrap border-l border-line pl-2 text-[11px] tabular-nums text-ink-muted")
+			} else {
+				vui.text(timecode(max(a.frames, 0), a.sample_rate), vui.cx("whitespace-nowrap text-[13px] tabular-nums tracking-[0.02em]", scrubbing ? "text-sig" : "text-ink"))
+			}
 		}
 
 		if vui.div("ml-4 flex shrink-0 items-center gap-2") {
@@ -1437,12 +1458,15 @@ view_status :: proc(a: ^App) {
 
 @(private = "file")
 Scrub_Wheel_Draw :: struct {
-	wheel:   Scrub_Wheel,
-	frames:  i64,
-	rate:    u32,
-	hover:   bool,
-	active:  bool,
-	enabled: bool,
+	wheel:       Scrub_Wheel,
+	frames:      i64,
+	rate:        u32,
+	grid:        bool,
+	beat_frames: f64,
+	sig_num:     int,
+	hover:       bool,
+	active:      bool,
+	enabled:     bool,
 }
 
 @(private = "file")
@@ -1459,7 +1483,24 @@ scrubber_wheel_here :: proc() -> f32 {
 }
 
 @(private = "file")
-scrubber_step_label :: proc(wheel: Scrub_Wheel, speed: Scrub_Speed) -> string {
+scrubber_step_label :: proc(a: ^App, wheel: Scrub_Wheel, speed: Scrub_Speed) -> string {
+	if a.timing_mode == .Grid {
+		switch wheel {
+		case .Shuttle:
+			switch speed {
+			case .Normal: return "1 BAR"
+			case .Slow:   return "1 BEAT"
+			case .Micro:  return "1/4 BEAT"
+			}
+		case .Jog:
+			switch speed {
+			case .Normal: return "1 BEAT"
+			case .Slow:   return "1/4 BEAT"
+			case .Micro:  return "10ms"
+			}
+		}
+		return "1 BEAT"
+	}
 	switch wheel {
 	case .Shuttle:
 		switch speed {
@@ -1496,11 +1537,21 @@ scrubber_wheel_draw :: proc(ctx: ^vui.Context, r: vui.Rect, data: rawptr) {
 	vui.draw_circle(ctx, c, rad, tok("panel-raised"))
 	vui.draw_arc(ctx, c, rad, 0, math.TAU, rim, 1.25)
 
-	turn_hz := f64(0.25 if d.wheel == .Shuttle else 2.0)
-	secs := f64(d.frames) / f64(max(d.rate, 1))
-	theta := f32(-math.PI * 0.5 + secs * turn_hz * math.TAU)
+	theta: f32
+	knurls: int
+	if d.grid {
+		beats := f64(d.frames) / max(d.beat_frames, 1.0)
+		bar_beats := f64(max(d.sig_num, 1))
+		turns := (beats / (bar_beats * 4.0)) if d.wheel == .Shuttle else (beats / bar_beats)
+		theta = f32(-math.PI * 0.5 + turns * math.TAU)
+		knurls = 12 if d.wheel == .Shuttle else clamp(d.sig_num * 4, 8, 28)
+	} else {
+		turn_hz := f64(0.25 if d.wheel == .Shuttle else 2.0)
+		secs := f64(d.frames) / f64(max(d.rate, 1))
+		theta = f32(-math.PI * 0.5 + secs * turn_hz * math.TAU)
+		knurls = 12 if d.wheel == .Shuttle else 20
+	}
 
-	knurls := 12 if d.wheel == .Shuttle else 20
 	knurl_col := tok("ink-muted") if d.hover || d.active else tok("line")
 	if !d.enabled {
 		knurl_col = tok("line-subtle")
@@ -1542,6 +1593,7 @@ scrubber_wheel_ui :: proc(a: ^App, v: ^View, wheel: Scrub_Wheel, title: string, 
 			if press_started() {
 				v.drag = View_Drag{kind = drag_kind, start = ctx.input.mouse}
 				v.drag_last = ctx.input.mouse
+				v.scrub_accum = 0
 			}
 			if w := scrubber_wheel_here(); w != 0 {
 				_ = app_scrub_wheel(a, wheel, w, speed)
@@ -1552,33 +1604,46 @@ scrubber_wheel_ui :: proc(a: ^App, v: ^View, wheel: Scrub_Wheel, title: string, 
 		}
 		d := new(Scrub_Wheel_Draw, context.temp_allocator)
 		d^ = {
-			wheel   = wheel,
-			frames  = a.frames,
-			rate    = a.sample_rate,
-			hover   = hov,
-			active  = active,
-			enabled = enabled,
+			wheel       = wheel,
+			frames      = a.frames,
+			rate        = a.sample_rate,
+			grid        = a.timing_mode == .Grid,
+			beat_frames = app_beat_frames_f64(a),
+			sig_num     = int(app_time_sig(a).num),
+			hover       = hov,
+			active      = active,
+			enabled     = enabled,
 		}
 		vui.canvas("size-6 shrink-0", scrubber_wheel_draw, d)
 		if vui.div("flex flex-col leading-tight") {
 			vui.text(title, vui.cx("text-[10px] font-semibold tracking-[0.06em]", active ? "text-sig" : "text-ink-dim"))
-			vui.text(scrubber_step_label(wheel, speed), vui.cx("text-[9px] tabular-nums", (speed != .Normal || active) ? "text-sig" : "text-ink-muted"))
+			vui.text(scrubber_step_label(a, wheel, speed), vui.cx("text-[9px] tabular-nums", (speed != .Normal || active) ? "text-sig" : "text-ink-muted"))
 		}
 	}
 }
 
 @(private = "file")
 view_rhythm :: proc(a: ^App, v: ^View) {
-	if vui.div("flex shrink-0 items-center gap-3 border-t border-line px-4 py-2") {
+	if vui.div("flex shrink-0 items-center gap-2 border-t border-line px-4 py-2") {
 		on := a.metronome
-		if vui.button_box(vui.cx("flex shrink-0 items-center gap-2 rounded-[2px] border px-3 py-1 text-[12px] font-semibold tracking-[0.06em] transition-colors duration-150", on ? "border-line-sig bg-sig-bg text-sig" : "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
+		if vui.button_box(vui.cx("flex shrink-0 items-center gap-2 rounded-[2px] border px-2.5 py-1 text-[12px] font-semibold tracking-[0.06em] transition-colors duration-150", on ? "border-line-sig bg-sig-bg text-sig" : "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
 			vui.text("RHYTHM")
 			vui.text("ON" if on else "OFF", "text-sig" if on else "text-ink-muted")
 			if vui.clicked() {
 				app_execute(a, .Metronome)
 			}
 		}
-		pr := app_preroll_seconds(a) > 0
+		if a.timing_mode == .Grid {
+			sig := app_time_sig(a)
+			if vui.button(sig.label, vui.cx("shrink-0 rounded-[2px] border px-2 py-1 text-[11px] font-semibold tabular-nums tracking-[0.04em] transition-colors duration-150", on ? "border-line-sig bg-sig-bg text-sig hover:bg-panel-hover" : "border-line text-ink-dim hover:border-sig-dim hover:bg-panel-hover hover:text-ink")) {
+				app_execute(a, .Time_Sig_Next)
+			}
+		} else {
+			if vui.button("FREE", "shrink-0 rounded-[2px] border border-line px-2 py-1 text-[11px] font-semibold tracking-[0.06em] text-ink-dim transition-colors duration-150 hover:border-sig-dim hover:bg-panel-hover hover:text-ink") {
+				app_execute(a, .Timing_Mode)
+			}
+		}
+		pr := app_preroll_active(a)
 		if vui.button_box(vui.cx("flex shrink-0 items-center gap-2 rounded-[2px] border px-2.5 py-1 text-[11px] font-semibold tracking-[0.06em] transition-colors duration-150", pr ? "border-line-sig bg-sig-bg text-sig" : "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
 			vui.text("PRE-ROLL")
 			vui.text(app_preroll_label(a), "text-sig" if pr else "text-ink-muted")
@@ -1586,8 +1651,20 @@ view_rhythm :: proc(a: ^App, v: ^View) {
 				app_execute(a, .Preroll_Next)
 			}
 		}
-		if on {
-			vui.text(fmt.tprintf("CLICK · %d BPM · 4/4", a.bpm), "shrink-0 whitespace-nowrap text-[11px] tracking-[0.04em] text-ink-dim")
+		if a.timing_mode == .Grid && (on || app_in_preroll(a)) {
+			sig := app_time_sig(a)
+			active_beat := app_current_beat_in_bar(a)
+			rolling := a.transport != .Stopped
+			if vui.div("flex shrink-0 items-center gap-1 pl-0.5") {
+				for b in 0 ..< int(sig.num) {
+					vui.push_id(b)
+					lit := rolling && b == active_beat
+					hcls := "h-2.5 w-1.5" if b == 0 else "h-1.5 w-1.5"
+					ccls := "bg-sig-hi" if (lit && b == 0) else "bg-sig" if lit else "bg-sig-dim" if (b == 0 && !rolling) else "bg-line"
+					vui.el(vui.cx("rounded-[1px]", hcls, ccls))
+					vui.pop_id()
+				}
+			}
 		}
 		if vui.div("mx-auto flex shrink-0 items-center gap-1.5") {
 			rtz_enabled := a.transport != .Recording
@@ -1598,15 +1675,15 @@ view_rhythm :: proc(a: ^App, v: ^View) {
 			scrubber_wheel_ui(a, v, .Shuttle, "SHUTTLE")
 			scrubber_wheel_ui(a, v, .Jog, "JOG")
 			if a.tape_frames > 0 {
-				vui.text(fmt.tprintf("/ %s", render_time_text(f32(a.tape_frames) / f32(max(a.sample_rate, 1)))), "ml-1 whitespace-nowrap text-[10px] tabular-nums text-ink-muted")
+				vui.text(fmt.tprintf("/ %s", app_tape_length_text(a)), "ml-1 whitespace-nowrap text-[10px] tabular-nums text-ink-muted")
 			}
 			// the single return marker: MARK drops it at the playhead (M), the
-			// time cues there, x clears it
-			if vui.button("MARK", vui.cx("ml-2 rounded-[2px] border px-1.5 py-1 text-[10px] font-semibold tracking-[0.04em] transition-colors duration-150", a.marker_set ? "border-line-sig text-sig hover:bg-sig-bg" : "border-line text-ink-muted hover:text-ink")) {
+			// position chip cues there, x clears it
+			if vui.button("MARK", vui.cx("ml-1.5 rounded-[2px] border px-1.5 py-1 text-[10px] font-semibold tracking-[0.04em] transition-colors duration-150", a.marker_set ? "border-line-sig text-sig hover:bg-sig-bg" : "border-line text-ink-muted hover:text-ink")) {
 				app_execute(a, .Set_Marker)
 			}
 			if a.marker_set {
-				if vui.button(render_time_text(f32(a.marker) / f32(max(a.sample_rate, 1))), "rounded-[2px] border border-line-sig bg-sig-bg px-1.5 py-1 text-[10px] font-semibold tabular-nums text-sig hover:bg-panel-hover") {
+				if vui.button(app_short_pos_text(a, a.marker), "rounded-[2px] border border-line-sig bg-sig-bg px-1.5 py-1 text-[10px] font-semibold tabular-nums text-sig hover:bg-panel-hover") {
 					app_execute(a, .Goto_Marker)
 				}
 				if vui.button("x", "rounded-[2px] px-1 py-1 text-[10px] text-ink-muted hover:text-ink") {
@@ -1977,9 +2054,21 @@ view_settings :: proc(a: ^App, v: ^View) {
 				vui.text("Direct monitoring", "flex-1 text-[12px] text-ink")
 				settings_toggle(a, .Monitor, "ON" if a.monitor else "OFF", a.monitor, .Monitor)
 			}
+
+			// ── timing ────────────────────────────────────────────────
+			vui.text("TIMING", SETTINGS_HEAD)
 			if vui.div("flex items-center gap-2") {
-				vui.text("Pre-roll before a take (REC chip cycles it · Ctrl+r skips it)", "flex-1 text-[12px] text-ink")
-				settings_toggle(a, .Preroll, app_preroll_label(a), app_preroll_seconds(a) > 0, .Preroll_Next)
+				vui.text("Timing mode", "flex-1 text-[12px] text-ink")
+				settings_toggle(a, .Timing_Mode, "FREE · TAPE" if a.timing_mode == .Free else "GRID · CLICKTRACK", a.timing_mode == .Grid, .Timing_Mode)
+			}
+			vui.text("Grid anchors the clicktrack, bar/beat scrubbing, and count-in. Free records without a grid (seconds).", "text-[10px] text-ink-muted")
+			if vui.div("flex items-center gap-2") {
+				vui.text("Time signature", "flex-1 text-[12px] text-ink")
+				settings_toggle(a, .Time_Sig, app_time_sig(a).label, a.timing_mode == .Grid, .Time_Sig_Next)
+			}
+			if vui.div("flex items-center gap-2") {
+				vui.text("Pre-roll before a take (Ctrl+r skips it)", "flex-1 text-[12px] text-ink")
+				settings_toggle(a, .Preroll, app_preroll_label(a), app_preroll_active(a), .Preroll_Next)
 			}
 
 			// ── appearance ───────────────────────────────────────────

@@ -138,7 +138,7 @@ The − / + glyphs must sit on the vertical centre of the 28px box.
   click ARM ; click UNDO -> ARM off, "undid arm"; click REDO -> ARM on
   REDO with nothing to redo -> border-line-subtle text-ink-muted/60 (disabled look, like UNDO)
   click PLAY 1 (bounce row) -> "Playing", button "STOP" bg-cue; click STOP 2 -> "Ready"
-  click RHYTHM       -> "RHYTHM ON", "CLICK · 120 BPM · 4/4", "metronome on"; type c -> OFF
+  click RHYTHM       -> "RHYTHM ON", "4/4" chip, beat LEDs, "metronome on"; click 4/4 -> "3/4"; type c -> OFF
 ```
 
 ## Command palette
@@ -183,12 +183,12 @@ The − / + glyphs must sit on the vertical centre of the 28px box.
 | ← / → | pan ∓5 % |
 | t / T | next / previous take ("no takes on this track" when empty) |
 | u / U | undo / redo ("undid arm (takes kept)" / "redid arm") |
-| o / y / c | monitor, JACK/PipeWire backend, metronome |
+| o / y / c / C / G | monitor, JACK/PipeWire backend, metronome, time signature, Grid/Free timing mode |
 | Space | play / pause in place (resumes from the paused position); while recording punches out and stays put |
-| r / Ctrl+r | record at the playhead after the pre-roll / record at once; again = punch out |
-| M / p / 0 | marker here (again on it = clear) / audition lead-in up to the playhead / stop → marker → 00:00 |
-| STOP button | halt and return to the marker; again → 00:00 |
-| PRE-ROLL chip | cycles OFF, 1, 2, 3, 5, 10 s (also Settings → Pre-roll) |
+| r / Ctrl+r | record at the playhead after the pre-roll (including Bar-1 count-in in Grid) / record at once; again = punch out |
+| M / p / P / 0 | marker here (again on it = clear) / audition lead-in / cycle pre-roll / stop → marker → start |
+| STOP button | halt and return to the marker; again → start |
+| PRE-ROLL chip | Grid: cycles OFF, 2 BT, 1 BAR, 2 BAR, 4 BAR; Free: cycles OFF, 1, 2, 3, 5, 10 s (also Settings → TIMING) |
 | b | bounce |
 | i / x / : | I/O overlay / FX rack / palette |
 | [ / ] | FX channel previous / next |

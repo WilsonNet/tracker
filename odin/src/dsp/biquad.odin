@@ -15,7 +15,7 @@ Biquad :: struct {
 }
 
 // Peaking EQ. `gain_db` positive boosts, `q` sets bandwidth.
-biquad_peaking :: proc(fs, freq, q, gain_db: f32) -> Biquad {
+biquad_peaking :: proc "contextless" (fs, freq, q, gain_db: f32) -> Biquad {
 	a := math.pow(10.0, gain_db / 40.0)
 	w0 := math.TAU * clamp(freq / fs, 1e-5, 0.49)
 	cos_w0 := math.cos(w0)
@@ -31,7 +31,7 @@ biquad_peaking :: proc(fs, freq, q, gain_db: f32) -> Biquad {
 }
 
 // Low shelf. `slope` of 1.0 is the RBJ default (Q ~= 0.707).
-biquad_low_shelf :: proc(fs, freq, gain_db, slope: f32) -> Biquad {
+biquad_low_shelf :: proc "contextless" (fs, freq, gain_db, slope: f32) -> Biquad {
 	a := math.pow(10.0, gain_db / 40.0)
 	w0 := math.TAU * clamp(freq / fs, 1e-5, 0.49)
 	cos_w0 := math.cos(w0)
@@ -49,7 +49,7 @@ biquad_low_shelf :: proc(fs, freq, gain_db, slope: f32) -> Biquad {
 }
 
 // High shelf. `slope` of 1.0 is the RBJ default.
-biquad_high_shelf :: proc(fs, freq, gain_db, slope: f32) -> Biquad {
+biquad_high_shelf :: proc "contextless" (fs, freq, gain_db, slope: f32) -> Biquad {
 	a := math.pow(10.0, gain_db / 40.0)
 	w0 := math.TAU * clamp(freq / fs, 1e-5, 0.49)
 	cos_w0 := math.cos(w0)
@@ -66,16 +66,24 @@ biquad_high_shelf :: proc(fs, freq, gain_db, slope: f32) -> Biquad {
 	}
 }
 
-biquad_process :: proc(b: ^Biquad, x: f32) -> f32 {
+biquad_process :: proc "contextless" (b: ^Biquad, x: f32) -> f32 {
 	y := b.b0 * x + b.z1
 	b.z1 = flush_denormal(b.b1 * x - b.a1 * y + b.z2)
 	b.z2 = flush_denormal(b.b2 * x - b.a2 * y)
 	return y
 }
 
-biquad_reset :: proc(b: ^Biquad) {
+biquad_reset :: proc "contextless" (b: ^Biquad) {
 	b.z1 = 0.0
 	b.z2 = 0.0
+}
+
+biquad_copy_coeffs :: proc "contextless" (dst: ^Biquad, src: Biquad) {
+	dst.b0 = src.b0
+	dst.b1 = src.b1
+	dst.b2 = src.b2
+	dst.a1 = src.a1
+	dst.a2 = src.a2
 }
 
 // Complex magnitude response at `freq`, computed from the transfer function.

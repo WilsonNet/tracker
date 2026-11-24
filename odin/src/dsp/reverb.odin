@@ -62,7 +62,7 @@ reverb_params_default :: proc() -> Reverb_Params {
 	}
 }
 
-reverb_params_sanitized :: proc(p: Reverb_Params) -> Reverb_Params {
+reverb_params_sanitized :: proc "contextless" (p: Reverb_Params) -> Reverb_Params {
 	s := p
 	s.size = clamp(s.size, 0.0, 1.0)
 	s.decay = clamp(s.decay, 0.0, 1.0)
@@ -73,19 +73,19 @@ reverb_params_sanitized :: proc(p: Reverb_Params) -> Reverb_Params {
 }
 
 // Exact RT60 in seconds, from the decay knob.
-reverb_rt60_seconds :: proc(p: Reverb_Params) -> f32 {
+reverb_rt60_seconds :: proc "contextless" (p: Reverb_Params) -> f32 {
 	return 0.3 * math.pow(60.0, p.decay)
 }
 
 // Room scale applied to the line lengths.
-reverb_size_scale :: proc(p: Reverb_Params) -> f32 {
+reverb_size_scale :: proc "contextless" (p: Reverb_Params) -> f32 {
 	return 0.25 * math.pow(4.0, p.size)
 }
 
 // `flush_denormal` is file-private in util.odin, so this module keeps its own
 // copy rather than widening the shared helper's visibility.
 @(private)
-reverb_flush_denormal :: proc(x: f32) -> f32 {
+reverb_flush_denormal :: proc "contextless" (x: f32) -> f32 {
 	return 0.0 if abs(x) < 1e-20 else x
 }
 
@@ -106,7 +106,7 @@ reverb_line_new :: proc(max_len: int) -> Reverb_Line {
 }
 
 @(private)
-reverb_line_configure :: proc(line: ^Reverb_Line, length: int) {
+reverb_line_configure :: proc "contextless" (line: ^Reverb_Line, length: int) {
 	new_length := clamp(length, 2, len(line.buffer))
 	if new_length != line.length {
 		for i in 0 ..< len(line.buffer) {
@@ -118,7 +118,7 @@ reverb_line_configure :: proc(line: ^Reverb_Line, length: int) {
 }
 
 @(private)
-reverb_line_read :: proc(line: ^Reverb_Line, delay: f32) -> f32 {
+reverb_line_read :: proc "contextless" (line: ^Reverb_Line, delay: f32) -> f32 {
 	d := clamp(delay, 1.0, f32(line.length - 2))
 	whole := int(d)
 	frac := d - f32(whole)
@@ -128,7 +128,7 @@ reverb_line_read :: proc(line: ^Reverb_Line, delay: f32) -> f32 {
 }
 
 @(private)
-reverb_line_write :: proc(line: ^Reverb_Line, x: f32) {
+reverb_line_write :: proc "contextless" (line: ^Reverb_Line, x: f32) {
 	line.buffer[line.write] = reverb_flush_denormal(x)
 	line.write += 1
 	if line.write >= line.length {
@@ -155,7 +155,7 @@ reverb_allpass_new :: proc(max_len: int, gain: f32) -> Reverb_Allpass {
 }
 
 @(private)
-reverb_allpass_configure :: proc(ap: ^Reverb_Allpass, length: int) {
+reverb_allpass_configure :: proc "contextless" (ap: ^Reverb_Allpass, length: int) {
 	new_length := clamp(length, 2, len(ap.buffer))
 	if new_length != ap.length {
 		for i in 0 ..< len(ap.buffer) {
@@ -167,7 +167,7 @@ reverb_allpass_configure :: proc(ap: ^Reverb_Allpass, length: int) {
 }
 
 @(private)
-reverb_allpass_process :: proc(ap: ^Reverb_Allpass, input: f32) -> f32 {
+reverb_allpass_process :: proc "contextless" (ap: ^Reverb_Allpass, input: f32) -> f32 {
 	delayed := ap.buffer[ap.index]
 	output := delayed - ap.gain * input
 	ap.buffer[ap.index] = reverb_flush_denormal(input + ap.gain * output)
@@ -242,7 +242,7 @@ reverb_destroy :: proc(r: ^Reverb) {
 	r.predelay = nil
 }
 
-reverb_update :: proc(r: ^Reverb, sample_rate: f32, params: Reverb_Params) {
+reverb_update :: proc "contextless" (r: ^Reverb, sample_rate: f32, params: Reverb_Params) {
 	r.sample_rate = sample_rate
 	r.params = reverb_params_sanitized(params)
 	p := r.params
@@ -280,8 +280,29 @@ reverb_update :: proc(r: ^Reverb, sample_rate: f32, params: Reverb_Params) {
 	r.input_gain = clamp(0.5 * (1.0 - mean_gain), 0.004, 0.08)
 }
 
+reverb_reset :: proc "contextless" (r: ^Reverb) {
+	for i in 0 ..< len(r.predelay) {
+		r.predelay[i] = 0.0
+	}
+	r.predelay_write = 0
+	for i in 0 ..< REVERB_N {
+		for j in 0 ..< len(r.lines[i].buffer) {
+			r.lines[i].buffer[j] = 0.0
+		}
+		r.lines[i].write = 0
+		r.damping[i] = 0.0
+		r.phases[i] = f32(i) * 0.7
+	}
+	for i in 0 ..< REVERB_AP_COUNT {
+		for j in 0 ..< len(r.allpasses[i].buffer) {
+			r.allpasses[i].buffer[j] = 0.0
+		}
+		r.allpasses[i].index = 0
+	}
+}
+
 // Wet-only output. The caller sums `return_level` inside this function.
-reverb_process :: proc(r: ^Reverb, l, rr: f32) -> (f32, f32) {
+reverb_process :: proc "contextless" (r: ^Reverb, l, rr: f32) -> (f32, f32) {
 	if !r.params.enabled || r.params.return_level <= 0.0001 {
 		return 0.0, 0.0
 	}

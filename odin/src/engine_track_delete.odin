@@ -62,6 +62,7 @@ engine_delete_track :: proc(e: ^Engine, a: ^ui.App, idx: int) -> (ok: bool, mess
 		os.exists(fmt.tprintf("%s/track%d.wav", e.session_dir, idx + 1))
 
 	// 1. the doomed track's files go to deleted/
+	was_playing := engine_tracks_begin_edit(e)
 	trash_file(e, fmt.tprintf("track%d.wav", idx + 1))
 	for take in e.takes[idx].takes {
 		trash_file(e, take.file)
@@ -107,6 +108,7 @@ engine_delete_track :: proc(e: ^Engine, a: ^ui.App, idx: int) -> (ok: bool, mess
 
 	name := a.tracks[idx].name
 	label := fmt.tprintf("%02d %s", idx + 1, name)
+	engine_tracks_end_edit(e, was_playing)
 	ui.app_track_delete_apply(a, idx, strip)
 	if !had_audio {
 		return true, fmt.tprintf("track %s deleted", label)

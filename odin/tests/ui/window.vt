@@ -184,9 +184,9 @@ test "delete track asks before removing audio"
 
 test "pause, marker and pre-roll"
   expect-text PRE-ROLL
-  expect-text "3 s"
+  expect-text "1 BAR"
   click PRE-ROLL
-  expect-text "5 s"
+  expect-text "2 BAR"
   type M
   expect-text MARK
   expect-text "marker"
@@ -209,9 +209,12 @@ test "io overlay"
 
 test "rhythm toggle"
   click RHYTHM
-  expect-text "BPM · 4/4"
+  expect-text ON
+  expect-text "4/4"
+  click "4/4"
+  expect-text "3/4"
   click RHYTHM
-  expect-no-text "BPM · 4/4"
+  expect-text OFF
 
 test "undo after mute"
   click MUTE
@@ -254,6 +257,8 @@ test "settings menu edits project folder"
 
 test "settings text field selection and secret mask"
   click-text SET
+  key down
+  key down
   key down
   key down
   key down
@@ -315,6 +320,8 @@ test "cloud settings and overlay are reachable"
   key down
   key down
   key down
+  key down
+  key down
   expect-text "Drive folder"
   key escape
   type g
@@ -354,25 +361,60 @@ test "rename project in settings and cloud overlay"
 test "tape scrubber shuttle jog wheels and modifiers"
   expect-text "SHUTTLE"
   expect-text "JOG"
+  expect-text "1 BAR"
+  expect-text "1 BEAT"
+  expect-text "001.1"
+  type ">"
+  expect-text "002.1"
+  type l
+  expect-text "002.2"
+  type L
+  expect-text ".25"
+  # Magnetic shuttle forward from 002.2.25 snaps to the next bar (003.1.00).
+  scroll -48 600 735
+  expect-text "003.1"
+  scroll 48 700 735
+  expect-text "002.4"
+  scroll -48 700 735 shift
+  expect-text ".25"
+  scroll -48 700 735 ctrl
+  scroll -48 700 735
+  expect-text "003.1"
+  type 0
+  expect-text "001.1"
+  type ">"
+  expect-text "002.1"
+  click-text "|◄"
+  expect-text "001.1"
+
+test "timing mode switches between grid and free tape"
+  click-text SET
+  expect-text "TIMING"
+  expect-text "GRID · CLICKTRACK"
+  click-text "GRID · CLICKTRACK"
+  expect-text "FREE · TAPE"
+  key escape
+  expect-text "FREE"
   expect-text "5.0s"
   expect-text "250ms"
+  expect-text "3 s"
+  expect-text "00:00:00.000"
   type ">"
   expect-text "00:00:05.000"
   type l
   expect-text "00:00:05.250"
   type L
   expect-text "00:00:05.300"
-  scroll -48 563 731
+  scroll -48 600 735
   expect-text "00:00:10.300"
-  scroll 48 563 731 shift
+  scroll 48 600 735 shift
   expect-text "00:00:09.300"
-  scroll -48 653 731 shift
+  scroll -48 700 735 shift
   expect-text "00:00:09.350"
-  scroll -48 653 731 ctrl
+  scroll -48 700 735 ctrl
   expect-text "00:00:09.360"
   type 0
   expect-text "00:00:00.000"
-  type ">"
-  expect-text "00:00:05.000"
-  click-text "|◄"
-  expect-text "00:00:00.000"
+  click-text FREE
+  expect-text "1 BAR"
+  expect-text "001.1"

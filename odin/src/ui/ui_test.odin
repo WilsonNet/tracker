@@ -37,8 +37,11 @@ ui_arm_and_record_keyboard :: proc(t: ^testing.T) {
 
 	app_key(&a, .Char, 'r')
 	testing.expect(t, a.transport == .Recording, "R should start recording")
+	testing.expect(t, a.frames == -96_000, "Grid mode starts with 1 bar count-in")
 	app_tick(&a, 0.5)
-	testing.expectf(t, a.frames > 0, "timecode did not advance: %d", a.frames)
+	testing.expectf(t, a.frames == -72_000, "count-in did not advance: %d", a.frames)
+	app_tick(&a, 2.0)
+	testing.expectf(t, a.frames > 0, "timecode did not advance past bar 1: %d", a.frames)
 
 	app_key(&a, .Char, 'r')
 	testing.expect(t, a.transport == .Stopped, "R should stop recording")
@@ -2237,9 +2240,40 @@ ui_tape_scrubber_shuttle_jog_modifiers_and_rtz :: proc(t: ^testing.T) {
 	app_init(&a, 1180, 760)
 	defer app_destroy(&a)
 	a.sample_rate = 48_000
-	app_set_tape_frames(&a, 48_000 * 10) // 10 s tape
+	a.bpm = 120 // 24_000 frames/beat, 96_000 frames/bar in 4/4
+	app_set_tape_frames(&a, 48_000 * 10) // 10 s = 5 bars tape
 
-	// Speed table matches hardware-like coarse (Shuttle) and fine (Jog) tiers.
+	// Default Grid mode: magnetic bar/beat/16th scrubbing + 10ms micro escape hatch.
+	testing.expect(t, a.timing_mode == .Grid, "Grid mode is default")
+	app_key(&a, .Char, '>') // +1 bar = 96_000 frames (002.1.00)
+	testing.expectf(t, a.frames == 96_000 && a.tape_cued, "grid shuttle > frames=%d", a.frames)
+	testing.expect(t, app_position_text(&a, a.frames) == "002.1.00", app_position_text(&a, a.frames))
+	app_key(&a, .Char, 'l') // +1 beat = 120_000 (002.2.00)
+	testing.expectf(t, a.frames == 120_000, "grid jog l frames=%d", a.frames)
+	app_key(&a, .Char, 'L') // +1/4 beat = 126_000 (002.2.25)
+	testing.expectf(t, a.frames == 126_000, "grid jog L frames=%d", a.frames)
+	testing.expect(t, app_position_text(&a, a.frames) == "002.2.25", app_position_text(&a, a.frames))
+	app_key(&a, .Char, 'l', false, true) // micro +10ms = +480 -> 126_480 (off-grid!)
+	testing.expectf(t, a.frames == 126_480, "grid micro ctrl+l frames=%d", a.frames)
+	// Magnetic snap: next beat forward from off-grid 126_480 lands squarely on beat 3 (144_000).
+	app_key(&a, .Char, 'l')
+	testing.expectf(t, a.frames == 144_000, "magnetic snap forward from off-grid frames=%d", a.frames)
+	// Off-grid backward snap: micro +10ms then jog back snaps back to 144_000.
+	app_key(&a, .Char, 'l', false, true)
+	app_key(&a, .Char, 'h')
+	testing.expectf(t, a.frames == 144_000, "magnetic snap backward from off-grid frames=%d", a.frames)
+
+	// Time signature 3/4 changes shuttle bar length to 3 beats (72_000 frames).
+	app_key(&a, .Char, '0')
+	app_key(&a, .Char, 'C', true)
+	testing.expect(t, app_time_sig(&a).label == "3/4", "time signature cycled to 3/4")
+	app_key(&a, .Char, '>')
+	testing.expectf(t, a.frames == 72_000, "3/4 shuttle > frames=%d", a.frames)
+	app_key(&a, .Char, '0')
+
+	// Free tape mode: classic seconds shuttle/jog tiers (5.0s / 1.0s / 0.25s and 250ms / 50ms / 10ms).
+	app_key(&a, .Char, 'G', true)
+	testing.expect(t, a.timing_mode == .Free, "G toggles to Free tape mode")
 	testing.expect(t, scrub_step_seconds(.Shuttle, .Normal) == 5.0, "shuttle normal 5s")
 	testing.expect(t, scrub_step_seconds(.Shuttle, .Slow) == 1.0, "shuttle slow 1s")
 	testing.expect(t, scrub_step_seconds(.Shuttle, .Micro) == 0.25, "shuttle micro 0.25s")
@@ -2676,9 +2710,28 @@ ui_record_punches_in_at_playhead_with_preroll :: proc(t: ^testing.T) {
 	a.tracks[0].has_audio = true
 	a.tape_frames = 48_000 * 60
 	app_key(&a, .Char, '1')
-	testing.expect(t, app_preroll_seconds(&a) == 3, "default pre-roll is 3 s")
+	testing.expect(t, app_preroll_label(&a) == "1 BAR" && app_preroll_beats(&a) == 4, "default grid pre-roll is 1 BAR")
 
-	// jog to 10 s, then record: 3 s of pre-roll, take starts at 10 s
+	// Bar 1 Beat 1 count-in (frames == 0): pre-roll goes negative (-96_000 = 1 bar at 120 BPM)
+	app_key(&a, .Char, 'r')
+	testing.expect(t, a.transport == .Recording, "recording from bar 1 with count-in")
+	testing.expect(t, a.record_punch == 0 && a.record_pre == 96_000 && a.frames == -96_000, "bar 1 count-in starts at -96000")
+	testing.expect(t, app_in_preroll(&a) && app_preroll_left_beats(&a) > 3.9, "4 beats left")
+	testing.expect(t, app_position_text(&a, a.frames) == "-01.1.00", app_position_text(&a, a.frames))
+	app_tick(&a, 1.0) // 2 beats into count-in -> -48_000 = -01.3.00
+	testing.expect(t, app_position_text(&a, a.frames) == "-01.3.00", app_position_text(&a, a.frames))
+	app_key(&a, .Space) // punch out early during count-in clamps playhead to 0
+	testing.expect(t, a.transport == .Stopped && a.frames == 0, "aborting count-in clamps to 0")
+	for {
+		_, has := app_take_command(&a)
+		if !has {
+			break
+		}
+	}
+
+	// Free mode: jog to 10 s, then record: 3 s of pre-roll, take starts at 10 s
+	app_key(&a, .Char, 'G', true)
+	testing.expect(t, app_preroll_seconds(&a) == 3, "default free pre-roll is 3 s")
 	a.frames = 48_000 * 10
 	a.tape_cued = true
 	app_key(&a, .Char, 'r')
@@ -2709,26 +2762,30 @@ ui_record_punches_in_at_playhead_with_preroll :: proc(t: ^testing.T) {
 	testing.expect(t, a.record_pre == 0 && a.record_punch == 48_000 * 20 && a.frames == a.record_punch, "Ctrl+r skips the pre-roll")
 	app_key(&a, .Space)
 
-	// pre-roll never reaches before 00:00, and is skipped with nothing to hear
+	// Free mode: pre-roll never reaches before 00:00, and is skipped with nothing to hear
 	a.frames = 48_000
 	app_key(&a, .Char, 'r')
-	testing.expect(t, a.record_pre == 48_000, "pre-roll clamped to the start of the tape")
+	testing.expect(t, a.record_pre == 48_000, "free pre-roll clamped to the start of the tape")
 	app_key(&a, .Space)
 	b: App
 	app_init(&b, 1180, 760)
 	defer app_destroy(&b)
+	app_key(&b, .Char, 'G', true)
 	app_key(&b, .Char, '1')
 	b.frames = 48_000 * 10
 	app_key(&b, .Char, 'r')
-	testing.expect(t, b.record_pre == 0, "no guide audio -> no pre-roll")
+	testing.expect(t, b.record_pre == 0, "free mode no guide audio -> no pre-roll")
 
-	// pre-roll length steps through the presets and wraps
-	seen := 0
+	// pre-roll length steps through the presets and wraps in both modes
 	for _ in 0 ..< len(PREROLL_STEPS) {
 		app_execute(&a, .Preroll_Next)
-		seen += 1
 	}
-	testing.expect(t, a.preroll_idx == PREROLL_DEFAULT_IDX && a.settings_dirty, "cycle wraps and marks settings dirty")
+	testing.expect(t, a.preroll_idx == PREROLL_DEFAULT_IDX && a.settings_dirty, "free cycle wraps and marks settings dirty")
+	app_key(&a, .Char, 'G', true)
+	for _ in 0 ..< len(PREROLL_GRID_STEPS) {
+		app_execute(&a, .Preroll_Next)
+	}
+	testing.expect(t, a.preroll_grid_idx == PREROLL_GRID_DEFAULT_IDX, "grid cycle wraps")
 }
 
 @(test)
@@ -2738,8 +2795,18 @@ ui_audition_plays_lead_in_and_pauses_at_the_playhead :: proc(t: ^testing.T) {
 	defer app_destroy(&a)
 	a.tape_frames = 48_000 * 60
 	app_key(&a, .Char, 'p')
-	testing.expect(t, a.transport == .Stopped, "nothing to audition at 00:00")
+	testing.expect(t, a.transport == .Stopped, "nothing to audition at 001.1.00")
 
+	// Grid mode: audition defaults to 1 BAR (96_000 frames at 120 BPM 4/4)
+	a.frames = 48_000 * 20
+	a.tape_cued = true
+	app_key(&a, .Char, 'p')
+	testing.expect(t, a.transport == .Playing && a.frames == 48_000 * 18, "grid starts 1 bar (2 s) before the playhead")
+	app_tick(&a, 2.2)
+	testing.expect(t, a.transport == .Stopped && a.frames == 48_000 * 20 && a.tape_cued, "pauses exactly at the playhead")
+
+	// Free mode: audition uses seconds pre-roll (3 s)
+	app_key(&a, .Char, 'G', true)
 	a.frames = 48_000 * 20
 	a.tape_cued = true
 	app_key(&a, .Char, 'p')
@@ -2752,6 +2819,29 @@ ui_audition_plays_lead_in_and_pauses_at_the_playhead :: proc(t: ^testing.T) {
 	app_key(&a, .Space)
 	app_tick(&a, 5)
 	testing.expect(t, a.transport == .Stopped && a.audition_end == 0, "pause cancels the audition")
+}
+
+@(test)
+ui_bar_beat_formatting_and_time_signatures :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	a.sample_rate = 48_000
+	a.bpm = 120 // 24_000 frames/beat in x/4, 12_000 frames/beat in x/8
+
+	testing.expect(t, app_position_text(&a, 0) == "001.1.00", app_position_text(&a, 0))
+	testing.expect(t, app_position_text(&a, 24_000) == "001.2.00", app_position_text(&a, 24_000))
+	testing.expect(t, app_position_text(&a, 96_000) == "002.1.00", app_position_text(&a, 96_000))
+	testing.expect(t, app_position_text(&a, -24_000) == "-01.4.00", app_position_text(&a, -24_000))
+	testing.expect(t, app_clock_short(-48_000, 48_000) == "-00:01.0", app_clock_short(-48_000, 48_000))
+
+	app_set_tape_frames(&a, 96_000 * 3 + 48_000) // 3 bars + 2 beats in 4/4
+	testing.expect(t, app_tape_length_text(&a) == "3.2 BAR", app_tape_length_text(&a))
+
+	// 6/8 at 120 BPM has eighth-note beats of 12_000 frames (6 beats per bar = 72_000 frames).
+	app_set_time_sig(&a, 6, 8)
+	testing.expect(t, app_position_text(&a, 72_000) == "002.1.00", app_position_text(&a, 72_000))
+	testing.expect(t, app_position_text(&a, 36_000) == "001.4.00", app_position_text(&a, 36_000))
 }
 
 @(test)

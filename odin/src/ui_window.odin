@@ -160,6 +160,9 @@ run_ui_window :: proc(args: []string) -> bool {
 		if project_load_with_takes(&a, e.session_dir, e.project_path, e.takes[:]) {
 			engine_match_device(&e, &a, ui.app_device(&a))
 			engine_set_latency_ms(&e, a.latency_ms)
+	if window_should_warm_audio(&a) {
+		engine_playback_warm(&e)
+	}
 			_ = engine_load_tracks(&e, &a)
 			ui_sync_takes(&a, &e)
 			ui.app_history_reset(&a)
@@ -186,12 +189,20 @@ run_ui_window :: proc(args: []string) -> bool {
 	}
 	// Machine accessibility choices win over a project's copied flags once the
 	// user has a settings file; without one, keep the project's saved values.
+	project_loaded := (has_open && open_path != "") || os.exists(e.project_path)
 	if settings_loaded {
 		a.high_contrast = settings.high_contrast
 		a.reduced_motion = settings.reduced_motion
 		ui.app_set_preroll_seconds(&a, settings.preroll_s)
+		ui.app_set_preroll_grid_idx(&a, settings.preroll_grid)
+		if !project_loaded && settings.timing_mode != "" {
+			a.timing_mode = .Free if settings.timing_mode == "free" else .Grid
+		}
 	}
 	engine_set_latency_ms(&e, a.latency_ms)
+	if window_should_warm_audio(&a) {
+		engine_playback_warm(&e)
+	}
 
 	a11y_log := has_flag(args, "--a11y-log")
 	a11y_revision: u64 = a.state_revision
@@ -501,6 +512,16 @@ window_synthetic_keys :: proc(a: ^ui.App, ctx: ^vui.Context) {
 }
 
 @(private)
+window_should_warm_audio :: proc(a: ^ui.App) -> bool {
+	if a == nil || a.demo {
+		return false
+	}
+	hidden := os.get_env("VUI_HIDDEN", context.allocator)
+	defer delete(hidden)
+	return hidden != "1"
+}
+
+@(private)
 window_apply_save_dir :: proc(a: ^ui.App, e: ^Engine, dir: string, recent_store: string) -> bool {
 	if dir == "" {
 		ui.status_buf_set(a, "choose a project folder first")
@@ -700,6 +721,10 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 				delete(name)
 			}
 			delete(names2)
+			if !e.play.active && window_should_warm_audio(a) {
+				playback_release_device(e)
+				engine_playback_warm(e)
+			}
 			ui.status_buf_set(a, "devices rescanned")
 		case .Take_Next:
 			if engine_take_cycle(e, a, cmd.index, 1) {

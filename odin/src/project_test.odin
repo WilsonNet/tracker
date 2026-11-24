@@ -615,3 +615,26 @@ project_round_trips_variable_track_count :: proc(t: ^testing.T) {
 	testing.expectf(t, b.track_count == 4, "count %d", b.track_count)
 	testing.expect(t, !b.tracks[8].armed && b.tracks[7].level == 0.8, "extra strips reset")
 }
+
+@(test)
+project_roundtrip_preserves_timing_mode_and_time_sig :: proc(t: ^testing.T) {
+	dir := "/tmp/tracker-odin-project-timing"
+	_ = os.remove_all(dir)
+	_ = os.make_directory_all(dir)
+	defer _ = os.remove_all(dir)
+	path := fmt.tprintf("%s/project.json", dir)
+
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	ui.app_set_time_sig(&a, 6, 8)
+	a.timing_mode = .Free
+	testing.expect(t, project_save(&a, path), "save timing")
+
+	b: ui.App
+	ui.app_init(&b, 1180, 760)
+	defer ui.app_destroy(&b)
+	testing.expect(t, project_load(&b, dir, path), "load timing")
+	testing.expect(t, b.timing_mode == .Free, "free timing preserved")
+	testing.expect(t, ui.app_time_sig(&b).label == "6/8", "6/8 time sig preserved")
+}

@@ -41,7 +41,7 @@ track_mix_default :: proc() -> Track_Mix {
 	}
 }
 
-track_mix_sanitized :: proc(track: Track_Mix) -> Track_Mix {
+track_mix_sanitized :: proc "contextless" (track: Track_Mix) -> Track_Mix {
 	t := track
 	t.level = clamp(t.level, 0.0, 1.5)
 	t.pan = clamp(t.pan, -1.0, 1.0)
@@ -74,7 +74,7 @@ render_tail_seconds :: proc(settings: Fx_Settings) -> f32 {
 }
 
 // Constant-power pan gains (centre = -3 dB per side).
-track_mix_pan_gains :: proc(track: Track_Mix) -> (f32, f32) {
+track_mix_pan_gains :: proc "contextless" (track: Track_Mix) -> (f32, f32) {
 	if track.muted {
 		return 0.0, 0.0
 	}

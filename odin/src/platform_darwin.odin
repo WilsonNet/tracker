@@ -9,6 +9,11 @@ platform_audio_configure_capture :: proc(cfg: ^ma.device_config, channels: int) 
 	// CoreAudio delivers hardware inputs 1..N without PulseAudio speaker remixing.
 }
 
+platform_audio_configure_playback :: proc(cfg: ^ma.device_config) {
+	cfg.periodSizeInFrames = 256 // ~5.3 ms at 48 kHz on CoreAudio
+	cfg.periods = 2
+}
+
 platform_supports_jack :: proc() -> bool {
 	return false
 }

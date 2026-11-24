@@ -144,7 +144,7 @@ cover it.
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — unit tests (303 on Linux / 297 on macOS: DSP + core/engine/project/cloud + UI)
+- `make test` — unit tests (306 on Linux / 300 on macOS: DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
@@ -186,8 +186,8 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 71 DSP + core/engine/project/WAV/settings/cloud (146 on Linux, 140 on macOS without Linux JACK session tests) + 86 UI tests (303 total on Linux, 297 on macOS).
-- `make e2e` — 28 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, render dialog range/format, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay, project titling, tape scrubber shuttle/jog wheels + modifiers, F1 contextual help, add tracks/zoom/page, bounce-to-track dialog, 24 tracks at minimum size, inline track rename, pause/marker/pre-roll controls, delete track).
+- `make test` — 74 DSP + core/engine/project/WAV/settings/cloud (152 on Linux, 146 on macOS without Linux JACK session tests) + 87 UI tests (313 total on Linux, 307 on macOS).
+- `make e2e` — 29 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, render dialog range/format, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay, project titling, tape scrubber shuttle/jog wheels + modifiers, timing mode Grid/Free switch, F1 contextual help, add tracks/zoom/page, bounce-to-track dialog, 24 tracks at minimum size, inline track rename, pause/marker/pre-roll controls, delete track).
 - The headless harness (`ui-test`, `ui-shot`; Cairo/Pango on Linux, pure-Odin + `stb_truetype` on macOS) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.
 - Do not claim a UI works without inspecting the generated PNG/report. Hardware recording evidence belongs in `odin/VERIFICATION.md`.
@@ -195,7 +195,7 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 ## Audio Engine
 
 - **Capture** — miniaudio/ALSA and cooperative JACK (PipeWire). Arming a track while stopped opens a capture-only preview that feeds the input meter and history graph before REC; no take file is written. Each track records one selectable input channel; WAVs are true mono. Device hotplug falls back and can be rescanned.
-- **Engine** — lock-free capture ring drained by a writer thread, preview/overdub playback, duplex live monitoring, metronome (40–240 BPM), manual latency trim, mixed-rate resampling to the project rate.
+- **Engine** — lock-free capture ring drained by a writer thread, real-time streaming playback via `dsp.Live_Mixer` (wait-free 3-slot triple buffer for live fader/pan/mute/solo/FX updates, pre-resampled `play_tracks` cache, persistent warm low-latency playback device configured per OS in `platform_{darwin,linux,other}.odin`), duplex live monitoring, metronome (40–240 BPM, Grid absolute clicktrack anchored to Bar 1 Beat 1 with accented downbeat + real time signatures `4/4, 3/4, 6/8, 5/4, 7/8, 2/4`, or opt-in Free relative click), manual latency trim, mixed-rate resampling to the project rate. Always call `engine_tracks_begin_edit`/`engine_tracks_end_edit` around mutations to `Engine.loaded` so the warm audio callback is quiesced safely.
 - **Track chain** — 3-band EQ (low shelf 110 Hz → mid bell → high shelf 7.5 kHz) → compressor → fader/pan, with post-fader sends into the shared reverb and delay buses.
 - **Master chain** — compressor → FDN reverb → ping-pong delay → mid/side widener (mono-safe below the bass crossover) → lookahead limiter with a soft-clip ceiling.
 - **Persistence** — atomic `project.json` (takes, active take, comp regions, FX, view and a11y flags), recent projects and machine settings under `XDG_CONFIG_HOME` (`settings.json`: project folder, high contrast, reduced motion; `cloud.json`: Google OAuth client/token/folder with 0600), RF64/BW64 reading and writing. The Settings overlay (`SET`, `,`) retargets the project folder by copying takes and persists it; an explicit `--session` ignores global settings so tests and throwaway takes stay isolated.

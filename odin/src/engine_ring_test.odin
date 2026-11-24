@@ -1,11 +1,15 @@
 package main
 
+import "core:fmt"
+import "core:math"
 import "core:os"
 import "core:sync"
 import "core:testing"
 import "core:time"
 
+import dsp "dsp"
 import ma "vendor:miniaudio"
+import ui "ui"
 
 // ---------------------------------------------------------------- ring
 
@@ -234,14 +238,16 @@ playback_callback_bounds_and_saturates :: proc(t: ^testing.T) {
 	p.frames = 48_000
 	p.silent = true
 	p.click_enabled = true
-	p.beat_frames = 24_000
-	p.beat_pos = 1
-	p.click_left = 10
-	p.click_phase = 1.0
+	p.click_absolute = true
+	p.has_last_beat = false
+	p.bpm = 120
+	p.sig_num = 4
+	p.sig_den = 4
 	sync.atomic_store(&p.cursor, 0)
 	out = {}
 	playback_callback(&dev, raw_data(out[:]), nil, 2)
-	testing.expectf(t, out[0] != 0 && out[1] != 0, "click missing")
+	testing.expectf(t, out[0] == 0 && out[1] == 0, "sin(0) starts at 0")
+	testing.expectf(t, out[2] != 0 && out[3] != 0, "click missing on sample 1: %v", out[2:4])
 
 	// A mono device gets a proper downmix instead of a second-channel write.
 	dev.playback.channels = 1
@@ -258,6 +264,256 @@ playback_callback_bounds_and_saturates :: proc(t: ^testing.T) {
 	mono_out: [2]f32
 	playback_callback(&dev, raw_data(mono_out[:]), nil, 1)
 	testing.expectf(t, abs(mono_out[0] - 0.4) < 1e-6, "mono downmix %v", mono_out[0])
+}
+
+@(test)
+playback_clicktrack_absolute_relative_countin_and_accents :: proc(t: ^testing.T) {
+	p: Playback
+	p.frames = 48_000 * 20
+	p.rate = 48_000
+	p.silent = true
+	p.click_enabled = true
+	p.click_absolute = true
+	p.bpm = 120
+	p.sig_num = 4
+	p.sig_den = 4
+
+	dev: ma.device
+	dev.pUserData = &p
+	dev.playback.channels = 2
+
+	// Absolute Grid mode starting mid-beat (12_000 frames = 0.5 beat): silent at start,
+	// triggers beat 2 (unaccented, 950 Hz) exactly at frame 24_000.
+	sync.atomic_store(&p.cursor, 12_000)
+	buf: [16]f32
+	playback_callback(&dev, raw_data(buf[:]), nil, 4)
+	testing.expect(t, buf[2] == 0, "mid-beat start must not trigger spurious click")
+
+	sync.atomic_store(&p.cursor, 23_999)
+	buf = {}
+	playback_callback(&dev, raw_data(buf[:]), nil, 4)
+	testing.expect(t, buf[0] == 0 && buf[2] == 0, "frame 23999 silent, frame 24000 sin(0)=0")
+	testing.expectf(t, buf[4] != 0, "beat 2 should sound right after frame 24000: %v", buf[4])
+	testing.expectf(t, abs(p.click_freq - 950.0) < 1.0, "beat 2 is normal pitch, got %v", p.click_freq)
+
+	// Downbeat at Bar 2 Beat 1 (frame 96_000) gets accented 1500 Hz downbeat.
+	p.click_left = 0
+	p.has_last_beat = false
+	sync.atomic_store(&p.cursor, 95_999)
+	buf = {}
+	playback_callback(&dev, raw_data(buf[:]), nil, 4)
+	testing.expectf(t, buf[4] != 0 && abs(p.click_freq - 1500.0) < 1.0, "bar 2 beat 1 accented downbeat, freq=%v", p.click_freq)
+
+	// Negative count-in from -96_000 (Bar -1 Beat 1) with countin_click_active and click_enabled = false:
+	// ticks at -96_000 (accented), stops clicking once cursor reaches 0.
+	c: Playback
+	c.frames = 48_000 * 10
+	c.rate = 48_000
+	c.silent = true
+	c.click_enabled = false
+	c.click_absolute = true
+	c.countin_click_active = true
+	c.countin_click_until = 0
+	c.bpm = 120
+	c.sig_num = 4
+	c.sig_den = 4
+	dev.pUserData = &c
+	sync.atomic_store(&c.cursor, -96_000)
+	buf = {}
+	playback_callback(&dev, raw_data(buf[:]), nil, 4)
+	testing.expectf(t, buf[2] != 0 && abs(c.click_freq - 1500.0) < 1.0, "count-in beat 1 accented at -96000, freq=%v", c.click_freq)
+	c.click_left = 0
+	sync.atomic_store(&c.cursor, 0)
+	buf = {}
+	playback_callback(&dev, raw_data(buf[:]), nil, 4)
+	testing.expect(t, buf[2] == 0, "count-in-only stops clicking at frame 0 when metronome is off")
+
+	// Relative Free mode starting mid-timeline (frame 12_000): beat 1 triggers immediately at click_origin.
+	r: Playback
+	r.frames = 48_000 * 10
+	r.rate = 48_000
+	r.silent = true
+	r.click_enabled = true
+	r.click_absolute = false
+	r.click_origin = 12_000
+	r.bpm = 120
+	r.sig_num = 4
+	r.sig_den = 4
+	dev.pUserData = &r
+	sync.atomic_store(&r.cursor, 12_000)
+	buf = {}
+	playback_callback(&dev, raw_data(buf[:]), nil, 4)
+	testing.expectf(t, buf[2] != 0 && abs(r.click_freq - 1500.0) < 1.0, "relative mode starts beat 1 at click_origin, freq=%v", r.click_freq)
+
+	// Zero cumulative drift over 100 beats at non-integer BPM (127 BPM @ 48 kHz).
+	d: Playback
+	d.frames = 48_000 * 120
+	d.rate = 48_000
+	d.silent = true
+	d.click_enabled = true
+	d.click_absolute = true
+	d.bpm = 127
+	d.sig_num = 4
+	d.sig_den = 4
+	beat_f := (60.0 / 127.0) * 48_000.0
+	target_100 := i64(math.floor(100.0 * beat_f))
+	d.last_beat_idx = 99
+	d.has_last_beat = true
+	_ = playback_click_step(&d, target_100)
+	testing.expect(t, d.click_left == 0, "before exact 100th beat must not fire early")
+	_ = playback_click_step(&d, target_100 + 1)
+	testing.expect(t, d.click_left > 0 && abs(d.click_freq - 1500.0) < 1.0, "100th beat (bar 26 beat 1) fires at exact f64 frame without drift")
+}
+
+@(test)
+playback_callback_live_mixer_updates_seeks_and_ramps_to_idle :: proc(t: ^testing.T) {
+	p: Playback
+	rate: u32 = 48_000
+	dsp.live_mixer_init(&p.mixer, f32(rate))
+	defer dsp.live_mixer_destroy(&p.mixer)
+	p.mixer_rate = rate
+
+	tr0 := make([]f32, 48_000)
+	tr1 := make([]f32, 48_000)
+	defer delete(tr0)
+	defer delete(tr1)
+	for i in 0 ..< 48_000 {
+		tr0[i] = 0.5
+		tr1[i] = 0.25 * math.sin(f32(i) * 0.05)
+	}
+	p.tracks[0] = tr0
+	p.tracks[1] = tr1
+	p.track_count = 2
+	p.use_live_mixer = true
+	p.frames = 48_000
+	p.rate = rate
+	p.device_open = true
+	p.fade_in_len = 64
+	p.fade_in_left = 64
+
+	params := dsp.Live_Mix_Params{track_count = 2}
+	for i in 0 ..< 2 {
+		params.tracks[i] = dsp.track_mix_default()
+		params.tracks[i].level = 1.0
+		params.tracks[i].eq.enabled = false
+		params.tracks[i].comp.enabled = false
+	}
+	params.master_comp = dsp.fx_settings_default().master_comp
+	params.reverb = dsp.reverb_params_default()
+	params.reverb.enabled = true
+	params.reverb.predelay_ms = 0
+	params.tracks[0].send_reverb = 0.6
+	params.delay = dsp.delay_params_default()
+	params.width = dsp.width_params_default()
+	params.limiter = dsp.limiter_params_default()
+	params.limiter.enabled = false
+
+	dsp.live_mixer_apply_params(&p.mixer, &params, true)
+	dsp.live_mixer_reset(&p.mixer)
+	playback_params_reset(&p, params)
+	sync.atomic_store(&p.playing, 1)
+
+	dev: ma.device
+	dev.pUserData = &p
+	dev.playback.channels = 2
+
+	out: [512]f32 // 256 stereo frames
+	playback_callback(&dev, raw_data(out[:]), nil, 256)
+	testing.expect(t, sync.atomic_load(&p.cursor) == 256, "cursor advanced 256 frames")
+	testing.expect(t, abs(out[0]) < abs(out[126]), "fade-in ramp grew from start of block")
+	testing.expect(t, sync.atomic_load(&p.track_peak[0]) > 0.1, "track 0 peak published")
+
+	// Live mute both tracks via triple buffer; after smoothing settles, dry audio drops out.
+	params.tracks[0].muted = true
+	params.tracks[1].muted = true
+	params.tracks[0].send_reverb = 0
+	params.reverb.enabled = false
+	playback_params_publish(&p, params)
+	for _ in 0 ..< 16 {
+		playback_callback(&dev, raw_data(out[:]), nil, 256)
+	}
+	testing.expectf(t, abs(out[510]) < 1e-4 && abs(out[511]) < 1e-4, "live mute settled to silence, got %v %v", out[510], out[511])
+
+	// Seeking resets mixer state and retriggers micro fade-in.
+	sync.atomic_store(&p.seek_gen, 1)
+	params.tracks[0].muted = false
+	playback_params_publish(&p, params)
+	playback_callback(&dev, raw_data(out[:]), nil, 256)
+	testing.expect(t, p.mixer_seek_gen == 1, "seek_gen handled in callback")
+
+	// Warm idle mode ramps down to zero and keeps device ready without touching tracks.
+	sync.atomic_store(&p.playing, 0)
+	playback_callback(&dev, raw_data(out[:]), nil, 256)
+	testing.expectf(t, out[510] == 0 && out[511] == 0, "idle tail settled to zero: %v %v", out[510], out[511])
+	playback_callback(&dev, raw_data(out[:]), nil, 256)
+	testing.expectf(t, out[0] == 0 && out[511] == 0, "subsequent idle block silent")
+}
+
+@(test)
+playback_live_prepare_60s_4tracks_is_instant :: proc(t: ^testing.T) {
+	// Measure live mixer preparation + first 256-frame callback on a 60 s 4-track
+	// project with full FX enabled (previously ~1,500-3,200 ms offline render).
+	rate: u32 = 48_000
+	frames := 48_000 * 60
+	e: Engine
+	e.sample_rate = rate
+	e.play_tracks_dirty = true
+	defer {
+		dsp.live_mixer_destroy(&e.play.mixer)
+		engine_free_play_tracks(&e)
+		for i in 0 ..< 4 {
+			delete(e.loaded[i])
+			e.loaded[i] = nil
+		}
+	}
+	for i in 0 ..< 4 {
+		e.loaded[i] = make([]f32, frames)
+		e.loaded_rate[i] = rate
+		e.loaded[i][0] = 0.5
+		e.loaded[i][100] = -0.5
+	}
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	a.sample_rate = rate
+	a.master.reverb.enabled = true
+	a.master.delay.enabled = true
+	a.master.comp.enabled = true
+	a.master.limiter.enabled = true
+	for i in 0 ..< 4 {
+		a.tracks[i].has_audio = true
+		a.tracks[i].send_reverb = 0.25
+		a.tracks[i].send_delay = 0.2
+		a.tracks[i].eq.low_db = 2.0
+	}
+
+	// Warm mixer once (as engine_playback_warm does at startup).
+	engine_sync_play_tracks(&e)
+	playback_ensure_mixer(&e, rate)
+
+	t0 := time.now()
+	params := live_mix_params_from_app(&a, false)
+	dsp.live_mixer_apply_params(&e.play.mixer, &params, true)
+	dsp.live_mixer_reset(&e.play.mixer)
+	playback_params_reset(&e.play, params)
+	e.play.tracks = e.play_tracks
+	e.play.track_count = params.track_count
+	e.play.use_live_mixer = true
+	e.play.frames = frames + int(dsp.live_mix_tail_seconds(&params) * f32(rate))
+	e.play.rate = rate
+	e.play.fade_in_len = 64
+	e.play.fade_in_left = 64
+	e.play.active = true
+	sync.atomic_store(&e.play.playing, 1)
+
+	dev: ma.device
+	dev.pUserData = &e.play
+	dev.playback.channels = 2
+	out: [512]f32
+	playback_callback(&dev, raw_data(out[:]), nil, 256)
+	ms := time.duration_milliseconds(time.since(t0))
+	fmt.printfln("[perf] live playback prepare + 256f block (60s x 4tr full FX): %.3f ms", ms)
+	testing.expectf(t, ms < 5.0, "live start took too long: %.3f ms", ms)
 }
 
 // ---------------------------------------------------------------- helper

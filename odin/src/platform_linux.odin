@@ -9,6 +9,13 @@ platform_audio_configure_capture :: proc(cfg: ^ma.device_config, channels: int) 
 	cfg.pulse.channelMap = capture_pulse_channel_map(channels)
 }
 
+platform_audio_configure_playback :: proc(cfg: ^ma.device_config) {
+	// PipeWire can glitch below ~20 ms total buffer; 512 x 2 (~21 ms @ 48 kHz)
+	// cuts latency 3x vs 1024 x 3 while staying glitch-free.
+	cfg.periodSizeInFrames = 512
+	cfg.periods = 2
+}
+
 platform_supports_jack :: proc() -> bool {
 	return true
 }

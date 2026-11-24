@@ -340,12 +340,77 @@ engine_seek_updates_playback_cursor_and_scrub_meters :: proc(t: ^testing.T) {
 	engine_seek(&e, &a)
 	testing.expectf(t, a.tracks[0].peak_db > -12 && a.master.peak_db > -12, "scrubbed signal peak %v / %v", a.tracks[0].peak_db, a.master.peak_db)
 
-	// Active playback seek repositions atomic playback cursor + aligns beat_pos.
+	// Active playback seek repositions atomic playback cursor + bumps seek_gen.
 	e.play.active = true
 	e.play.frames = 48_000 * 4
-	e.play.beat_frames = 24_000
+	e.play.bpm = 120
+	e.play.sig_num = 4
+	e.play.sig_den = 4
 	_ = ui.app_scrub_seconds(&a, 1.0)
 	engine_seek(&e, &a)
-	testing.expect(t, sync.atomic_load(&e.play.cursor) == u64(48_000 * 3), "play cursor moved to 3 s")
+	testing.expect(t, sync.atomic_load(&e.play.cursor) == i64(48_000 * 3), "play cursor moved to 3 s")
+	testing.expect(t, sync.atomic_load(&e.play.seek_gen) == 1, "seek_gen incremented")
 	e.play.active = false
+}
+
+// ---------------------------------------------------------------- live playback
+
+@(test)
+engine_sync_play_tracks_caches_mixed_rates_without_leaks :: proc(t: ^testing.T) {
+	e: Engine
+	e.sample_rate = 48_000
+	e.play_tracks_dirty = true
+	defer {
+		engine_free_play_tracks(&e)
+		for i in 0 ..< MAX_ENGINE_TRACKS {
+			delete(e.loaded[i])
+			e.loaded[i] = nil
+		}
+	}
+
+	e.loaded[0] = make([]f32, 48_000)
+	e.loaded_rate[0] = 48_000
+	for i in 0 ..< len(e.loaded[0]) {
+		e.loaded[0][i] = 0.25
+	}
+
+	e.loaded[1] = make([]f32, 44_100)
+	e.loaded_rate[1] = 44_100
+	for i in 0 ..< len(e.loaded[1]) {
+		e.loaded[1][i] = 0.5
+	}
+
+	engine_sync_play_tracks(&e)
+	testing.expect(t, !e.play_tracks_dirty, "sync cleared dirty")
+	testing.expect(t, !e.play_tracks_owned[0] && raw_data(e.play_tracks[0]) == raw_data(e.loaded[0]), "matching rate borrows loaded slice")
+	testing.expect(t, e.play_tracks_owned[1] && len(e.play_tracks[1]) == 48_000, "mismatched rate resamples and owns slice")
+
+	// Second sync is a cached no-op (keeps exact same resampled slice pointer).
+	cached_ptr := raw_data(e.play_tracks[1])
+	engine_sync_play_tracks(&e)
+	testing.expect(t, raw_data(e.play_tracks[1]) == cached_ptr, "second sync did not reuse cache")
+}
+
+@(test)
+live_mix_params_from_app_matches_settings_and_mutes_armed :: proc(t: ^testing.T) {
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+
+	a.tracks[0].armed = true
+	a.tracks[0].level = 0.9
+	a.tracks[1].soloed = true
+	a.tracks[1].pan = -0.5
+	a.tracks[2].muted = false
+
+	p := live_mix_params_from_app(&a, true)
+	testing.expect_value(t, p.track_count, a.track_count)
+	testing.expect(t, p.tracks[0].muted, "armed track muted when mute_armed=true")
+	testing.expect(t, !p.tracks[1].muted, "soloed track active")
+	testing.expect(t, p.tracks[2].muted, "unsoloed track muted while another is soloed")
+	testing.expectf(t, abs(p.tracks[1].pan + 0.5) < 1e-6, "pan preserved")
+
+	s := settings_from_app(&a)
+	defer delete(s.tracks)
+	testing.expectf(t, abs(p.tracks[0].level - s.tracks[0].level) < 1e-6, "level matches settings_from_app")
 }

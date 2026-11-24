@@ -310,15 +310,15 @@ project_and_settings_persist_marker_and_preroll :: proc(t: ^testing.T) {
 	testing.expect(t, !b.marker_set, "no marker")
 
 	spath := fmt.tprintf("%s/settings.json", dir)
-	testing.expect(t, settings_save(spath, "/tmp/x", false, false, 5), "settings save")
+	testing.expect(t, settings_save(spath, "/tmp/x", false, false, 5, 3, "free"), "settings save")
 	doc, ok := settings_load(spath)
 	defer settings_destroy(&doc)
-	testing.expect(t, ok && doc.preroll_s == 5, "pre-roll persists in settings.json")
-	// an old settings file without the key keeps the 3 s default
+	testing.expect(t, ok && doc.preroll_s == 5 && doc.preroll_grid == 3 && doc.timing_mode == "free", "pre-roll and timing persist in settings.json")
+	// an old settings file without the key keeps the 3 s / 1 BAR defaults
 	testing.expect(t, os.write_entire_file(spath, `{"version":1,"highContrast":true}`) == nil, "old file")
 	old, old_ok := settings_load(spath)
 	defer settings_destroy(&old)
-	testing.expect(t, old_ok && old.preroll_s == 3, "default pre-roll for older settings files")
+	testing.expect(t, old_ok && old.preroll_s == 3 && old.preroll_grid == 2 && old.timing_mode == "", "defaults for older settings files")
 }
 
 @(test)
