@@ -58,6 +58,8 @@ engine_delete_track :: proc(e: ^Engine, a: ^ui.App, idx: int) -> (ok: bool, mess
 		return false, "4 tracks is the minimum"
 	}
 	engine_takes_ensure(e)
+	had_audio := a.tracks[idx].has_audio || e.loaded[idx] != nil || len(e.takes[idx].takes) > 0 ||
+		os.exists(fmt.tprintf("%s/track%d.wav", e.session_dir, idx + 1))
 
 	// 1. the doomed track's files go to deleted/
 	trash_file(e, fmt.tprintf("track%d.wav", idx + 1))
@@ -106,5 +108,8 @@ engine_delete_track :: proc(e: ^Engine, a: ^ui.App, idx: int) -> (ok: bool, mess
 	name := a.tracks[idx].name
 	label := fmt.tprintf("%02d %s", idx + 1, name)
 	ui.app_track_delete_apply(a, idx, strip)
+	if !had_audio {
+		return true, fmt.tprintf("track %s deleted", label)
+	}
 	return true, fmt.tprintf("track %s deleted · audio kept in deleted/", label)
 }

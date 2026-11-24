@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 import "core:os"
+import "core:strings"
 import "core:testing"
 
 import dsp "dsp"
@@ -359,4 +360,20 @@ engine_delete_track_shifts_later_tracks_and_keeps_files :: proc(t: ^testing.T) {
 	// at the four-track minimum the strip stays and is cleared
 	ok2, _ := engine_delete_track(&e, &a, 0)
 	testing.expect(t, ok2 && a.track_count == 4 && e.loaded[0] == nil && os.exists(fmt.tprintf("%s/deleted/track1.wav", base)), "cleared in place, file kept")
+
+	// an empty track: plain message, nothing moved aside
+	a2: ui.App
+	ui.app_init(&a2, 1180, 760)
+	defer ui.app_destroy(&a2)
+	ui.app_set_track_count(&a2, 5)
+	e3: Engine
+	base3 := "/tmp/tracker-engine-delete-empty"
+	os.remove_all(base3)
+	defer os.remove_all(base3)
+	_ = os.make_directory_all(base3)
+	testing.expect(t, engine_init(&e3, []string{"--session", base3}), "engine 3")
+	defer engine_destroy(&e3)
+	ok3, msg3 := engine_delete_track(&e3, &a2, 4)
+	testing.expectf(t, ok3 && !strings.contains(msg3, "deleted/"), "empty delete message: %s", msg3)
+	testing.expect(t, !os.exists(fmt.tprintf("%s/deleted", base3)), "no deleted/ folder for an empty track")
 }
