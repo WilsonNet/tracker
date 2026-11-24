@@ -150,11 +150,11 @@ app_help_entries :: proc(a: ^App) -> []Help_Entry {
 @(private = "file")
 help_transport :: proc(out: ^[dynamic]Help_Entry, a: ^App) {
 	head(out, "Transport")
-	row(out, "Space", "play / stop")
 	if a.transport == .Recording {
-		row(out, "r", "stop take")
+		row(out, "Space / r", "punch out")
 	} else {
-		row(out, "r", "record armed tracks")
+		row(out, "Space", "play / pause here")
+		row(out, "r", "record (pre-roll)")
 	}
 }
 
@@ -163,9 +163,16 @@ help_normal :: proc(out: ^[dynamic]Help_Entry, a: ^App) {
 	recording := a.transport == .Recording
 
 	head(out, "Transport")
-	row(out, "Space", "play / stop")
-	row(out, "r", "stop take" if recording else "record armed tracks")
-	row(out, "0", "rewind to start")
+	if recording {
+		row(out, "Space / r", "punch out (stay here)")
+	} else {
+		row(out, "Space", "play / pause here")
+		row(out, "r", "record at playhead")
+		row(out, "Ctrl+r", "record, no pre-roll")
+		row(out, "p", "audition the lead-in")
+	}
+	row(out, "0", "stop → marker → 00:00")
+	row(out, "M", "marker here (again = clear)")
 	row(out, "h l", "jog tape")
 	row(out, "H L", "slow jog")
 	row(out, "< >", "shuttle")

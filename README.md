@@ -49,7 +49,7 @@ git clone https://github.com/WilsonNet/vinland-ui ../vinland-ui
 
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 290 unit tests (Linux) / 284 unit tests (macOS)
+make test         # 297 unit tests (Linux) / 291 unit tests (macOS)
 make check        # tests + headless UI tour + offline bounce
 
 ./bin/tracker-odin ui              # real window

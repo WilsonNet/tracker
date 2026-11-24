@@ -158,3 +158,104 @@ engine_save_as_copies_tracks_beyond_four :: proc(t: ^testing.T) {
 	testing.expect(t, wav_write(fmt.tprintf("%s/track9.wav", other), 48_000, 1, audio), "track 9 wav")
 	testing.expect(t, save_dir_occupied(other), "track 9 makes a folder occupied")
 }
+
+@(test)
+engine_punch_in_keeps_audio_before_and_after_the_punch :: proc(t: ^testing.T) {
+	base := "/tmp/tracker-engine-punch"
+	os.remove_all(base)
+	defer os.remove_all(base)
+	_ = os.make_directory_all(base)
+
+	old := make([]f32, 4800) // 0.1 s of 0.25
+	defer delete(old)
+	for i in 0 ..< len(old) {
+		old[i] = 0.25
+	}
+	testing.expect(t, wav_write(fmt.tprintf("%s/track1.wav", base), 48_000, 1, old), "old take")
+
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	e: Engine
+	testing.expect(t, engine_init(&e, []string{"--session", base}), "engine")
+	defer engine_destroy(&e)
+	testing.expect(t, engine_load_tracks(&e, &a), "load")
+	testing.expect(t, len(e.loaded[0]) == 4800, "old audio loaded")
+
+	// punch in at frame 1200 with 1200 frames of -0.5
+	nw := make([]f32, 1200)
+	for i in 0 ..< len(nw) {
+		nw[i] = -0.5
+	}
+	e.rec_punch = 1200
+	e.rec_pre = 0
+	testing.expect(t, engine_commit_recorded_take(&e, &a, 0, 48_000, nw), "commit punch")
+	testing.expect(t, engine_take_count(&e, 0) == 2, "old take kept, punch take added")
+	testing.expect(t, len(e.takes[0].comp) == 3, "comp: before / punch / after")
+	testing.expectf(t, len(e.loaded[0]) == 4800, "length unchanged, got %d", len(e.loaded[0]))
+	if len(e.loaded[0]) == 4800 {
+		testing.expect(t, abs(e.loaded[0][600] - 0.25) < 1e-4, "before the punch: old audio")
+		testing.expect(t, abs(e.loaded[0][1800] + 0.5) < 1e-4, "inside the punch: new audio")
+		testing.expect(t, abs(e.loaded[0][3600] - 0.25) < 1e-4, "after the punch: old audio")
+	}
+	testing.expect(t, e.takes[0].takes[1].offset == 1200, "punch take remembers its timeline offset")
+
+	// the project round-trips: reload from disk and the comp still renders
+	a2: ui.App
+	ui.app_init(&a2, 1180, 760)
+	defer ui.app_destroy(&a2)
+	testing.expect(t, project_save_with_takes(&a, e.takes[:], e.project_path), "save")
+	e2: Engine
+	testing.expect(t, engine_init(&e2, []string{"--session", base}), "engine 2")
+	defer engine_destroy(&e2)
+	testing.expect(t, project_load_with_takes(&a2, base, e2.project_path, e2.takes[:]), "load project")
+	testing.expect(t, engine_load_tracks(&e2, &a2), "load tracks")
+	testing.expect(t, len(e2.loaded[0]) == 4800 && abs(e2.loaded[0][1800] + 0.5) < 1e-4, "reloaded punch comp")
+
+	// punch 0 keeps the classic behaviour: the new take simply replaces the track
+	nw2 := make([]f32, 1000)
+	for i in 0 ..< len(nw2) {
+		nw2[i] = 0.1
+	}
+	e.rec_punch = 0
+	testing.expect(t, engine_commit_recorded_take(&e, &a, 0, 48_000, nw2), "commit from zero")
+	testing.expect(t, len(e.loaded[0]) == 1000, "plain take loaded as before")
+}
+
+@(test)
+project_and_settings_persist_marker_and_preroll :: proc(t: ^testing.T) {
+	dir := "/tmp/tracker-marker-preroll"
+	os.remove_all(dir)
+	defer os.remove_all(dir)
+	_ = os.make_directory_all(dir)
+	path := fmt.tprintf("%s/project.json", dir)
+
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	a.frames = 48_000 * 12
+	ui.app_execute(&a, .Set_Marker)
+	testing.expect(t, project_save(&a, path), "save")
+	b: ui.App
+	ui.app_init(&b, 1180, 760)
+	defer ui.app_destroy(&b)
+	testing.expect(t, project_load(&b, dir, path), "load")
+	testing.expect(t, b.marker_set && b.marker == 48_000 * 12, "marker survives save/load")
+
+	// a project without a marker loads without one
+	ui.app_execute(&a, .Clear_Marker)
+	testing.expect(t, project_save(&a, path), "save without marker")
+	testing.expect(t, project_load(&b, dir, path), "load without marker")
+	testing.expect(t, !b.marker_set, "no marker")
+
+	spath := fmt.tprintf("%s/settings.json", dir)
+	testing.expect(t, settings_save(spath, "/tmp/x", false, false, 5), "settings save")
+	doc, ok := settings_load(spath)
+	defer settings_destroy(&doc)
+	testing.expect(t, ok && doc.preroll_s == 5, "pre-roll persists in settings.json")
+	// an old settings file without the key keeps the 3 s default
+	testing.expect(t, os.write_entire_file(spath, `{"version":1,"highContrast":true}`) == nil, "old file")
+	old, old_ok := settings_load(spath)
+	defer settings_destroy(&old)
+	testing.expect(t, old_ok && old.preroll_s == 3, "default pre-roll for older settings files")
+}

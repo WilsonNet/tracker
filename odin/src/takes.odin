@@ -653,3 +653,37 @@ takes_load_from_dir :: proc(list: ^Take_List, dir: string, track_index: int) -> 
 	}
 	return true
 }
+
+// Punch-in: the new take `new_id` replaces the audible timeline only between
+// `punch` and `end`; everything before and after keeps sounding as it did.
+// "As it did" is the old comp when there is one, otherwise the previously
+// active take over [0, old_len). The old takes are untouched, so the previous
+// state stays one take selection away. Returns false when nothing could be
+// built (the caller then keeps the new take as an ordinary take).
+comp_punch :: proc(list: ^Take_List, old_active, new_id, punch, end, old_len: int) -> bool {
+	if list == nil || punch < 0 || end <= punch {
+		return false
+	}
+	old := make([dynamic]Comp_Region, context.temp_allocator)
+	if len(list.comp) > 0 {
+		for r in list.comp {
+			append(&old, r)
+		}
+	} else if old_active != TAKE_ID_NONE && old_len > 0 {
+		append(&old, Comp_Region{old_active, 0, old_len})
+	}
+	comp_clear(list)
+	for r in old {
+		if r.start_frame < punch {
+			_ = comp_add_region(list, r.take_id, r.start_frame, min(r.end_frame, punch))
+		}
+		if r.end_frame > end {
+			_ = comp_add_region(list, r.take_id, max(r.start_frame, end), r.end_frame)
+		}
+	}
+	if !comp_add_region(list, new_id, punch, end) {
+		return false
+	}
+	list.active = TAKE_ID_NONE
+	return true
+}

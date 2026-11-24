@@ -285,3 +285,42 @@ takes_load_from_session_directory :: proc(t: ^testing.T) {
 	testing.expect(t, len(buffers[0].samples) == 32, "buffer 1 length")
 	testing.expect(t, buffers[1].sample_rate == 44_100, "buffer rate")
 }
+
+@(test)
+comp_punch_replaces_only_the_punched_range :: proc(t: ^testing.T) {
+	list: Take_List
+	defer take_list_destroy(&list)
+	old := take_list_add(&list, "old", "a.wav", 48_000)
+	nw := take_list_add(&list, "punch", "b.wav", 48_000, 1000)
+	testing.expect(t, old > 0 && nw > 0, "takes")
+
+	// plain old take over [0, 5000): punch [1000, 2000)
+	testing.expect(t, comp_punch(&list, old, nw, 1000, 2000, 5000), "built")
+	testing.expect(t, list.active == TAKE_ID_NONE, "comp is active")
+	testing.expectf(t, len(list.comp) == 3, "three regions, got %d", len(list.comp))
+	if len(list.comp) == 3 {
+		testing.expect(t, list.comp[0] == Comp_Region{old, 0, 1000}, "old before the punch")
+		testing.expect(t, list.comp[1] == Comp_Region{nw, 1000, 2000}, "new take in the range")
+		testing.expect(t, list.comp[2] == Comp_Region{old, 2000, 5000}, "old after the punch")
+	}
+
+	// a second punch inside the first splits the existing comp
+	third := take_list_add(&list, "again", "c.wav", 48_000, 1500)
+	testing.expect(t, comp_punch(&list, TAKE_ID_NONE, third, 1500, 1800, 5000), "second punch")
+	testing.expectf(t, len(list.comp) == 5, "five regions, got %d", len(list.comp))
+
+	// punching past the old audio just extends the track
+	list2: Take_List
+	defer take_list_destroy(&list2)
+	o2 := take_list_add(&list2, "old", "a.wav", 48_000)
+	n2 := take_list_add(&list2, "punch", "b.wav", 48_000, 4000)
+	testing.expect(t, comp_punch(&list2, o2, n2, 4000, 9000, 3000), "extend past the end")
+	testing.expect(t, comp_length(&list2) == 9000 && len(list2.comp) == 2, "old [0,3000) kept, new [4000,9000)")
+
+	// an empty track keeps silence before the punch
+	list3: Take_List
+	defer take_list_destroy(&list3)
+	n3 := take_list_add(&list3, "punch", "b.wav", 48_000, 2000)
+	testing.expect(t, comp_punch(&list3, TAKE_ID_NONE, n3, 2000, 3000, 0) && len(list3.comp) == 1, "single region on an empty track")
+	testing.expect(t, !comp_punch(&list3, TAKE_ID_NONE, n3, 3000, 3000, 0), "empty range refused")
+}

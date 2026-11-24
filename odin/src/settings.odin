@@ -24,6 +24,7 @@ Settings_Doc :: struct {
 	save_dir:       string `json:"saveDir,omitempty"`,
 	high_contrast:  bool   `json:"highContrast"`,
 	reduced_motion: bool   `json:"reducedMotion"`,
+	preroll_s:      f32    `json:"prerollS"`,
 }
 
 settings_destroy :: proc(doc: ^Settings_Doc) {
@@ -97,7 +98,7 @@ normalize_save_dir :: proc(path: string) -> (string, bool) {
 }
 
 settings_load :: proc(path: string) -> (Settings_Doc, bool) {
-	doc := Settings_Doc{version = SETTINGS_VERSION}
+	doc := Settings_Doc{version = SETTINGS_VERSION, preroll_s = 3}
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
 		return doc, false
@@ -120,7 +121,7 @@ settings_load :: proc(path: string) -> (Settings_Doc, bool) {
 	return doc, true
 }
 
-settings_save :: proc(path, save_dir: string, high_contrast, reduced_motion: bool) -> bool {
+settings_save :: proc(path, save_dir: string, high_contrast, reduced_motion: bool, preroll_s: f32 = 3) -> bool {
 	if len(save_dir) > SETTINGS_PATH_MAX {
 		return false
 	}
@@ -129,6 +130,7 @@ settings_save :: proc(path, save_dir: string, high_contrast, reduced_motion: boo
 		save_dir       = save_dir,
 		high_contrast  = high_contrast,
 		reduced_motion = reduced_motion,
+		preroll_s      = clamp(preroll_s, 0, 30),
 	}
 	data, err := json.marshal(doc, json.Marshal_Options{pretty = true, use_spaces = true, spaces = 2})
 	if err != nil {

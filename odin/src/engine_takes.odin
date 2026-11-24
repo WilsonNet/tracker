@@ -56,12 +56,12 @@ engine_take_stabilize_canonical :: proc(e: ^Engine, track: int) {
 }
 
 @(private)
-engine_take_register_new :: proc(e: ^Engine, track: int, rate: u32, label := "") {
+engine_take_register_new :: proc(e: ^Engine, track: int, rate: u32, label := "", offset := 0) {
 	list := &e.takes[track]
 	id := take_list_next_id(list)
 	name := label if label != "" else fmt.tprintf("Take %d", id)
 	file := fmt.tprintf("track%d.wav", track + 1)
-	new_id := take_list_add(list, name, file, rate, 0, 1.0, false, id)
+	new_id := take_list_add(list, name, file, rate, offset, 1.0, false, id)
 	_ = take_list_select(list, new_id)
 }
 
@@ -224,4 +224,70 @@ engine_take_cycle :: proc(e: ^Engine, a: ^ui.App, track, delta: int) -> bool {
 	}
 	idx = (idx + delta + len(list.takes)) % len(list.takes)
 	return engine_take_select(e, a, track, list.takes[idx].id)
+}
+
+// Rescales the UI's punch point when the opened device runs at another rate
+// than the project (frames are counted at the project rate until then).
+@(private)
+engine_rescale_punch :: proc(e: ^Engine, a: ^ui.App, new_rate: u32) {
+	old_rate := a.sample_rate if a.sample_rate != 0 else 48_000
+	if new_rate == 0 || new_rate == old_rate {
+		return
+	}
+	ratio := f64(new_rate) / f64(old_rate)
+	e.rec_punch = int(f64(e.rec_punch) * ratio)
+	e.rec_pre = int(f64(e.rec_pre) * ratio)
+}
+
+// Writes one finished capture as the track's new take. At punch 0 this is the
+// classic behaviour (the new take becomes the active take). From a punch point
+// the take carries its timeline offset and is comped over the old audio only
+// between punch-in and punch-out, so the rest of the track keeps sounding.
+// Takes ownership of `mono`.
+@(private)
+engine_commit_recorded_take :: proc(e: ^Engine, a: ^ui.App, track: int, rate: u32, mono: []f32) -> bool {
+	punch := e.rec_punch
+	list := &e.takes[track]
+	old_active := list.active
+	if len(list.takes) == 0 {
+		_ = takes_load_from_dir(list, e.session_dir, track)
+		old_active = list.active
+	}
+	old_len := len(e.loaded[track])
+	if e.loaded_rate[track] != 0 && e.loaded_rate[track] != e.sample_rate && e.sample_rate != 0 {
+		old_len = int(f64(old_len) * f64(e.sample_rate) / f64(e.loaded_rate[track]))
+	}
+
+	path := fmt.tprintf("%s/track%d.wav", e.session_dir, track + 1)
+	engine_take_stabilize_canonical(e, track)
+	if !wav_write(path, rate, 1, mono) {
+		delete(mono)
+		return false
+	}
+	if punch <= 0 {
+		engine_take_register_new(e, track, rate)
+		delete(e.loaded[track])
+		e.loaded[track] = mono
+		e.loaded_rate[track] = rate
+		if a != nil {
+			a.tracks[track].has_audio = true
+		}
+		return true
+	}
+
+	label := fmt.tprintf("Punch @%.1fs", f32(punch) / f32(max(e.sample_rate, 1)))
+	engine_take_register_new(e, track, rate, label, punch)
+	new_id := take_list_next_id(list) - 1
+	end := punch + len(mono)
+	if rate != e.sample_rate && rate != 0 && e.sample_rate != 0 {
+		end = punch + int(f64(len(mono)) * f64(e.sample_rate) / f64(rate))
+	}
+	// If no comp can be built the new take simply stays the active take.
+	_ = comp_punch(list, old_active, new_id, punch, end, old_len)
+	delete(mono)
+	_, _ = engine_load_track_from_takes(e, a, track)
+	if a != nil {
+		a.tracks[track].has_audio = true
+	}
+	return true
 }

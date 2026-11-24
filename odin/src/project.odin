@@ -63,6 +63,8 @@ Project_Doc :: struct {
 	latency_ms:  f32             `json:"latencyMs"`,
 	high_contrast: bool          `json:"highContrast"`,
 	reduced_motion: bool         `json:"reducedMotion"`,
+	// Return marker in frames at `sampleRate`; -1 = none.
+	marker_frame: int            `json:"markerFrame"`,
 	device:      string          `json:"device"`,
 	tracks:      []Project_Track `json:"tracks"`,
 	master:      Project_Master  `json:"master"`,
@@ -109,6 +111,7 @@ project_default :: proc(count: int = ui.MIN_TRACKS) -> Project_Doc {
 		sample_rate = 48_000,
 		bpm = 120,
 		device = "",
+		marker_frame = -1,
 		tracks = tracks,
 		master = project_master_default(),
 	}
@@ -269,6 +272,7 @@ project_from_app_with_takes :: proc(a: ^ui.App, takes: []Take_List) -> Project_D
 	doc.latency_ms = a.latency_ms
 	doc.high_contrast = a.high_contrast
 	doc.reduced_motion = a.reduced_motion
+	doc.marker_frame = int(a.marker) if a.marker_set else -1
 	doc.device = ui.app_device(a)
 	for i in 0 ..< len(doc.tracks) {
 		t := a.tracks[i]
@@ -336,6 +340,7 @@ Project_Load_Doc :: struct {
 	latency_ms:  f32                     `json:"latencyMs"`,
 	high_contrast: bool                  `json:"highContrast"`,
 	reduced_motion: bool                 `json:"reducedMotion"`,
+	marker_frame: int                    `json:"markerFrame"`,
 	device:      string                  `json:"device"`,
 	tracks:      [PROJECT_MAX_LOAD_TRACKS]Project_Track `json:"tracks"`,
 	master:      Project_Master          `json:"master"`,
@@ -542,6 +547,7 @@ project_load_with_takes :: proc(a: ^ui.App, dir, path: string, takes: []Take_Lis
 		version = PROJECT_VERSION,
 		sample_rate = 48_000,
 		bpm = 120,
+		marker_frame = -1,
 		master = project_master_default(),
 	}
 	for i in 0 ..< PROJECT_MAX_LOAD_TRACKS {
@@ -589,6 +595,7 @@ project_load_with_takes :: proc(a: ^ui.App, dir, path: string, takes: []Take_Lis
 	a.latency_ms = clamp(doc.latency_ms, 0, 10_000)
 	a.high_contrast = doc.high_contrast
 	a.reduced_motion = doc.reduced_motion
+	ui.app_set_marker(a, i64(doc.marker_frame) if doc.marker_frame >= 0 else -1)
 	ui.app_set_project(a, truncate_utf8(doc.name, PROJECT_NAME_MAX) if doc.name != "" else "untitled")
 	if len(doc.device) > 0 {
 		ui.app_set_device(a, truncate_utf8(doc.device, PROJECT_DEVICE_NAME_MAX))

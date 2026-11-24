@@ -375,4 +375,20 @@ message state:
 - Palette growth needs `MAX_PALETTE` (now 64) in the same change.
 - F1 is `Key.F1` handled first in `app_key`; the help sheet swallows every other
   key and any click, so it works over text edits without losing the draft.
-- Counts now: 290 Linux / 284 macOS unit tests, 26 e2e cases.
+### Transport, marker, pre-roll, punch-in (2026-11-24)
+
+- `ui_sync_takes` runs **every frame**; anything it calls must tolerate a live
+  recording (the playhead may legitimately pass the old tape end).
+- Recording from the playhead = guide cursor at `punch - pre`, capture dropped by
+  `latency + pre` frames, take registered with `offset = punch`, then
+  `comp_punch` builds before/new/after regions. Single-take loading ignores
+  `offset`, so a take with an offset must always be reachable through a comp.
+- `ui` flags a `Command_Kind` addition in `command_name`, the palette table and
+  `command_hint` at compile time; adding a `Settings_Item` shifts every
+  keyboard-walk step in `tests/ui/window.vt` (the Client ID test counts `key down`).
+- `ui --demo` with an armed track and `r` still opens the real capture device;
+  use a throwaway `--session` and press Space to stop. Never `pkill -f
+  "tracker-odin ui"` from a shell whose own command line contains that text.
+- e2e cannot assert PLAY→PAUSE: without an output device `engine_play` fails and
+  the transport force-stops. Cover pause in unit tests.
+- Counts now: 297 Linux / 291 macOS unit tests, 27 e2e cases.

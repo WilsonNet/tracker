@@ -60,6 +60,7 @@ Settings_Item :: enum u8 {
 	Latency_Down,
 	Latency_Up,
 	Monitor,
+	Preroll,
 	High_Contrast,
 	Reduced_Motion,
 	Cloud_Folder,
@@ -173,6 +174,13 @@ Command_Kind :: enum {
 	Page_Prev,
 	Rename_Track,
 	Apply_Track_Name,
+	Pause,         // stop where you are (position kept)
+	Set_Marker,    // drop / move the return marker at the playhead
+	Clear_Marker,
+	Goto_Marker,
+	Audition,      // play the lead-in up to the playhead, then pause there
+	Record_Now,    // record at the playhead without pre-roll
+	Preroll_Next,  // cycle the pre-roll length
 }
 
 Command :: struct {
@@ -407,6 +415,13 @@ App :: struct {
 	frames:        i64,
 	tape_frames:   i64,
 	tape_cued:     bool,
+	// Single return marker: STOP and the RTZ button go back to it (then to 0).
+	marker:        i64,
+	marker_set:    bool,
+	preroll_idx:   int, // index into PREROLL_STEPS
+	record_punch:  i64, // frame where the take starts (read by the engine)
+	record_pre:    i64, // pre-roll frames before the punch (guide only, not recorded)
+	audition_end:  i64, // >0 while auditioning the lead-in
 	time:          f32,
 	peak_history:  [MAX_TRACKS][HISTORY_LEN]f32,
 	peak_history_pos: int,
@@ -590,6 +605,7 @@ app_init :: proc(a: ^App, width, height: int) {
 	a.device_index = 0
 	a.input_count = MIN_TRACKS
 	a.track_count = MIN_TRACKS
+	a.preroll_idx = PREROLL_DEFAULT_IDX
 	a.view_want = MIN_TRACKS
 	a.fx_focus = -1
 	status_buf_set(a, "ready")
@@ -1779,10 +1795,14 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 	switch kind {
 	case .Play:
 		if a.transport == .Recording {
-			toast(a, "recording: press R to stop the take")
-			status_buf_set(a, "recording: press R to stop the take")
+			toast(a, "recording: Space or r punches out")
+			status_buf_set(a, "recording: Space or r punches out")
 			return
 		}
+		if a.transport == .Playing {
+			return
+		}
+		a.audition_end = 0
 		a.transport = .Playing
 		if !a.tape_cued {
 			a.frames = 0
@@ -1794,36 +1814,28 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		emit(a, .Play)
 		bump_revision(a)
 	case .Stop:
-		a.transport = .Stopped
-		a.frames = 0
-		a.tape_cued = false
-		status_buf_set(a, "stopped")
-		emit(a, .Stop)
-		bump_revision(a)
+		app_stop_return(a)
+	case .Pause:
+		app_pause(a)
+	case .Set_Marker:
+		app_marker_set(a)
+	case .Clear_Marker:
+		app_marker_clear(a)
+	case .Goto_Marker:
+		app_marker_goto(a)
+	case .Audition:
+		app_audition(a)
+	case .Record_Now:
+		app_record_start(a, true)
+	case .Preroll_Next:
+		app_preroll_cycle(a)
 	case .Record_Start:
-		if a.transport == .Recording {
-			return
-		}
-		armed := false
-		for t in a.tracks {
-			if t.armed {
-				armed = true
-			}
-		}
-		if !armed {
-			status_buf_set(a, "arm a track first")
-			toast(a, "arm a track first")
-			return
-		}
-		a.transport = .Recording
-		a.frames = 0
-		a.tape_cued = false
-		status_buf_set(a, "recording (undo is paused; takes are kept)")
-		emit(a, .Record_Start)
-		bump_revision(a)
+		app_record_start(a, a.shift_down)
 	case .Record_Stop:
+		a.audition_end = 0
 		a.transport = .Stopped
-		status_buf_set(a, "take captured (undo keeps audio)")
+		a.tape_cued = a.frames > 0
+		status_buf_set(a, "take captured (undo keeps audio) · STOP returns to the marker")
 		emit(a, .Record_Stop)
 		bump_revision(a)
 	case .Bounce:
@@ -2164,6 +2176,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		app_touch(a)
 	case .Panic:
 		project_edit_clear(a)
+		a.audition_end = 0
 		a.transport = .Stopped
 		a.frames = 0
 		a.tape_cued = false
@@ -2214,23 +2227,25 @@ app_bounce_finished :: proc(a: ^App, ok: bool, msg: string) {
 	}
 }
 
-app_toggle_record :: proc(a: ^App) {
+app_toggle_record :: proc(a: ^App, skip_preroll := false) {
 	if a.transport == .Recording {
 		app_execute(a, .Record_Stop)
+	} else if skip_preroll {
+		app_execute(a, .Record_Now)
 	} else {
 		app_execute(a, .Record_Start)
 	}
 }
 
+// Space: play <-> pause in place; while recording it punches out (the take is
+// kept and the tape stays where recording ended).
 app_toggle_play :: proc(a: ^App) {
-	if a.transport == .Recording {
-		status_buf_set(a, "recording: press R to stop the take")
-		toast(a, "recording: press R to stop the take")
-		return
-	}
-	if a.transport == .Playing {
-		app_execute(a, .Stop)
-	} else {
+	switch a.transport {
+	case .Recording:
+		app_execute(a, .Record_Stop)
+	case .Playing:
+		app_execute(a, .Pause)
+	case .Stopped:
 		app_execute(a, .Play)
 	}
 }
@@ -2444,7 +2459,9 @@ app_set_tape_frames :: proc(a: ^App, frames: i64) {
 		return
 	}
 	a.tape_frames = max(frames, 0)
-	if a.tape_frames > 0 && a.frames > a.tape_frames {
+	// A take being recorded may run past the old tape end; only clamp an idle
+	// or playing playhead.
+	if a.transport != .Recording && a.tape_frames > 0 && a.frames > a.tape_frames {
 		a.frames = a.tape_frames
 		a.tape_cued = a.frames > 0
 	}
@@ -2510,6 +2527,7 @@ app_tick :: proc(a: ^App, dt: f32) {
 	if a.transport != .Stopped {
 		a.frames += i64(dt * f32(a.sample_rate))
 	}
+	app_audition_tick(a)
 	if a.toast_time > 0 {
 		a.toast_time -= dt
 		if a.toast_time <= 0 {

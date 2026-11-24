@@ -538,6 +538,7 @@ ui_palette_record_and_play_toggle_instead_of_restarting :: proc(t: ^testing.T) {
 	type_query(&a, "record")
 	app_key(&a, .Enter)
 	testing.expect(t, a.transport == .Stopped, "palette record should stop an active take")
+	app_execute(&a, .Stop) // STOP returns the tape; a bare play would resume from the punch-out point
 
 	open_palette(&a)
 	type_query(&a, "play")
@@ -562,9 +563,9 @@ ui_play_and_arm_refused_while_recording :: proc(t: ^testing.T) {
 	testing.expect(t, a.transport == .Recording, "recording")
 
 	start_frames := a.frames
-	app_key(&a, .Space)
-	testing.expect(t, a.transport == .Recording, "Space must not switch to Playing mid-take")
-	testing.expect(t, app_status(&a) == "recording: press R to stop the take", "missing refusal status")
+	app_execute(&a, .Play)
+	testing.expect(t, a.transport == .Recording, "Play must not switch to Playing mid-take")
+	testing.expect(t, app_status(&a) == "recording: Space or r punches out", "missing refusal status")
 	app_tick(&a, 0.1)
 	testing.expectf(t, a.frames > start_frames, "take should keep rolling")
 
@@ -2564,4 +2565,161 @@ ui_track_rename_edit_commit_cancel_and_default :: proc(t: ^testing.T) {
 	app_set_track_count(&a, 4)
 	app_set_track_count(&a, 10)
 	testing.expect(t, a.tracks[9].name == "Track 10", "strip beyond the count is reset")
+}
+
+@(test)
+ui_space_pauses_in_place_and_stop_returns_to_marker :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	a.tape_frames = 48_000 * 60
+
+	app_key(&a, .Space)
+	testing.expect(t, a.transport == .Playing, "Space plays")
+	app_tick(&a, 2.0)
+	here := a.frames
+	testing.expect(t, here > 0, "tape advanced")
+	app_key(&a, .Space)
+	testing.expect(t, a.transport == .Stopped && a.frames == here && a.tape_cued, "Space pauses in place")
+	saw_stop := false
+	for {
+		c, has := app_take_command(&a)
+		if !has {
+			break
+		}
+		if c.kind == .Stop {
+			saw_stop = true
+		}
+	}
+	testing.expect(t, saw_stop, "pause asks the engine to stop playback")
+
+	// resume from the paused position
+	app_key(&a, .Space)
+	testing.expect(t, a.transport == .Playing && a.frames == here, "Space resumes where it paused")
+
+	// marker: M while playing drops it at the playhead
+	app_key(&a, .Char, 'M', true)
+	testing.expect(t, a.marker_set && a.marker == here, "M sets the marker at the playhead")
+	app_tick(&a, 3.0)
+	moved := a.frames
+	testing.expect(t, moved > a.marker, "played past the marker")
+
+	// STOP returns to the marker, a second STOP goes to 00:00
+	app_execute(&a, .Stop)
+	testing.expect(t, a.transport == .Stopped && a.frames == a.marker, "STOP returns to the marker")
+	app_execute(&a, .Stop)
+	testing.expect(t, a.frames == 0 && !a.tape_cued, "STOP again goes to 00:00")
+
+	// 0 while stopped: marker then zero; M at the marker clears it
+	_ = app_return_to_marker_or_zero(&a)
+	testing.expect(t, a.frames == a.marker, "0 goes to the marker")
+	app_key(&a, .Char, 'M', true)
+	testing.expect(t, !a.marker_set, "M on the marker clears it")
+	app_execute(&a, .Stop)
+	testing.expect(t, a.frames == 0, "without a marker STOP means 00:00")
+}
+
+@(test)
+ui_record_punches_in_at_playhead_with_preroll :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	a.tracks[0].has_audio = true
+	a.tape_frames = 48_000 * 60
+	app_key(&a, .Char, '1')
+	testing.expect(t, app_preroll_seconds(&a) == 3, "default pre-roll is 3 s")
+
+	// jog to 10 s, then record: 3 s of pre-roll, take starts at 10 s
+	a.frames = 48_000 * 10
+	a.tape_cued = true
+	app_key(&a, .Char, 'r')
+	testing.expect(t, a.transport == .Recording, "recording")
+	testing.expect(t, a.record_punch == 48_000 * 10 && a.record_pre == 48_000 * 3, "punch and pre-roll")
+	testing.expect(t, a.frames == 48_000 * 7, "playhead starts at the pre-roll point")
+	testing.expect(t, app_in_preroll(&a) && app_preroll_left_seconds(&a) > 2.9, "in pre-roll")
+	app_tick(&a, 3.5)
+	testing.expect(t, !app_in_preroll(&a), "past the punch point")
+	app_key(&a, .Space)
+	testing.expect(t, a.transport == .Stopped && a.frames > a.record_punch, "Space punches out and stays")
+	cmds := 0
+	for {
+		c, has := app_take_command(&a)
+		if !has {
+			break
+		}
+		if c.kind == .Record_Stop {
+			cmds += 1
+		}
+	}
+	testing.expect(t, cmds == 1, "punch out stops the take once")
+
+	// Ctrl+r records immediately
+	a.frames = 48_000 * 20
+	a.tape_cued = true
+	app_key(&a, .Char, 'r', false, true)
+	testing.expect(t, a.record_pre == 0 && a.record_punch == 48_000 * 20 && a.frames == a.record_punch, "Ctrl+r skips the pre-roll")
+	app_key(&a, .Space)
+
+	// pre-roll never reaches before 00:00, and is skipped with nothing to hear
+	a.frames = 48_000
+	app_key(&a, .Char, 'r')
+	testing.expect(t, a.record_pre == 48_000, "pre-roll clamped to the start of the tape")
+	app_key(&a, .Space)
+	b: App
+	app_init(&b, 1180, 760)
+	defer app_destroy(&b)
+	app_key(&b, .Char, '1')
+	b.frames = 48_000 * 10
+	app_key(&b, .Char, 'r')
+	testing.expect(t, b.record_pre == 0, "no guide audio -> no pre-roll")
+
+	// pre-roll length steps through the presets and wraps
+	seen := 0
+	for _ in 0 ..< len(PREROLL_STEPS) {
+		app_execute(&a, .Preroll_Next)
+		seen += 1
+	}
+	testing.expect(t, a.preroll_idx == PREROLL_DEFAULT_IDX && a.settings_dirty, "cycle wraps and marks settings dirty")
+}
+
+@(test)
+ui_audition_plays_lead_in_and_pauses_at_the_playhead :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	a.tape_frames = 48_000 * 60
+	app_key(&a, .Char, 'p')
+	testing.expect(t, a.transport == .Stopped, "nothing to audition at 00:00")
+
+	a.frames = 48_000 * 20
+	a.tape_cued = true
+	app_key(&a, .Char, 'p')
+	testing.expect(t, a.transport == .Playing && a.frames == 48_000 * 17, "starts 3 s (the pre-roll) before the playhead")
+	app_tick(&a, 3.2)
+	testing.expect(t, a.transport == .Stopped && a.frames == 48_000 * 20 && a.tape_cued, "pauses exactly at the playhead")
+
+	// leaving playback cancels an audition
+	app_key(&a, .Char, 'p')
+	app_key(&a, .Space)
+	app_tick(&a, 5)
+	testing.expect(t, a.transport == .Stopped && a.audition_end == 0, "pause cancels the audition")
+}
+
+@(test)
+ui_playhead_runs_past_the_old_tape_end_while_recording :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	a.tracks[0].has_audio = true
+	app_set_tape_frames(&a, 48_000) // one second of existing audio
+	app_key(&a, .Char, '1')
+	app_key(&a, .Char, 'r')
+	app_tick(&a, 0.1)
+	app_tick(&a, 0.1)
+	a.frames = 48_000 * 3 // the engine keeps writing past the old end
+	app_set_tape_frames(&a, 48_000)
+	testing.expectf(t, a.frames == 48_000 * 3, "playhead clamped to the old tape while recording: %d", a.frames)
+	app_key(&a, .Space)
+	app_set_tape_frames(&a, 48_000 * 3)
+	testing.expect(t, a.frames == 48_000 * 3, "after punch-out the tape grows to the take")
 }

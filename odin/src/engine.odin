@@ -109,6 +109,11 @@ Engine :: struct {
 	// Frames to trim from the start of a new take when splitting it. The
 	// round-trip latency of the capture device belongs here; default 0.
 	latency_ms:   f32,
+	// Punch-in: the take starts at `rec_punch` (timeline frames at the engine
+	// rate); the guide plays from `rec_punch - rec_pre`, and those `rec_pre`
+	// frames of pre-roll are dropped from the capture when it is split.
+	rec_punch:    int,
+	rec_pre:      int,
 	loaded:       [MAX_ENGINE_TRACKS][]f32,
 	loaded_rate:  [MAX_ENGINE_TRACKS]u32,
 	rec:          Recorder,
@@ -795,6 +800,10 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	}
 	requested = clamp(requested, 1, 8)
 
+	// Punch-in position chosen in the UI (project-rate frames).
+	e.rec_punch = int(max(a.record_punch, 0))
+	e.rec_pre = int(clamp(a.record_pre, 0, a.record_punch))
+
 	// The previous preview (if any) must not keep playing under a new take.
 	engine_stop_playback(e)
 
@@ -820,6 +829,7 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 			ui.status_buf_set(a, jack_session_detail(&e.jack))
 			return false
 		}
+		engine_rescale_punch(e, a, e.jack.rate)
 		e.sample_rate = e.jack.rate
 		a.sample_rate = e.jack.rate
 		e.rec.channels = requested
@@ -831,7 +841,7 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 			}
 		}
 		if overdub || a.metronome {
-			_ = engine_play(e, a, true)
+			_ = engine_play(e, a, true, e.rec_punch - e.rec_pre)
 		}
 		ui.status_buf_set(a, fmt.tprintf("recording %d ch via JACK @ %d Hz%s", requested, e.jack.rate, " · overdub" if overdub else ""))
 		return true
@@ -948,6 +958,7 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		ui.status_buf_set(a, "capture device reported no channels")
 		return false
 	}
+	engine_rescale_punch(e, a, e.rec.rate)
 	e.sample_rate = e.rec.rate
 	a.sample_rate = e.rec.rate
 
@@ -986,7 +997,7 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	// slow part of an overdub and must not become recorded pre-roll that
 	// shifts the new performance out of alignment with the existing tracks.
 	if want_playback {
-		if !playback_prepare(e, a, true) {
+		if !playback_prepare(e, a, true, e.rec_punch - e.rec_pre) {
 			recorder_release(e, true, true)
 			_ = os.remove(e.take_path)
 			ui.status_buf_set(a, "cannot start playback")
@@ -1118,7 +1129,7 @@ engine_split_capture_result :: proc(e: ^Engine, a: ^ui.App, result: ^Capture_Res
 	if result.channels <= 0 || result.frames <= 0 {
 		return false
 	}
-	trim := engine_latency_frames(e.latency_ms, result.rate)
+	trim := engine_latency_frames(e.latency_ms, result.rate) + e.rec_pre
 	start := min(trim, result.frames)
 	frames := result.frames - start
 	if frames <= 0 {
@@ -1137,18 +1148,8 @@ engine_split_capture_result :: proc(e: ^Engine, a: ^ui.App, result: ^Capture_Res
 		for f in 0 ..< frames {
 			mono[f] = result.samples[(f + start) * result.channels + ch]
 		}
-		path := fmt.tprintf("%s/track%d.wav", e.session_dir, i + 1)
-		engine_take_stabilize_canonical(e, i)
-		if !wav_write(path, result.rate, 1, mono) {
-			delete(mono)
+		if !engine_commit_recorded_take(e, a, i, result.rate, mono) {
 			continue
-		}
-		engine_take_register_new(e, i, result.rate)
-		delete(e.loaded[i])
-		e.loaded[i] = mono
-		e.loaded_rate[i] = result.rate
-		if a != nil {
-			a.tracks[i].has_audio = true
 		}
 		any = true
 	}
@@ -1180,7 +1181,7 @@ engine_split_take :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	// Latency compensation: the first N frames of a take are the round-trip
 	// delay between pressing REC and the performance reaching the converter.
 	// Drop them when splitting so the new take lines up with the existing mix.
-	drop := engine_latency_frames(e.latency_ms, e.rec.rate)
+	drop := engine_latency_frames(e.latency_ms, e.rec.rate) + e.rec_pre
 	if drop >= frames {
 		_ = os.remove(e.take_path)
 		return false
@@ -1201,18 +1202,8 @@ engine_split_take :: proc(e: ^Engine, a: ^ui.App) -> bool {
 				mono[f] = v
 			}
 		}
-		path := fmt.tprintf("%s/track%d.wav", e.session_dir, i + 1)
-		engine_take_stabilize_canonical(e, i)
-		if !wav_write(path, e.rec.rate, 1, mono) {
-			delete(mono)
+		if !engine_commit_recorded_take(e, a, i, e.rec.rate, mono) {
 			continue
-		}
-		engine_take_register_new(e, i, e.rec.rate)
-		delete(e.loaded[i])
-		e.loaded[i] = mono
-		e.loaded_rate[i] = e.rec.rate
-		if a != nil {
-			a.tracks[i].has_audio = true
 		}
 		any = true
 	}
@@ -1467,7 +1458,7 @@ engine_render_mix :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool = false) -> (
 // Splitting preparation from `playback_start` lets record start render before
 // the capture device runs, then start both clocks back to back.
 @(private)
-playback_prepare :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool) -> bool {
+playback_prepare :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool, start_frame: int = -1) -> bool {
 	engine_stop_playback(e)
 	out, have_audio := engine_render_mix(e, a, mute_armed)
 	if !have_audio && !a.metronome {
@@ -1491,7 +1482,11 @@ playback_prepare :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool) -> bool {
 	p.bpm = a.bpm
 	p.beat_frames = max(int(60.0 / f32(max(a.bpm, 1)) * f32(max(e.sample_rate, 1))), 1)
 	p.beat_pos = 0
-	if !mute_armed && a.tape_cued && a.frames > 0 && a.frames < i64(p.frames) {
+	if start_frame >= 0 {
+		// recording from the playhead: the guide starts at the pre-roll point
+		p.cursor = u64(start_frame)
+		p.beat_pos = p.beat_frames - (start_frame % p.beat_frames)
+	} else if !mute_armed && a.tape_cued && a.frames > 0 && a.frames < i64(p.frames) {
 		p.cursor = u64(a.frames)
 		p.beat_pos = p.beat_frames - (int(p.cursor) % p.beat_frames)
 	}
@@ -1536,8 +1531,8 @@ playback_start :: proc(e: ^Engine) -> bool {
 	return true
 }
 
-engine_play :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool = false) -> bool {
-	if !playback_prepare(e, a, mute_armed) {
+engine_play :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool = false, start_frame: int = -1) -> bool {
+	if !playback_prepare(e, a, mute_armed, start_frame) {
 		return false
 	}
 	return playback_start(e)
@@ -1676,7 +1671,7 @@ engine_update :: proc(e: ^Engine, a: ^ui.App) {
 			e.play.bpm = a.bpm
 			e.play.beat_frames = max(int(60.0 / f32(max(a.bpm, 1)) * f32(max(e.sample_rate, 1))), 1)
 		}
-		a.frames = i64(sync.atomic_load(&e.rec.write_frame))
+		a.frames = i64(e.rec_punch - e.rec_pre) + i64(sync.atomic_load(&e.rec.write_frame))
 		for i in 0 ..< MAX_ENGINE_TRACKS {
 			if !e.rec.armed[i] {
 				continue

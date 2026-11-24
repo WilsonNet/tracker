@@ -184,7 +184,11 @@ The − / + glyphs must sit on the vertical centre of the 28px box.
 | t / T | next / previous take ("no takes on this track" when empty) |
 | u / U | undo / redo ("undid arm (takes kept)" / "redid arm") |
 | o / y / c | monitor, JACK/PipeWire backend, metronome |
-| r / Space | record toggle / play toggle |
+| Space | play / pause in place (resumes from the paused position); while recording punches out and stays put |
+| r / Ctrl+r | record at the playhead after the pre-roll / record at once; again = punch out |
+| M / p / 0 | marker here (again on it = clear) / audition lead-in up to the playhead / stop → marker → 00:00 |
+| STOP button | halt and return to the marker; again → 00:00 |
+| PRE-ROLL chip | cycles OFF, 1, 2, 3, 5, 10 s (also Settings → Pre-roll) |
 | b | bounce |
 | i / x / : | I/O overlay / FX rack / palette |
 | [ / ] | FX channel previous / next |

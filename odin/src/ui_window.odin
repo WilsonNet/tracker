@@ -188,6 +188,7 @@ run_ui_window :: proc(args: []string) -> bool {
 	if settings_loaded {
 		a.high_contrast = settings.high_contrast
 		a.reduced_motion = settings.reduced_motion
+		ui.app_set_preroll_seconds(&a, settings.preroll_s)
 	}
 	engine_set_latency_ms(&e, a.latency_ms)
 
@@ -310,7 +311,9 @@ window_on_event :: proc(va: ^vapp.App, ev: ^sdl.Event) -> bool {
 		}
 		// Outside text fields, Alt or Ctrl + scrub key enters micro-scrubbing;
 		// swallow every other modifier chord so Ctrl+S doesn't solo, Ctrl+R doesn't record.
-		if (ctrl_down || alt_down) && scrub_key {
+		// Ctrl/Alt+r records at once (skips the pre-roll); also pass through
+		record_now_key := ws.a.mode == .Normal && !ui.app_text_editing(ws.a) && key == .Char && ch == 'r'
+		if (ctrl_down || alt_down) && (scrub_key || record_now_key) {
 			ui.app_set_mods(ws.a, shift, ctrl_down, alt_down)
 			ui.app_key(ws.a, key, ch, shift, true)
 			return true

@@ -244,6 +244,16 @@ Enter cannot activate BROWSE and block on the native folder dialog.
 | Google Drive (fake server, `cloud_fake_drive_roundtrips_renamed_many_track_project`) | 9-track project with renamed tracks (one non-ASCII), tracks 1/7/9 audio and a take file: backup → restore → `project_load` keeps names, count, audio flags; zero remote DELETEs. Existing fake-Drive tests (innocent file, duplicate names, same-name project, rename-in-place) still pass. Live Google consent/quota not re-run |
 | hardware | none required; JACK/capture paths unchanged apart from `MAX_ENGINE_TRACKS = 24` (capture of tracks > 4 not exercised on hardware) |
 
+## Pause, marker, pre-roll and punch-in (2026-11-24)
+
+| check | result |
+|---|---|
+| `make test` | 71 DSP + 141 core + 85 UI green. New: Space pause/resume and STOP → marker → 00:00; record punch/pre-roll maths (clamp at 00:00, no guide → no pre-roll, Ctrl+r skips, punch-out keeps position); audition lead-in; playhead may pass the old tape end while recording; `comp_punch` (middle, nested, past the end, empty track); `engine_commit_recorded_take` from a punch (old audio before/after, new audio inside, offset saved, project reload renders the same comp, punch 0 unchanged); marker and pre-roll persistence |
+| `make e2e` | 27 cases; `pause, marker and pre-roll`; screenshot `transport-marker` read back |
+| real recording (this machine, Scarlett via PipeWire, `VUI_HIDDEN=1`, throwaway session) | 1 s tone on track 1, jog to 0.5 s, `r`, ~2.6 s recorded, `Space`: take `Punch @0.5s` with `offset 24000`, `compRegions` = old `[0, 24000)` + punch `[24000, 152576)`, track shows `C/2`, clock stayed at the punch-out time, tape length `0:03.2` |
+| bug found by that run | `ui_sync_takes` runs every frame and clamped the playhead to the old tape length, freezing the clock while recording past the end (fixed in `app_set_tape_frames`, regression test) |
+| not verified | JACK punch-in on hardware, pre-roll > 0 on hardware (the 0.5 s punch used a 0.5 s pre-roll, ear-checked only by the take offsets), audition playback audio |
+
 ## Google Drive (2026-11-22)
 
 Setup: [`docs/cloud-setup.md`](../docs/cloud-setup.md). Scope is exactly

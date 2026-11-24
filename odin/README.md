@@ -85,7 +85,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 290 unit tests (Linux) / 284 (macOS)
+make test         # 297 unit tests (Linux) / 291 (macOS)
 make check        # unit + headless UI tour + offline end-to-end
 
 # 4. Run the app
@@ -114,9 +114,9 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | unit tests: 71 DSP, 138 core (Linux) / 132 core (macOS), 81 UI = 290 (Linux) / 284 (macOS) |
+| `test` | unit tests: 71 DSP, 141 core (Linux) / 135 core (macOS), 85 UI = 297 (Linux) / 291 (macOS) |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
-| `e2e` | 26 headless vinland-ui window cases (`tests/ui/window.vt`) |
+| `e2e` | 27 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
 | `ui-test` | run a harness script; `SCRIPT=... UI_OUT=...` |
@@ -143,7 +143,28 @@ directory is in `XDG_DATA_DIRS`.
   `Esc` cancels, empty restores "Track N"); names live in `project.json`. Arming a track opens a
   capture-only preview, so its input meter and history graph are live before
   REC (the miniaudio/PipeWire path; JACK meters during the take).
-- **Transport & Tape Scrubber:** REC / PLAY / STOP / BOUNCE, timecode, armed count, BPM
+- **Pause, marker, pre-roll and punch-in:** `Space` toggles play/**pause** in
+  place (the button reads PAUSE while playing); while recording it **punches out**
+  and the tape stays where recording ended. `STOP` (or `0` while playing)
+  halts and returns to the **marker**; pressed again, to 00:00. `M` drops the
+  single return marker at the playhead (also while playing; `M` on the marker
+  clears it); the `MARK` button and its time chip in the bottom deck do the same
+  with the mouse (click the time to cue there, `x` clears). The marker is saved in
+  `project.json` (`markerFrame`). Jog (`h/l`, `H/L`, `Ctrl+h/l`, `< >`, the
+  wheels) to choose a spot, press `p` to **audition** the lead-in up to it (it
+  plays the pre-roll length, at least 2 s, and pauses exactly at the playhead),
+  then `r`. Recording starts **at the playhead**: the guide plays for the
+  **pre-roll** first (OFF/1/2/3/5/10 s, default 3 s; the `PRE-ROLL` chip next to
+  RHYTHM or Settings → Pre-roll changes it and it is saved in `settings.json`),
+  the take begins at the punch point, and the REC button counts the pre-roll down
+  (`PRE 3`). `Ctrl+r` / `Alt+r`, or Shift+click on REC, records immediately. When
+  the track already has audio, the take is **auto-comped over the old audio only
+  between punch-in and punch-out**: the old take is untouched and shown as `C/2`,
+  before and after the punch keep playing, and `t`/`T` or the take arrows pick a
+  take outright. Punching at 00:00 keeps the old behaviour (the new take
+  replaces the track). With nothing to listen to (no audio, no click) there is
+  no pre-roll, and it never reaches before 00:00.
+- **Transport & Tape Scrubber:** REC / PLAY·PAUSE / STOP / BOUNCE, timecode, armed count, BPM
   stepper, metronome click, live input **MON**itoring, latency trim and a
   PipeWire/cooperative-JACK backend switch. Centered in the bottom deck bar is a
   hardware-inspired **Tape Scrubber** with a **`|◄` RTZ** button and dual rotary
@@ -217,9 +238,9 @@ directory is in `XDG_DATA_DIRS`.
   model are in [`../docs/cloud-setup.md`](../docs/cloud-setup.md).
 - **Headless UI harness:** `ui-test` (below) drives the exact same state
   machine without a browser or window.
-- **Keyboard:** `F1` key help, `Space` play/stop, `r` record, `b` bounce, `B` render dialog, `1–9` arm track, `j/k`
+- **Keyboard:** `F1` key help, `Space` play/pause (punch out while recording), `r` record at the playhead (`Ctrl+r` no pre-roll), `M` marker, `p` audition, `0` stop → marker → 00:00, `b` bounce, `B` render dialog, `1–9` arm track, `j/k`
   select, `J/K` level, `h/l` jog `±250 ms` (`H/L` fine `±50 ms`, `Alt|Ctrl+h/l`
-  micro `±10 ms`), `</>` shuttle `±5.0 s`, `0` return to zero (`|◄`), `m` mute,
+  micro `±10 ms`), `</>` shuttle `±5.0 s`, `|◄` return to marker, then zero, `m` mute,
   `s` solo, `a` arm, `n` rename project, `R` rename track, `v`/`V` mark / bounce tracks to a track, `N`/`D` add / remove track, `{ }` zoom, `( )` page, `I` input, `x` FX, `c` click, `o`
   monitor, `y` JACK backend, `t`/`T` next/previous take, `u`/`U` undo/redo,
   `[`/`]` FX channel, `Tab`/`Shift+Tab` FX focus, `,` settings, `g` cloud projects,
@@ -387,7 +408,7 @@ persist the project. A malformed `project.json` is renamed to
 ## Tests and verification
 
 ```sh
-make test        # 71 DSP + 138 core/engine/project/cloud + 81 UI = 290 tests (Linux)
+make test        # 71 DSP + 141 core/engine/project/cloud + 85 UI = 297 tests (Linux)
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui
@@ -565,6 +586,11 @@ high-DPI guidance, and the JetBrains Mono/Inter/Noto font licences.
 - HiDPI density is sampled from the compositor's window/pixel ratio; densities
   outside 1–3× are clamped. `--ui-scale` is limited to the tested
   1/1.25/1.5/2/3 set.
+- Punch-in works from the playhead on the tape that exists; there is one marker (no
+  loop/cycle, no automatic punch-out point: you punch out with `Space`/`r`/STOP).
+  Pre-roll cannot start before 00:00, and recording from a punch point in JACK
+  mode relies on the same latency trim as a normal take (hardware-verified only
+  with miniaudio/PipeWire).
 - A project has at most 24 tracks. Tracks holding audio cannot be removed, and a track bounce has no undo step (the target keeps its previous take). Track bounce targets are mono.
 - Google Drive transfer is explicit backup/restore, not live sync; a live Google
   account round-trip still needs the user's own OAuth client.

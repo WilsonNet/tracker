@@ -15,6 +15,13 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"record", .Record_Start},
 	{"play", .Play},
 	{"stop", .Stop},
+	{"pause", .Pause},
+	{"set marker here", .Set_Marker},
+	{"go to marker", .Goto_Marker},
+	{"clear marker", .Clear_Marker},
+	{"audition lead-in", .Audition},
+	{"record without pre-roll", .Record_Now},
+	{"cycle pre-roll", .Preroll_Next},
 	{"rewind to start", .Seek_Zero},
 	{"shuttle forward", .Shuttle_Forward},
 	{"shuttle back", .Shuttle_Back},
@@ -774,6 +781,8 @@ app_settings_activate :: proc(a: ^App) {
 		app_execute(a, .Latency_Up)
 	case .Monitor:
 		app_execute(a, .Monitor)
+	case .Preroll:
+		app_execute(a, .Preroll_Next)
 	case .High_Contrast:
 		app_execute(a, .High_Contrast)
 	case .Reduced_Motion:
@@ -973,7 +982,7 @@ settings_text_index :: proc(a: ^App) -> int {
 	case .Cloud_Client_Secret, .Cloud_Connect, .Cloud_Backup, .Cloud_Restore:
 		return 4
 	case .Path, .Browse, .Apply, .Default, .Inputs, .Backend,
-	     .Latency_Down, .Latency_Up, .Monitor, .High_Contrast, .Reduced_Motion:
+	     .Latency_Down, .Latency_Up, .Monitor, .Preroll, .High_Contrast, .Reduced_Motion:
 		return 1
 	}
 	return 0
@@ -995,7 +1004,7 @@ settings_focus_text :: proc(a: ^App, index: int) {
 	case .Cloud_Client_Secret:
 		app_cloud_begin_edit(a, .Client_Secret)
 	case .Browse, .Apply, .Default, .Inputs, .Backend,
-	     .Latency_Down, .Latency_Up, .Monitor, .High_Contrast, .Reduced_Motion,
+	     .Latency_Down, .Latency_Up, .Monitor, .Preroll, .High_Contrast, .Reduced_Motion,
 	     .Cloud_Connect, .Cloud_Backup, .Cloud_Restore:
 	}
 	bump_revision(a)
@@ -1739,7 +1748,18 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 			_ = app_scrub_wheel(a, .Shuttle, 1, .Micro if ctrl else .Normal)
 			return
 		case '0':
-			_ = app_seek_zero(a)
+			// playing: STOP (back to the marker); stopped: marker, then 00:00
+			if a.transport == .Playing {
+				app_execute(a, .Stop)
+			} else {
+				_ = app_return_to_marker_or_zero(a)
+			}
+			return
+		case 'M':
+			app_execute(a, .Set_Marker)
+			return
+		case 'p':
+			app_execute(a, .Audition)
 			return
 		case 'I':
 			if a.selected < MAX_TRACKS && a.transport != .Recording {
@@ -1751,7 +1771,8 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 			}
 			return
 		case 'r':
-			app_toggle_record(a)
+			// Ctrl/Alt+r (the window passes it through) records without pre-roll
+			app_toggle_record(a, ctrl)
 			return
 		case 'b':
 			app_execute(a, .Bounce)
@@ -2299,6 +2320,20 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Page_Prev"
 	case .Cloud_Save_Credentials:
 		return "Cloud_Save_Credentials"
+	case .Pause:
+		return "Pause"
+	case .Set_Marker:
+		return "Set_Marker"
+	case .Clear_Marker:
+		return "Clear_Marker"
+	case .Goto_Marker:
+		return "Goto_Marker"
+	case .Audition:
+		return "Audition"
+	case .Record_Now:
+		return "Record_Now"
+	case .Preroll_Next:
+		return "Preroll_Next"
 	case .Rename_Track:
 		return "Rename_Track"
 	case .Apply_Track_Name:

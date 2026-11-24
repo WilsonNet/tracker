@@ -287,6 +287,9 @@ TIGHT_HEIGHT :: 700
 
 @(private = "file")
 status_mode :: proc(a: ^App) -> (string, string) {
+	if app_in_preroll(a) {
+		return "PRE-ROLL", "bg-sig text-canvas"
+	}
 	if a.transport == .Recording {
 		return "REC", "bg-rec text-ink"
 	}
@@ -326,21 +329,27 @@ view_transport :: proc(a: ^App, v: ^View) {
 
 		if vui.div("flex shrink-0 items-center gap-1") {
 			rec := a.transport == .Recording
-			if vui.button_box(vui.cx(TBTN, rec ? "animate-pulse bg-rec text-ink" : "text-rec hover:bg-rec-bg")) {
-				vui.el("size-2 rounded-full bg-rec" if !rec else "size-2 rounded-full bg-ink")
-				vui.text("REC")
+			pre := app_in_preroll(a)
+			if vui.button_box(vui.cx(TBTN, pre ? "animate-pulse bg-sig text-canvas" : rec ? "animate-pulse bg-rec text-ink" : "text-rec hover:bg-rec-bg")) {
+				vui.el("size-2 rounded-full bg-canvas" if pre else "size-2 rounded-full bg-rec" if !rec else "size-2 rounded-full bg-ink")
+				vui.text(fmt.tprintf("PRE %.0f", math.ceil(app_preroll_left_seconds(a))) if pre else "REC")
 				if vui.clicked() {
-					app_toggle_record(a)
+					// Shift+click records straight away, skipping the pre-roll
+					app_toggle_record(a, a.shift_down)
 				}
 			}
 			playing := a.transport == .Playing
 			if vui.button_box(vui.cx(TBTN, playing ? "bg-sig text-canvas" : "text-sig hover:bg-sig-bg")) {
 				if playing {
-					vui.el("size-2 rounded-[1px] bg-canvas")
+					// pause glyph: two bars
+					if vui.div("flex items-center gap-[2px]") {
+						vui.el("h-2.5 w-[3px] rounded-[1px] bg-canvas")
+						vui.el("h-2.5 w-[3px] rounded-[1px] bg-canvas")
+					}
 				} else {
 					vui.icon(v.ic_play, "size-3 text-sig")
 				}
-				vui.text("STOP" if playing else "PLAY")
+				vui.text("PAUSE" if playing else "PLAY")
 				if vui.clicked() {
 					app_toggle_play(a)
 				}
@@ -360,7 +369,7 @@ view_transport :: proc(a: ^App, v: ^View) {
 				_ = app_scrub_wheel(a, .Jog, w, app_scrub_speed(v.fine, v.micro, false))
 			}
 			if vui.double_clicked() {
-				_ = app_seek_zero(a)
+				_ = app_return_to_marker_or_zero(a)
 			}
 			vui.text(timecode(a.frames, a.sample_rate), vui.cx("whitespace-nowrap text-[13px] tabular-nums tracking-[0.02em]", scrubbing ? "text-sig" : "text-ink"))
 		}
@@ -1383,7 +1392,7 @@ view_status :: proc(a: ^App) {
 				vui.text(fmt.tprintf(" · %s%s · %d kHz", app_device(a), " · JACK" if a.jack_backend else "", a.sample_rate / 1000), "truncate text-ink-muted")
 			}
 		}
-		hint := "type: project name  enter: save  esc: cancel" if (a.mode == .Normal && a.project_name_edit) else "j/k: nav  J/K: vol  : command"
+		hint := "type: project name  enter: save  esc: cancel" if (a.mode == .Normal && a.project_name_edit) else "space: play/pause  M: marker  r: record  j/k: nav"
 		if a.mode == .Normal && a.track_edit {
 			hint = "type: track name  enter: save  esc: cancel"
 		}
@@ -1528,7 +1537,7 @@ scrubber_wheel_ui :: proc(a: ^App, v: ^View, wheel: Scrub_Wheel, title: string, 
 				_ = app_scrub_wheel(a, wheel, w, speed)
 			}
 			if vui.double_clicked() {
-				_ = app_seek_zero(a)
+				_ = app_return_to_marker_or_zero(a)
 			}
 		}
 		d := new(Scrub_Wheel_Draw, context.temp_allocator)
@@ -1559,6 +1568,14 @@ view_rhythm :: proc(a: ^App, v: ^View) {
 				app_execute(a, .Metronome)
 			}
 		}
+		pr := app_preroll_seconds(a) > 0
+		if vui.button_box(vui.cx("flex shrink-0 items-center gap-2 rounded-[2px] border px-2.5 py-1 text-[11px] font-semibold tracking-[0.06em] transition-colors duration-150", pr ? "border-line-sig bg-sig-bg text-sig" : "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
+			vui.text("PRE-ROLL")
+			vui.text(app_preroll_label(a), "text-sig" if pr else "text-ink-muted")
+			if vui.clicked() {
+				app_execute(a, .Preroll_Next)
+			}
+		}
 		if on {
 			vui.text(fmt.tprintf("CLICK · %d BPM · 4/4", a.bpm), "shrink-0 whitespace-nowrap text-[11px] tracking-[0.04em] text-ink-dim")
 		}
@@ -1566,12 +1583,25 @@ view_rhythm :: proc(a: ^App, v: ^View) {
 			rtz_enabled := a.transport != .Recording
 			rtz_lit := a.frames > 0 && rtz_enabled
 			if vui.button("|◄", vui.cx("rounded-[2px] border px-1.5 py-1 text-[10px] font-semibold tracking-[0.04em] transition-colors duration-150", rtz_lit ? "border-line-sig text-sig hover:bg-sig-bg" : "border-line text-ink-muted hover:text-ink"), {} if rtz_enabled else {.Disabled}) {
-				_ = app_seek_zero(a)
+				_ = app_return_to_marker_or_zero(a)
 			}
 			scrubber_wheel_ui(a, v, .Shuttle, "SHUTTLE")
 			scrubber_wheel_ui(a, v, .Jog, "JOG")
 			if a.tape_frames > 0 {
 				vui.text(fmt.tprintf("/ %s", render_time_text(f32(a.tape_frames) / f32(max(a.sample_rate, 1)))), "ml-1 whitespace-nowrap text-[10px] tabular-nums text-ink-muted")
+			}
+			// the single return marker: MARK drops it at the playhead (M), the
+			// time cues there, x clears it
+			if vui.button("MARK", vui.cx("ml-2 rounded-[2px] border px-1.5 py-1 text-[10px] font-semibold tracking-[0.04em] transition-colors duration-150", a.marker_set ? "border-line-sig text-sig hover:bg-sig-bg" : "border-line text-ink-muted hover:text-ink")) {
+				app_execute(a, .Set_Marker)
+			}
+			if a.marker_set {
+				if vui.button(render_time_text(f32(a.marker) / f32(max(a.sample_rate, 1))), "rounded-[2px] border border-line-sig bg-sig-bg px-1.5 py-1 text-[10px] font-semibold tabular-nums text-sig hover:bg-panel-hover") {
+					app_execute(a, .Goto_Marker)
+				}
+				if vui.button("x", "rounded-[2px] px-1 py-1 text-[10px] text-ink-muted hover:text-ink") {
+					app_execute(a, .Clear_Marker)
+				}
 			}
 		}
 		if vui.div("flex shrink-0 items-center gap-1") {
@@ -1936,6 +1966,10 @@ view_settings :: proc(a: ^App, v: ^View) {
 			if vui.div("flex items-center gap-2") {
 				vui.text("Direct monitoring", "flex-1 text-[12px] text-ink")
 				settings_toggle(a, .Monitor, "ON" if a.monitor else "OFF", a.monitor, .Monitor)
+			}
+			if vui.div("flex items-center gap-2") {
+				vui.text("Pre-roll before a take (REC chip cycles it · Ctrl+r skips it)", "flex-1 text-[12px] text-ink")
+				settings_toggle(a, .Preroll, app_preroll_label(a), app_preroll_seconds(a) > 0, .Preroll_Next)
 			}
 
 			// ── appearance ───────────────────────────────────────────
