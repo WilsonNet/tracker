@@ -673,7 +673,7 @@ command_hint :: proc(kind: Command_Kind) -> string {
 		return "transport"
 	case .Bounce, .Render_Mix, .Render_File, .Bounce_Tracks, .Bounce_To_Track:
 		return "render"
-	case .Track_Add, .Track_Remove, .Zoom_In, .Zoom_Out, .Page_Next, .Page_Prev:
+	case .Track_Add, .Track_Remove, .Rename_Track, .Apply_Track_Name, .Zoom_In, .Zoom_Out, .Page_Next, .Page_Prev:
 		return "tracks"
 	case .Save, .Load, .Save_As, .Rename_Project, .Apply_Project_Name:
 		return "project"

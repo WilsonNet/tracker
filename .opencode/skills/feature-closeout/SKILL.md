@@ -375,4 +375,4 @@ message state:
 - Palette growth needs `MAX_PALETTE` (now 64) in the same change.
 - F1 is `Key.F1` handled first in `app_key`; the help sheet swallows every other
   key and any click, so it works over text edits without losing the draft.
-- Counts now: 288 Linux / 282 macOS unit tests, 25 e2e cases.
+- Counts now: 290 Linux / 284 macOS unit tests, 26 e2e cases.

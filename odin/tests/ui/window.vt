@@ -160,6 +160,20 @@ test "twenty-four tracks at minimum size"
   type (
   type )
 
+test "rename a track inline"
+  key k
+  type R
+  expect-text "track name"
+  type "Lead Gtr"
+  key enter
+  expect-text "Lead Gtr"
+  screenshot track-renamed
+  dblclick "Lead Gtr"
+  type "Bass"
+  key enter
+  expect-text "Bass"
+  expect-no-text "Lead Gtr"
+
 test "io overlay"
   click I/O
   expect-text "Input devices"

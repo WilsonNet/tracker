@@ -15,7 +15,7 @@ app_help_toggle :: proc(a: ^App) {
 
 // Short label for the sheet header: where the user is right now.
 app_help_context :: proc(a: ^App) -> string {
-	if (a.mode == .Normal && a.project_name_edit) ||
+	if (a.mode == .Normal && (a.project_name_edit || a.track_edit)) ||
 	   (a.mode == .Settings && (a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None)) {
 		return "Editing text"
 	}
@@ -67,6 +67,8 @@ app_help_entries :: proc(a: ^App) -> []Help_Entry {
 	out := make([dynamic]Help_Entry, 0, 40, context.temp_allocator)
 
 	switch {
+	case a.mode == .Normal && a.track_edit:
+		help_text_edit(&out, "save name (empty = default)", "cancel")
 	case a.mode == .Normal && a.project_name_edit:
 		help_text_edit(&out, "save name", "cancel")
 	case a.mode == .Settings && a.project_name_edit:
@@ -173,6 +175,7 @@ help_normal :: proc(out: ^[dynamic]Help_Entry, a: ^App) {
 	row(out, "j k / Tab", "select track")
 	row(out, "v", "mark for bounce")
 	row(out, "V", "bounce marked to a track")
+	row(out, "R", "rename track")
 	row(out, "m", "mute")
 	row(out, "s", "solo")
 	row(out, "← →", "pan (Shift: fine)")

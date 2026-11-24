@@ -2513,3 +2513,55 @@ ui_help_lists_track_keys :: proc(t: ^testing.T) {
 	es = app_help_entries(&a)
 	testing.expect(t, has(es, "Enter") && !has(es, "N"), "dialog shows only its own keys")
 }
+
+@(test)
+ui_track_rename_edit_commit_cancel_and_default :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_key(&a, .Char, 'k') // select track 2
+	app_key(&a, .Char, 'R', true)
+	testing.expect(t, a.track_edit && a.track_edit_index == 1, "R starts editing the selected track")
+	testing.expect(t, app_text_editing(&a), "track rename is a text-editing state")
+	testing.expect(t, app_help_context(&a) == "Editing text", "help knows it is editing")
+
+	// the whole old name is selected, so typing replaces it
+	for ch in transmute([]u8)string("Lead Gtr") {
+		app_key(&a, .Char, ch, ch >= 'A' && ch <= 'Z')
+	}
+	app_key(&a, .Space, ' ')
+	app_key(&a, .Char, '2')
+	testing.expect(t, app_track_draft(&a) == "Lead Gtr 2", app_track_draft(&a))
+	// keys typed into the field never trigger commands (R, 1, ...)
+	testing.expect(t, !a.tracks[0].armed && a.track_edit, "typing does not arm or retrigger")
+	app_key(&a, .Enter)
+	cmd, has := app_take_command(&a)
+	testing.expect(t, has && cmd.kind == .Apply_Project_Name, "commit asks the window to persist")
+	testing.expect(t, !a.track_edit && a.tracks[1].name == "Lead Gtr 2" && a.dirty, "name applied and project dirty")
+
+	// Esc cancels and keeps the old name
+	app_key(&a, .Char, 'R', true)
+	app_key(&a, .Char, 'x')
+	app_key(&a, .Escape)
+	testing.expect(t, !a.track_edit && a.tracks[1].name == "Lead Gtr 2", "esc keeps the name")
+
+	// empty restores the default
+	app_key(&a, .Char, 'R', true)
+	app_key(&a, .Backspace)
+	app_key(&a, .Enter)
+	testing.expect(t, a.tracks[1].name == "Track 2", a.tracks[1].name)
+
+	// rename also works on strips scrolled in from further away
+	app_set_track_count(&a, 10)
+	a.selected = 9
+	app_key(&a, .Char, 'R', true)
+	paste := "Overheads"
+	app_paste_text(&a, paste)
+	app_key(&a, .Enter)
+	testing.expect(t, a.tracks[9].name == "Overheads", a.tracks[9].name)
+
+	// removing/resetting a renamed strip frees the owned name and restores the default
+	app_set_track_count(&a, 4)
+	app_set_track_count(&a, 10)
+	testing.expect(t, a.tracks[9].name == "Track 10", "strip beyond the count is reset")
+}

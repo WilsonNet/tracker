@@ -171,6 +171,8 @@ Command_Kind :: enum {
 	Zoom_Out,
 	Page_Next,
 	Page_Prev,
+	Rename_Track,
+	Apply_Track_Name,
 }
 
 Command :: struct {
@@ -492,6 +494,11 @@ App :: struct {
 	project_name_draft:     [PROJECT_NAME_MAX]u8,
 	project_name_draft_len: int,
 	project_name_edit:      bool,
+	// Inline rename of one track strip (R / double-click the name).
+	track_edit:            bool,
+	track_edit_index:      int,
+	track_name_draft:      [64]u8,
+	track_name_draft_len:  int,
 	settings_sel:           Settings_Item,
 	settings_dirty:         bool,
 
@@ -1046,6 +1053,7 @@ project_name_draft_set :: proc(a: ^App, s: string) {
 
 @(private)
 project_edit_clear :: proc(a: ^App) {
+	track_edit_clear(a)
 	if !a.project_name_edit {
 		return
 	}
@@ -1851,6 +1859,13 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		app_view_page(a, 1)
 	case .Page_Prev:
 		app_view_page(a, -1)
+	case .Rename_Track:
+		app_track_begin_edit(a, a.selected)
+	case .Apply_Track_Name:
+		if app_track_commit_edit(a) {
+			// persisted (project.json + next Drive backup) by the window
+			emit(a, .Apply_Project_Name)
+		}
 	case .Render_Mix:
 		if a.transport == .Recording {
 			toast(a, "stop recording before rendering")

@@ -1,6 +1,7 @@
 package ui
 
 import "core:fmt"
+import "core:strings"
 
 // Variable track count, the visible window onto it, bounce marks and the
 // "bounce marked tracks to a target track" dialog. Pure model: no engine, no
@@ -401,4 +402,97 @@ app_tb_key :: proc(a: ^App, key: Key, ch: u8) {
 			app_tb_move(a, 1)
 		}
 	}
+}
+
+// ---------------------------------------------------------------- rename
+
+app_track_draft :: proc(a: ^App) -> string {
+	return string(a.track_name_draft[:a.track_name_draft_len])
+}
+
+@(private)
+track_edit_reset_flags :: proc(a: ^App) {
+	a.track_edit = false
+	a.edit_confirm = false
+	a.edit_select_all = false
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	text_history_reset(a)
+}
+
+// Drops an open track rename without saving (overlays opening, panic, ...).
+track_edit_clear :: proc(a: ^App) {
+	if a.track_edit {
+		track_edit_reset_flags(a)
+	}
+}
+
+app_track_begin_edit :: proc(a: ^App, i: int, select_all: bool = true) -> bool {
+	if i < 0 || i >= a.track_count || a.mode != .Normal {
+		toast(a, "select a track to rename (j/k)")
+		return false
+	}
+	if a.project_name_edit {
+		app_project_cancel_edit(a)
+	}
+	a.track_edit = true
+	a.track_edit_index = i
+	a.selected = i
+	a.edit_confirm = false
+	a.edit_select_all = false
+	a.text_scroll_x = 0
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	text_history_reset(a)
+	buf_set(a.track_name_draft[:], &a.track_name_draft_len, a.tracks[i].name)
+	a.text_cursor = a.track_name_draft_len
+	a.text_anchor = a.text_cursor
+	if select_all && a.track_name_draft_len > 0 {
+		text_select_all(a)
+	}
+	app_view_clamp(a)
+	status_buf_set(a, fmt.tprintf("rename track %d", i + 1))
+	bump_revision(a)
+	return true
+}
+
+app_track_cancel_edit :: proc(a: ^App) {
+	if !a.track_edit {
+		return
+	}
+	track_edit_reset_flags(a)
+	status_buf_set(a, "rename cancelled")
+	bump_revision(a)
+}
+
+// An empty name restores the default "Track N". Names are owned strings.
+app_track_commit_edit :: proc(a: ^App) -> bool {
+	if !a.track_edit {
+		return false
+	}
+	i := a.track_edit_index
+	if i < 0 || i >= a.track_count {
+		track_edit_reset_flags(a)
+		return false
+	}
+	trimmed := strings.trim_space(app_track_draft(a))
+	t := &a.tracks[i]
+	if a.track_name_owned[i] {
+		delete(t.name)
+		a.track_name_owned[i] = false
+	}
+	if trimmed == "" {
+		t.name = TRACK_NAMES[i]
+	} else {
+		t.name = strings.clone(trimmed)
+		a.track_name_owned[i] = true
+	}
+	track_edit_reset_flags(a)
+	a.dirty = true
+	status_buf_set(a, fmt.tprintf("track %d named %s", i + 1, t.name))
+	toast(a, fmt.tprintf("track %d: %s", i + 1, t.name))
+	bump_revision(a)
+	return true
 }

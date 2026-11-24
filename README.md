@@ -14,6 +14,7 @@ fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
   layout); `N`/`D` add or remove tracks, `{ }` zoom how many show, `( )` page
 - **Bounce marked tracks to a track** — `v` marks, `V` opens the target dialog;
   sources stay, the target gets a new mono take
+- **Track names** — `R` or double-click a strip name; saved with the project and Drive backups
 - **Contextual key help** — `F1` lists only the keys that work where you are
 - **Multi-take recording and comping** — stable take files, active-take cycling, comp regions
 - **Overdub** — hear the existing mix while recording the next part

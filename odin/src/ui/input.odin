@@ -37,6 +37,7 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"connect google drive", .Cloud_Connect},
 	{"save project", .Save},
 	{"rename project", .Rename_Project},
+	{"rename track", .Rename_Track},
 	{"load project", .Load},
 	{"arm all", .Arm_All},
 	{"clear arms", .Clear_Arms},
@@ -809,7 +810,7 @@ app_text_editing :: proc(a: ^App) -> bool {
 	case .Settings:
 		return a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None
 	case .Normal:
-		return a.project_name_edit
+		return a.project_name_edit || a.track_edit
 	case .Fx, .Io, .Bounce, .Cloud, .Render, .Track_Bounce:
 		return false
 	}
@@ -888,7 +889,7 @@ app_paste_text :: proc(a: ^App, text: string) {
 			}
 		}
 	case .Normal:
-		if a.project_name_edit {
+		if a.project_name_edit || a.track_edit {
 			clean := paste_sanitize(text, false)
 			defer delete(clean)
 			if clean != "" {
@@ -1629,7 +1630,7 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 		app_tb_key(a, key, ch)
 		return
 	}
-	if a.mode == .Normal && a.project_name_edit {
+	if a.mode == .Normal && (a.project_name_edit || a.track_edit) {
 		if ctrl {
 			switch ch {
 			case 'a', 'A':
@@ -1655,9 +1656,13 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 		}
 		#partial switch key {
 		case .Escape:
-			app_project_cancel_edit(a)
+			if a.track_edit {
+				app_track_cancel_edit(a)
+			} else {
+				app_project_cancel_edit(a)
+			}
 		case .Enter:
-			app_execute(a, .Apply_Project_Name)
+			app_execute(a, .Apply_Track_Name if a.track_edit else .Apply_Project_Name)
 		case .Tab:
 		case:
 			if text_key(a, key, ch, shift, ctrl) {
@@ -1711,6 +1716,9 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 			return
 		case 'n':
 			app_execute(a, .Rename_Project)
+			return
+		case 'R':
+			app_execute(a, .Rename_Track)
 			return
 		case 'h':
 			_ = app_scrub_wheel(a, .Jog, -1, .Micro if ctrl else .Normal)
@@ -2291,6 +2299,10 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Page_Prev"
 	case .Cloud_Save_Credentials:
 		return "Cloud_Save_Credentials"
+	case .Rename_Track:
+		return "Rename_Track"
+	case .Apply_Track_Name:
+		return "Apply_Track_Name"
 	}
 	return "None"
 }

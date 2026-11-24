@@ -240,6 +240,8 @@ Enter cannot activate BROWSE and block on the native folder dialog.
 | 24 tracks @ 900×620 | 11 strips shown (92 px minimum), `unknown_classes: []`, rail shows all 24 dots |
 | real window bounce | session with two 1 s tones: marks 1+2, `V`, Enter → `track3.wav` mono float 48 kHz, take `Bounce 1+2` in `project.json`, `tracks` length 4 |
 | `make check` | 220-action tour (master FX channel is now `24`) + format checks pass |
+| track rename | unit test (edit/commit/cancel/default/paste/reset), `rename a track inline` e2e (key `R` and double-click), `project.json` round trip |
+| Google Drive (fake server, `cloud_fake_drive_roundtrips_renamed_many_track_project`) | 9-track project with renamed tracks (one non-ASCII), tracks 1/7/9 audio and a take file: backup → restore → `project_load` keeps names, count, audio flags; zero remote DELETEs. Existing fake-Drive tests (innocent file, duplicate names, same-name project, rename-in-place) still pass. Live Google consent/quota not re-run |
 | hardware | none required; JACK/capture paths unchanged apart from `MAX_ENGINE_TRACKS = 24` (capture of tracks > 4 not exercised on hardware) |
 
 ## Google Drive (2026-11-22)

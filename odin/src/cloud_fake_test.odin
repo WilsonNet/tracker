@@ -11,6 +11,8 @@ import "core:sync"
 import "core:testing"
 import "core:time"
 
+import ui "ui"
+
 @(private)
 fake_drive_mutex: sync.Mutex
 
@@ -465,6 +467,144 @@ cloud_fake_drive_rename_reuses_folder_and_updates_index :: proc(t: ^testing.T) {
 		testing.expect(t, perr == nil && strings.contains(string(pdata), `"Midnight Tape"`), "restored project.json has new title")
 	}
 
+	stats_data, stats_ok := fake_get_json(server, "/__stats")
+	testing.expect(t, stats_ok, "stats")
+	defer delete(stats_data)
+	if stats_ok {
+		Stats :: struct { deletes: int `json:"deletes"` }
+		stats: Stats
+		if json.unmarshal(stats_data, &stats) == nil {
+			testing.expect(t, stats.deletes == 0, "client issued a remote DELETE")
+		}
+	}
+}
+
+// A renamed, many-track project with a bounce take must survive backup and
+// restore: names, track count and every trackN / take file.
+@(test)
+cloud_fake_drive_roundtrips_renamed_many_track_project :: proc(t: ^testing.T) {
+	sync.mutex_lock(&fake_drive_mutex)
+	defer sync.mutex_unlock(&fake_drive_mutex)
+	server, sok := fake_start()
+	if !sok {
+		testing.fail_now(t, "fake Drive server did not start")
+	}
+	defer fake_stop(server)
+
+	old_api := cloud_api_base
+	old_upload := cloud_upload_base
+	cloud_api_base = fmt.aprintf("http://127.0.0.1:%d/drive/v3", server.port)
+	cloud_upload_base = fmt.aprintf("http://127.0.0.1:%d/upload/drive/v3", server.port)
+	defer {
+		delete(cloud_api_base)
+		delete(cloud_upload_base)
+		cloud_api_base = old_api
+		cloud_upload_base = old_upload
+	}
+
+	base := "/tmp/tracker-fake-drive-tracks"
+	_ = os.remove_all(base)
+	_ = os.make_directory_all(base)
+	defer _ = os.remove_all(base)
+	session := fmt.tprintf("%s/session", base)
+	_ = os.make_directory_all(session)
+
+	// Build the project through the real model: 9 tracks, three renamed
+	// (one with a non-ASCII name), audio on tracks 1, 7 and 9.
+	src: ui.App
+	ui.app_init(&src, 1180, 760)
+	defer ui.app_destroy(&src)
+	ui.app_set_track_count(&src, 9)
+	names := [3]string{"Lead Gtr", "Kick — close", "Överheads"}
+	picks := [3]int{0, 6, 8}
+	for pick, k in picks {
+		src.selected = pick
+		testing.expect(t, ui.app_track_begin_edit(&src, pick), "begin rename")
+		ui.app_paste_text(&src, names[k])
+		testing.expect(t, ui.app_track_commit_edit(&src), "commit rename")
+		src.tracks[pick].has_audio = true
+	}
+	ui.app_set_takes(&src, 8, 2, 2)
+	testing.expect(t, project_save(&src, fmt.tprintf("%s/project.json", session)), "save project")
+	files := [4]string{"track1.wav", "track7.wav", "track9.wav", "track9-take1.wav"}
+	for f in files {
+		testing.expect(t, os.write_entire_file(fmt.tprintf("%s/%s", session, f), fmt.tprintf("AUDIO:%s", f)) == nil, "audio fixture")
+	}
+
+	c := Cloud{}
+	cloud_init(&c, fmt.tprintf("%s/cloud.json", base))
+	defer cloud_destroy(&c)
+	c.store.access_token = strings.clone("fake-token")
+	c.store.refresh_token = strings.clone("fake-refresh")
+	c.store.expires_unix = cloud_now() + 3600
+	c.store.folder_name = strings.clone("Studio")
+
+	backup := new(Cloud_Task)
+	backup.kind = .Backup
+	backup.session_dir = strings.clone(session)
+	backup.project_name = strings.clone("Many Tracks")
+	backup.takes = []string{"track9-take1.wav"}
+	defer {
+		delete(backup.session_dir)
+		delete(backup.project_name)
+		free(backup)
+	}
+	cloud_job_backup(&c, backup)
+	testing.expect(t, c.error_len == 0, string(c.error_buf[:c.error_len]))
+
+	token := "fake-token"
+	err := ""
+	root, root_ok := cloud_drive_root(token, "Studio", &err)
+	testing.expect(t, root_ok, err)
+	defer delete(root)
+	index, index_ok := cloud_index_load(token, root, &err)
+	testing.expect(t, index_ok, err)
+	defer cloud_index_destroy(&index)
+	testing.expect(t, len(index.projects) == 1, "one cloud project")
+	if len(index.projects) != 1 {
+		return
+	}
+
+	restore_root := fmt.tprintf("%s/restored", base)
+	_ = os.make_directory_all(restore_root)
+	restore := new(Cloud_Task)
+	restore.kind = .Restore
+	restore.project_id = strings.clone(index.projects[0].id)
+	restore.save_root = strings.clone(restore_root)
+	defer {
+		delete(restore.project_id)
+		delete(restore.save_root)
+		free(restore)
+	}
+	cloud_job_restore(&c, restore)
+	testing.expect(t, c.error_len == 0, string(c.error_buf[:c.error_len]))
+	restored := c.result.restored
+	testing.expect(t, restored != "", "restored path")
+	if restored == "" {
+		return
+	}
+	for f in files {
+		data, rerr := os.read_entire_file(fmt.tprintf("%s/%s", restored, f), context.allocator)
+		defer delete(data)
+		testing.expectf(t, rerr == nil, "restored %s", f)
+		if rerr == nil {
+			testing.expectf(t, string(data) == fmt.tprintf("AUDIO:%s", f), "%s content: %s", f, string(data))
+		}
+	}
+
+	// Open the restored project the way the app does.
+	dst: ui.App
+	ui.app_init(&dst, 1180, 760)
+	defer ui.app_destroy(&dst)
+	testing.expect(t, project_load(&dst, restored, fmt.tprintf("%s/project.json", restored)), "load restored project")
+	testing.expectf(t, dst.track_count == 9, "track count %d", dst.track_count)
+	for pick, k in picks {
+		testing.expectf(t, dst.tracks[pick].name == names[k], "track %d name %q", pick + 1, dst.tracks[pick].name)
+		testing.expectf(t, dst.tracks[pick].has_audio, "track %d has audio", pick + 1)
+	}
+	testing.expect(t, dst.tracks[1].name == "Track 2" && !dst.tracks[1].has_audio, "untouched track stays default and empty")
+
+	// the rename survives a second backup of the restored copy (same cloud id)
 	stats_data, stats_ok := fake_get_json(server, "/__stats")
 	testing.expect(t, stats_ok, "stats")
 	defer delete(stats_data)

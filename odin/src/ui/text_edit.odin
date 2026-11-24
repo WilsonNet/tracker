@@ -85,6 +85,9 @@ text_active :: proc(a: ^App) -> (buf: []u8, len_out: ^int, ok: bool) {
 	if a == nil || (a.mode != .Settings && a.mode != .Normal) {
 		return nil, nil, false
 	}
+	if a.mode == .Normal && a.track_edit {
+		return a.track_name_draft[:], &a.track_name_draft_len, true
+	}
 	if a.project_name_edit {
 		return a.project_name_draft[:], &a.project_name_draft_len, true
 	}
@@ -111,6 +114,9 @@ text_active :: proc(a: ^App) -> (buf: []u8, len_out: ^int, ok: bool) {
 text_field_index :: proc(a: ^App) -> int {
 	if a == nil || (a.mode != .Settings && a.mode != .Normal) {
 		return -1
+	}
+	if a.mode == .Normal && a.track_edit {
+		return 5
 	}
 	if a.project_name_edit {
 		return 0
@@ -140,6 +146,9 @@ text_field_begin :: proc(a: ^App, index: int) {
 		return
 	}
 	if a.mode == .Normal {
+		if index == 5 {
+			return // already editing: the click only moves the caret
+		}
 		if index == 0 && !a.project_name_edit {
 			app_project_begin_edit(a, false)
 		}

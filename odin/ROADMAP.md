@@ -84,6 +84,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | 4–24 tracks (`App.track_count`, `project.json` `tracks` length) | done; old 4-track files load unchanged |
 | visible window (`view_want`, zoom 2/3/4/6/8/12, paging, rail with a dot per track) | done; strips never narrower than 92 px, compact strips below 200 px |
 | `v` mark / `V` bounce marked tracks → target (new mono take, sources kept, no sends/master FX) | done (`engine_bounce_tracks.odin`) |
+| track rename (`R` / double-click the name; empty = default; saved in `project.json`, survives Drive backup/restore) | done |
 | `F1` contextual key sheet (`ui/help.odin`) | done; covers every mode and sub-state |
 | not done | removing a track that holds audio (refused on purpose), undo of a bounce (the target's previous take stays selectable with `t`/`T`), stereo bounce targets, headless Cairo/soft canvas overlays for the help sheet and bounce dialog |
 
@@ -91,8 +92,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **288** Linux / **282** macOS (71 DSP, 137/131 core/engine/project/cloud, 80 UI) |
-| UI e2e | 25 headless vinland-ui cases |
+| unit tests | **290** Linux / **284** macOS (71 DSP, 138/132 core/engine/project/cloud, 81 UI) |
+| UI e2e | 26 headless vinland-ui cases |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |
 | hardware capture | 96,000 frames / 2.000 s |

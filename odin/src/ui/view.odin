@@ -509,8 +509,18 @@ view_track :: proc(a: ^App, v: ^View, i: int, strip_w: f32) {
 		// header
 		if vui.div("flex items-center gap-2") {
 			vui.text(fmt.tprintf("%02d", i + 1), recording ? "animate-pulse text-[12px] font-semibold tracking-[0.04em] text-rec" : "text-[12px] font-semibold tracking-[0.04em] text-sig")
-			if !narrow {
-				vui.text(t.name, "min-w-0 truncate text-[12px] font-medium text-ink")
+			if a.track_edit && a.track_edit_index == i {
+				// inline rename: caret, selection and clipboard like the project title
+				if vui.div("relative flex min-w-0 flex-1 cursor-text items-center overflow-hidden rounded-[2px] border border-sig bg-canvas px-1.5 py-px") {
+					text_field_view(a, 5, app_track_draft(a), false, true, t.name, vui.prev_rect())
+				}
+			} else if !narrow {
+				if vui.div("min-w-0 flex-1 cursor-text") {
+					vui.text(t.name, "truncate text-[12px] font-medium text-ink")
+					if vui.double_clicked() {
+						app_track_begin_edit(a, i)
+					}
+				}
 			}
 			if narrow {
 				// too tight for a name or input pills: number only (I cycles the input)
@@ -1344,7 +1354,7 @@ view_status :: proc(a: ^App) {
 		mode, mcls := status_mode(a)
 		vui.text(mode if a.mode != .Palette else ":", vui.cx("rounded-[2px] px-2 py-px text-[10px] font-bold leading-[1.5] tracking-[0.08em]", mcls))
 		if (a.mode == .Settings && (a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None)) ||
-		   (a.mode == .Normal && a.project_name_edit) {
+		   (a.mode == .Normal && (a.project_name_edit || a.track_edit)) {
 			vui.text("EDIT", "rounded-[2px] bg-sig px-2 py-px text-[10px] font-bold leading-[1.5] tracking-[0.08em] text-canvas")
 		}
 		vui.text(app_status(a), "flex-1 truncate text-ink-dim")
@@ -1374,6 +1384,9 @@ view_status :: proc(a: ^App) {
 			}
 		}
 		hint := "type: project name  enter: save  esc: cancel" if (a.mode == .Normal && a.project_name_edit) else "j/k: nav  J/K: vol  : command"
+		if a.mode == .Normal && a.track_edit {
+			hint = "type: track name  enter: save  esc: cancel"
+		}
 		#partial switch a.mode {
 		case .Fx:
 			hint = "tab: focus  h/l: adjust  x: close"

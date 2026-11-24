@@ -44,7 +44,7 @@ Like a precision instrument: every control has a clear purpose, nothing is ornam
 
 ## Evidence on Hand
 
-Verified on Linux and macOS (`odin/VERIFICATION.md`): 282 macOS / 288 Linux unit tests (`make test`), 220-action headless UI tour (`make check`), 25-case `vui-test` window e2e suite (`make e2e`), hardware Scarlett 4i4 USB capture, and loopback audio tests.
+Verified on Linux and macOS (`odin/VERIFICATION.md`): 284 macOS / 290 Linux unit tests (`make test`), 220-action headless UI tour (`make check`), 26-case `vui-test` window e2e suite (`make e2e`), hardware Scarlett 4i4 USB capture, and loopback audio tests.
 
 ## Product Principles
 
