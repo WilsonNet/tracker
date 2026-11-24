@@ -102,8 +102,9 @@ Engine :: struct {
 	project_path: string,
 	take_path:    string,
 	bounce_path:  string,
-	sample_rate:  u32,
-	device_index: int,
+	sample_rate:          u32,
+	device_index:         int,
+	default_device_index: int,
 	// Live input monitoring is opt-in and only active during a take.
 	monitor_enabled: bool,
 	// Frames to trim from the start of a new take when splitting it. The
@@ -157,6 +158,7 @@ engine_default_device :: proc() -> int {
 engine_init :: proc(e: ^Engine, args: []string) -> bool {
 	e.sample_rate = 48_000
 	e.device_index = -1
+	e.default_device_index = 0
 	e.monitor_enabled = false
 	e.latency_ms = 0
 	dir := flag_string(args, "--session", "")
@@ -649,13 +651,10 @@ engine_preview_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		return false
 	}
 
+	default_index := capture_find_default_index(&p.ctx, infos, count)
 	names := make([]string, int(count))
-	default_index := 0
 	for i in 0 ..< int(count) {
 		names[i] = capture_device_name(&infos[i])
-		if infos[i].isDefault {
-			default_index = i
-		}
 	}
 	defer {
 		for n in names {
@@ -663,12 +662,14 @@ engine_preview_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		}
 		delete(names)
 	}
-	idx := engine_resolve_device_index(e.device_index, ui.app_device(a), names, default_index)
+	idx, matched := engine_resolve_device_index_ex(e.device_index, ui.app_device(a), names, default_index)
 	if idx < 0 {
 		preview_release(p)
 		return false
 	}
+	e.default_device_index = default_index
 	e.device_index = idx
+	engine_sync_ui_device(a, names[idx], matched)
 
 	requested := 1
 	for t in a.tracks {
@@ -866,13 +867,10 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	// The UI stores the selected device by name. If the index went stale (the
 	// device was unplugged and the list shifted), re-resolve by name first,
 	// then fall back to the system default instead of recording the wrong box.
+	default_index := capture_find_default_index(&e.rec.ctx, infos, count)
 	names := make([]string, int(count))
-	default_index := 0
 	for i in 0 ..< int(count) {
 		names[i] = capture_device_name(&infos[i])
-		if infos[i].isDefault {
-			default_index = i
-		}
 	}
 	defer {
 		for n in names {
@@ -880,13 +878,15 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		}
 		delete(names)
 	}
-	idx := engine_resolve_device_index(e.device_index, ui.app_device(a), names, default_index)
+	idx, matched := engine_resolve_device_index_ex(e.device_index, ui.app_device(a), names, default_index)
 	if idx < 0 {
 		recorder_release(e, false, false)
 		ui.status_buf_set(a, "no capture devices")
 		return false
 	}
+	e.default_device_index = default_index
 	e.device_index = idx
+	engine_sync_ui_device(a, names[idx], matched)
 
 	// Open the device at its native width first so hardware inputs arrive
 	// unmixed and in order (track input N = interface input N); see
@@ -1044,7 +1044,7 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		return false
 	}
 
-	ui.status_buf_set(a, fmt.tprintf("recording %d ch @ %d Hz%s%s%s", e.rec.channels, e.rec.rate, " · overdub" if overdub else "", " · click" if a.metronome else "", " · monitor" if monitoring else ""))
+	ui.status_buf_set(a, fmt.tprintf("recording %d ch · %s @ %d Hz%s%s%s", e.rec.channels, names[idx], e.rec.rate, " · overdub" if overdub else "", " · click" if a.metronome else "", " · monitor" if monitoring else ""))
 	if e.monitor_enabled && !monitoring {
 		ui.toast(a, "monitor unavailable · recording input only")
 	}
@@ -1810,33 +1810,89 @@ engine_set_latency_ms :: proc(e: ^Engine, latency_ms: f32) {
 
 // ---------------------------------------------------------------- devices
 
+// Word-boundary prefix match at index 0 across OS audio backends (e.g.
+// CoreAudio "Scarlett 4i4 USB" <-> PipeWire "Scarlett 4i4 USB Analog Surround 5.1").
+// Refuses unrelated prefixes like "Monitor of Scarlett 4i4 USB".
+device_name_prefix_match :: proc(a, b: string) -> bool {
+	if len(a) < 3 || len(b) < 3 || len(a) == len(b) {
+		return false
+	}
+	short, long := a, b
+	if len(a) > len(b) {
+		short, long = b, a
+	}
+	return long[:len(short)] == short && long[len(short)] == ' '
+}
+
 // Resolves the device to open. Index and name are both considered so a list
 // that shifted after an unplug does not silently pick a different device; a
-// vanished selection falls back to the system default. Pure, for tests.
+// unique cross-OS profile-suffix match keeps the intended hardware selected,
+// and a vanished selection falls back to the system default. Pure, for tests.
+engine_resolve_device_index_ex :: proc(
+	selected: int,
+	selected_name: string,
+	names: []string,
+	default_index: int,
+) -> (index: int, matched: bool) {
+	if len(names) == 0 {
+		return -1, false
+	}
+	if selected_name != "" {
+		for name, i in names {
+			if name == selected_name {
+				return i, true
+			}
+		}
+		match_idx := -1
+		match_count := 0
+		for name, i in names {
+			if device_name_prefix_match(selected_name, name) {
+				match_idx = i
+				match_count += 1
+			}
+		}
+		if match_count == 1 {
+			return match_idx, true
+		}
+	} else if selected >= 0 && selected < len(names) {
+		return selected, true
+	}
+	// The selected device is gone (or its index now points at another box);
+	// fall back to the system default rather than recording the wrong device.
+	if default_index >= 0 && default_index < len(names) {
+		return default_index, false
+	}
+	return 0, false
+}
+
 engine_resolve_device_index :: proc(
 	selected: int,
 	selected_name: string,
 	names: []string,
 	default_index: int,
 ) -> int {
-	if len(names) == 0 {
-		return -1
+	idx, _ := engine_resolve_device_index_ex(selected, selected_name, names, default_index)
+	return idx
+}
+
+@(private)
+engine_sync_ui_device :: proc(a: ^ui.App, resolved_name: string, matched: bool) {
+	if a == nil || resolved_name == "" {
+		return
 	}
-	if selected_name != "" {
-		for name, i in names {
-			if name == selected_name {
-				return i
-			}
+	prev := ui.app_device(a)
+	for d, i in a.devices {
+		if d == resolved_name {
+			a.device_index = i
+			break
 		}
-	} else if selected >= 0 && selected < len(names) {
-		return selected
 	}
-	// The selected device is gone (or its index now points at another box);
-	// fall back to the system default rather than recording the wrong device.
-	if default_index >= 0 && default_index < len(names) {
-		return default_index
+	if prev != resolved_name {
+		if prev != "" && !matched {
+			ui.toast(a, fmt.tprintf("input not found · using %s", resolved_name))
+		}
+		ui.app_set_device(a, resolved_name)
 	}
-	return 0
 }
 
 engine_fallback_device_index :: proc(selected, count, default_index: int) -> int {
@@ -1859,6 +1915,7 @@ engine_fallback_device_index :: proc(selected, count, default_index: int) -> int
 engine_rescan_devices :: proc(e: ^Engine, a: ^ui.App) -> []string {
 	names, default_index := capture_device_list()
 	if e != nil {
+		e.default_device_index = default_index
 		selected_name := ""
 		if a != nil {
 			selected_name = ui.app_device(a)
@@ -1869,20 +1926,31 @@ engine_rescan_devices :: proc(e: ^Engine, a: ^ui.App) -> []string {
 }
 
 engine_set_device :: proc(e: ^Engine, a: ^ui.App, index: int) {
-	if index == e.device_index {
+	if e == nil || a == nil || index < 0 || index >= len(a.devices) {
+		return
+	}
+	if index == e.device_index && a.device_index == index && ui.app_device(a) == a.devices[index] {
 		return
 	}
 	e.device_index = index
-	if index >= 0 && index < len(a.devices) {
-		ui.app_set_device(a, a.devices[index])
-	}
+	a.device_index = index
+	ui.app_set_device(a, a.devices[index])
 }
 
 engine_match_device :: proc(e: ^Engine, a: ^ui.App, name: string) {
-	for d, i in a.devices {
-		if d == name {
-			e.device_index = i
-			return
-		}
+	if e == nil || a == nil || len(a.devices) == 0 {
+		return
+	}
+	fallback := e.default_device_index if e.default_device_index >= 0 && e.default_device_index < len(a.devices) else 0
+	idx, matched := engine_resolve_device_index_ex(e.device_index, name, a.devices, fallback)
+	if idx < 0 {
+		return
+	}
+	had_name := name != ""
+	e.device_index = idx
+	a.device_index = idx
+	ui.app_set_device(a, a.devices[idx])
+	if had_name && !matched {
+		ui.toast(a, fmt.tprintf("input not found · using %s", a.devices[idx]))
 	}
 }

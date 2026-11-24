@@ -140,7 +140,46 @@ capture_pulse_channel_map :: proc(channels: int) -> i32 {
 capture_config_unmixed :: proc(cfg: ^ma.device_config, channels: int) {
 	cfg.capture.channels = u32(max(channels, 0))
 	cfg.capture.channelMap = nil
+	cfg.capture.channelMixMode = .simple
 	platform_audio_configure_capture(cfg, channels)
+}
+
+// Returns the default capture device index from an enumerated list.
+//
+// miniaudio's CoreAudio enumerator sets `info.isDefault = MA_TRUE` for the
+// default playback device and does not clear it before emitting the capture
+// entry for the same device, so a default-output interface that is not the
+// default input still has `isDefault == true`. When more than one capture
+// entry is flagged, query capture-only device info to find the real default.
+capture_find_default_index :: proc(ctx: ^ma.context_type, infos: [^]ma.device_info, count: u32) -> int {
+	if infos == nil || count == 0 {
+		return 0
+	}
+	first_flagged := -1
+	flagged_count := 0
+	for i in 0 ..< int(count) {
+		if infos[i].isDefault {
+			if first_flagged < 0 {
+				first_flagged = i
+			}
+			flagged_count += 1
+		}
+	}
+	if ctx != nil && flagged_count > 1 {
+		for i in 0 ..< int(count) {
+			if !infos[i].isDefault {
+				continue
+			}
+			detail: ma.device_info
+			if ma.context_get_device_info(ctx, .capture, &infos[i].id, &detail) == .SUCCESS && detail.isDefault {
+				return i
+			}
+		}
+	}
+	if first_flagged >= 0 {
+		return first_flagged
+	}
+	return 0
 }
 
 capture_device_name :: proc(info: ^ma.device_info) -> string {
@@ -168,14 +207,12 @@ list_capture_devices :: proc() -> bool {
 		return false
 	}
 
+	default_index := capture_find_default_index(&ctx, infos, count)
 	fmt.printfln("capture devices (%d):", count)
 	for i in 0 ..< int(count) {
 		info := &infos[i]
 		name := capture_device_name(info)
-		marker := " "
-		if info.isDefault {
-			marker = "*"
-		}
+		marker := "*" if i == default_index else " "
 		fmt.printfln("  %s %2d  %s", marker, i, name)
 		delete(name)
 	}
@@ -216,12 +253,10 @@ capture_device_list :: proc() -> (names: []string, default_index: int) {
 	if ma.context_get_devices(&ctx, nil, nil, &infos, &count) != .SUCCESS || count == 0 {
 		return nil, 0
 	}
+	default_index = capture_find_default_index(&ctx, infos, count)
 	names = make([]string, int(count))
 	for i in 0 ..< int(count) {
 		names[i] = capture_device_name(&infos[i])
-		if infos[i].isDefault {
-			default_index = i
-		}
 	}
 	return
 }
@@ -234,15 +269,10 @@ capture_default_index :: proc() -> int {
 	defer ma.context_uninit(&ctx)
 	infos: [^]ma.device_info
 	count: u32
-	if ma.context_get_devices(&ctx, nil, nil, &infos, &count) != .SUCCESS {
+	if ma.context_get_devices(&ctx, nil, nil, &infos, &count) != .SUCCESS || count == 0 {
 		return 0
 	}
-	for i in 0 ..< int(count) {
-		if infos[i].isDefault {
-			return i
-		}
-	}
-	return 0
+	return capture_find_default_index(&ctx, infos, count)
 }
 
 // Records `seconds` from a capture device. `device_index < 0` selects the
@@ -272,13 +302,7 @@ capture_record :: proc(seconds: f32, channels: int, rate: u32, device_index: int
 
 	index := device_index
 	if index < 0 {
-		index = 0
-		for i in 0 ..< int(count) {
-			if infos[i].isDefault {
-				index = i
-				break
-			}
-		}
+		index = capture_find_default_index(&ctx, infos, count)
 	}
 	if index >= int(count) {
 		fmt.eprintfln("device index %d out of range (0..%d)", index, int(count) - 1)

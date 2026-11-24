@@ -144,7 +144,7 @@ cover it.
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — unit tests (300 on Linux / 294 on macOS: DSP + core/engine/project/cloud + UI)
+- `make test` — unit tests (303 on Linux / 297 on macOS: DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
@@ -186,7 +186,7 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 71 DSP + core/engine/project/WAV/settings/cloud (143 on Linux, 137 on macOS without Linux JACK session tests) + 86 UI tests (300 total on Linux, 294 on macOS).
+- `make test` — 71 DSP + core/engine/project/WAV/settings/cloud (146 on Linux, 140 on macOS without Linux JACK session tests) + 86 UI tests (303 total on Linux, 297 on macOS).
 - `make e2e` — 28 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, render dialog range/format, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay, project titling, tape scrubber shuttle/jog wheels + modifiers, F1 contextual help, add tracks/zoom/page, bounce-to-track dialog, 24 tracks at minimum size, inline track rename, pause/marker/pre-roll controls, delete track).
 - The headless harness (`ui-test`, `ui-shot`; Cairo/Pango on Linux, pure-Odin + `stb_truetype` on macOS) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.

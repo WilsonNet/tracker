@@ -85,7 +85,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 300 unit tests (Linux) / 294 (macOS)
+make test         # 303 unit tests (Linux) / 297 (macOS)
 make check        # unit + headless UI tour + offline end-to-end
 
 # 4. Run the app
@@ -114,7 +114,7 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | unit tests: 71 DSP, 143 core (Linux) / 137 core (macOS), 86 UI = 300 (Linux) / 294 (macOS) |
+| `test` | unit tests: 71 DSP, 146 core (Linux) / 140 core (macOS), 86 UI = 303 (Linux) / 297 (macOS) |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
 | `e2e` | 28 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
@@ -410,7 +410,7 @@ persist the project. A malformed `project.json` is renamed to
 ## Tests and verification
 
 ```sh
-make test        # 71 DSP + 143 core/engine/project/cloud + 86 UI = 300 tests (Linux)
+make test        # 71 DSP + 146 core/engine/project/cloud + 86 UI = 303 tests (Linux)
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui

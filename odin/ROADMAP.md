@@ -93,7 +93,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **300** Linux / **294** macOS (71 DSP, 143/137 core/engine/project/cloud, 86 UI) |
+| unit tests | **303** Linux / **297** macOS (71 DSP, 146/140 core/engine/project/cloud, 86 UI) |
 | UI e2e | 28 headless vinland-ui cases |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |

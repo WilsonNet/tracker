@@ -391,4 +391,11 @@ message state:
   "tracker-odin ui"` from a shell whose own command line contains that text.
 - e2e cannot assert PLAY→PAUSE: without an output device `engine_play` fails and
   the transport force-stops. Cover pause in unit tests.
-- Counts now: 300 Linux / 294 macOS unit tests, 28 e2e cases.
+- Counts now: 303 Linux / 297 macOS unit tests, 28 e2e cases.
+
+### macOS CoreAudio capture selection & cross-OS device names (2026-11-24)
+
+- Upstream `ma_context_enumerate_devices__coreaudio` sets `info.isDefault = MA_TRUE` for the default playback device and does not reset `info` before emitting the capture entry for the same hardware, flagging multiple capture devices as default. `capture_find_default_index` resolves multi-flagged lists via `ma.context_get_device_info(ctx, .capture, &infos[i].id, &detail)`.
+- PipeWire device names include profile suffixes (`"Scarlett 4i4 USB Analog Surround 5.1"`) that CoreAudio omits (`"Scarlett 4i4 USB"`). `engine_resolve_device_index_ex` falls back from exact match to a unique word-boundary prefix match (`device_name_prefix_match`, ignoring `"Monitor of ..."`), and `engine_match_device` / `engine_sync_ui_device` keep `e.device_index`, `a.device_index`, and `a.device` in sync across startup, `--open`/Open/Cloud-restore (`engine_open_project`), preview, and record start (toasting on fallback).
+- `capture_config_unmixed` sets `cfg.capture.channelMixMode = .simple` so falling back from native width `0` to an explicit channel count drops extra hardware channels instead of spatially downmixing them.
+- When verifying with `VUI_HIDDEN=1`, pick an unused `VUI_PORT` and poll `vui-ctl info` rather than grepping stdout for `"vui: control server"` (which also matches `"could not listen ... (Address_In_Use)"`).

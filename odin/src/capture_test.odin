@@ -9,6 +9,7 @@
 package main
 
 import "core:testing"
+import ma "vendor:miniaudio"
 
 @(test)
 capture_open_attempts_native_first :: proc(t: ^testing.T) {
@@ -108,4 +109,31 @@ jack_ports_for_device_filters_by_client :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, jack_port_client("a:b:c"), "a")
 	testing.expect_value(t, jack_port_client("no-colon"), "")
+}
+
+@(test)
+capture_config_unmixed_uses_simple_channel_mix :: proc(t: ^testing.T) {
+	cfg := ma.device_config_init(.capture)
+	capture_config_unmixed(&cfg, 0)
+	testing.expect_value(t, cfg.capture.channels, u32(0))
+	testing.expect(t, cfg.capture.channelMap == nil, "channelMap should stay nil")
+	testing.expect_value(t, cfg.capture.channelMixMode, ma.channel_mix_mode.simple)
+
+	capture_config_unmixed(&cfg, 2)
+	testing.expect_value(t, cfg.capture.channels, u32(2))
+	testing.expect_value(t, cfg.capture.channelMixMode, ma.channel_mix_mode.simple)
+}
+
+@(test)
+capture_find_default_index_handles_flagged_entries :: proc(t: ^testing.T) {
+	infos: [3]ma.device_info
+	testing.expect_value(t, capture_find_default_index(nil, nil, 0), 0)
+	testing.expect_value(t, capture_find_default_index(nil, raw_data(infos[:]), 3), 0)
+
+	infos[2].isDefault = true
+	testing.expect_value(t, capture_find_default_index(nil, raw_data(infos[:]), 3), 2)
+
+	// Without a live context to disambiguate, keep the first flagged index.
+	infos[0].isDefault = true
+	testing.expect_value(t, capture_find_default_index(nil, raw_data(infos[:]), 3), 0)
 }

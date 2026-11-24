@@ -179,6 +179,7 @@ engine_open_project :: proc(a: ^ui.App, e: ^Engine, path: string) -> bool {
 		return false
 	}
 	e.sample_rate = a.sample_rate
+	engine_match_device(e, a, ui.app_device(a))
 	engine_set_latency_ms(e, a.latency_ms)
 	_ = engine_load_tracks(e, a)
 	ui.app_history_reset(a)

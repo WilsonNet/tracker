@@ -389,3 +389,12 @@ RF64/EBU, JACK, XDG, Odin core/vendor).
 | `make e2e` | 28 cases (`delete track asks before removing audio`); the with-audio dialog needs recorded takes, so unit tests cover it |
 | real window (`VUI_HIDDEN=1`, throwaway session with 2 tone WAVs) | BOUNCE click → track 5 `BOUNCE`, window scrolled to it, status `bounced mix to track 5 BOUNCE · 2.0 s · -4.5 dBFS`, `track5.wav` + `bounce.wav` on disk; `D` on track 1 → dialog (KEEP focused), `y` → `deleted/track1.wav`, `track2.wav`→`track1.wav`, `track5.wav`→`track4.wav`, strips renumbered, `unknown_classes` empty |
 | not verified | undoing a delete (mix undo does not cover audio; recovery is by hand from `deleted/`); Drive backup of a project after a delete on the live account |
+
+## macOS CoreAudio capture device selection & cross-OS matching (2026-11-24)
+
+| check | result |
+|---|---|
+| `tracker-odin devices` (macOS, Scarlett 4i4 USB default output + MX Brio default input) | `capture_find_default_index` disambiguates miniaudio CoreAudio `isDefault` bleed from playback onto capture: only `[1] MX Brio` carries `*`, not `[0] Scarlett 4i4 USB` |
+| `make test` + `-vet` (macOS) | **297 passed** (71 DSP + 140 core + 86 UI), `odin check -vet` clean; new tests cover `capture_config_unmixed` (`channelMixMode = .simple`), `capture_find_default_index`, `engine_resolve_device_index_ex` cross-OS prefix match & ambiguity/monitor guards, and `engine_match_device` / `engine_set_device` UI sync |
+| `make check` & `make e2e` | **PASS** (220-action UI tour, offline bounce, `ffprobe`, **28/28** `window.vt` cases on Metal) |
+| restored Linux project on macOS (`VUI_HIDDEN=1`, copy of `wilson-1` with `"Scarlett 4i4 USB Analog Surround 5.1"`) | Header I/O, status bar, and I/O overlay resolve and show `Scarlett 4i4 USB`; clicking `REC` opens `recording 6 ch · Scarlett 4i4 USB @ 48000 Hz · overdub` instead of falling back to `MX Brio`; `unknown_classes: []` |

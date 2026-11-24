@@ -229,6 +229,60 @@ engine_device_resolution_falls_back_after_unplug :: proc(t: ^testing.T) {
 	testing.expectf(t, engine_fallback_device_index(1, 3, 2) == 1, "fallback valid")
 	testing.expectf(t, engine_fallback_device_index(7, 3, 2) == 2, "fallback default")
 	testing.expectf(t, engine_fallback_device_index(7, 0, 0) == -1, "fallback empty")
+
+	// Cross-OS profile suffix matching (PipeWire <-> CoreAudio).
+	mac_names := [3]string{"Scarlett 4i4 USB", "MX Brio", "MacBook Air Microphone"}
+	idx, matched := engine_resolve_device_index_ex(1, "Scarlett 4i4 USB Analog Surround 5.1", mac_names[:], 1)
+	testing.expectf(t, idx == 0 && matched, "linux->mac prefix match got (%d, %v)", idx, matched)
+
+	linux_names := [2]string{"MX Brio Analog Stereo", "Scarlett 4i4 USB Analog Surround 5.1"}
+	idx, matched = engine_resolve_device_index_ex(0, "Scarlett 4i4 USB", linux_names[:], 0)
+	testing.expectf(t, idx == 1 && matched, "mac->linux prefix match got (%d, %v)", idx, matched)
+
+	// Ambiguous prefix must not guess; fall back to default_index with matched=false.
+	ambig := [2]string{"Scarlett 4i4 USB Analog", "Scarlett 4i4 USB Digital"}
+	idx, matched = engine_resolve_device_index_ex(0, "Scarlett 4i4 USB", ambig[:], 1)
+	testing.expectf(t, idx == 1 && !matched, "ambiguous prefix got (%d, %v)", idx, matched)
+
+	// Non-prefix (Monitor source) must not match.
+	mon := [2]string{"Monitor of Scarlett 4i4 USB", "Built-in Mic"}
+	idx, matched = engine_resolve_device_index_ex(0, "Scarlett 4i4 USB", mon[:], 1)
+	testing.expectf(t, idx == 1 && !matched, "monitor prefix got (%d, %v)", idx, matched)
+}
+
+@(test)
+engine_match_and_set_device_keep_ui_in_sync :: proc(t: ^testing.T) {
+	e := Engine{}
+	e.default_device_index = 1
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+
+	names := [3]string{"Scarlett 4i4 USB", "MX Brio", "MacBook Air Microphone"}
+	ui.app_set_devices(&a, names[:], 1)
+	e.device_index = 1
+
+	// Cross-OS project device name resolves to Scarlett and updates UI/app state.
+	ui.app_set_device(&a, "Scarlett 4i4 USB Analog Surround 5.1")
+	engine_match_device(&e, &a, ui.app_device(&a))
+	testing.expect_value(t, e.device_index, 0)
+	testing.expect_value(t, a.device_index, 0)
+	testing.expect_value(t, ui.app_device(&a), "Scarlett 4i4 USB")
+
+	// Missing device falls back to default_device_index and toasts.
+	engine_match_device(&e, &a, "Unplugged Box")
+	testing.expect_value(t, e.device_index, 1)
+	testing.expect_value(t, a.device_index, 1)
+	testing.expect_value(t, ui.app_device(&a), "MX Brio")
+	testing.expect(t, a.toast_time > 0, "fallback should toast")
+
+	// engine_set_device repairs drifted a.device even when index == e.device_index.
+	ui.app_set_device(&a, "Stale Name")
+	a.device_index = 2
+	engine_set_device(&e, &a, 1)
+	testing.expect_value(t, e.device_index, 1)
+	testing.expect_value(t, a.device_index, 1)
+	testing.expect_value(t, ui.app_device(&a), "MX Brio")
 }
 
 @(test)
