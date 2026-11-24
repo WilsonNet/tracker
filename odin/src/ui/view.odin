@@ -520,8 +520,12 @@ view_track :: proc(a: ^App, v: ^View, i: int, strip_w: f32) {
 			vui.text(fmt.tprintf("%02d", i + 1), recording ? "animate-pulse text-[12px] font-semibold tracking-[0.04em] text-rec" : "text-[12px] font-semibold tracking-[0.04em] text-sig")
 			if a.track_edit && a.track_edit_index == i {
 				// inline rename: caret, selection and clipboard like the project title
-				if vui.div("relative flex min-w-0 flex-1 cursor-text items-center overflow-hidden rounded-[2px] border border-sig bg-canvas px-1.5 py-px") {
-					text_field_view(a, 5, app_track_draft(a), false, true, t.name, vui.prev_rect())
+				// padding/border live on the outer box: the measured rect must be the
+				// text origin, or clicks and selections land a padding off
+				if vui.div("flex min-w-0 flex-1 cursor-text items-center rounded-[2px] border border-sig bg-canvas px-1.5 py-px") {
+					if vui.div("relative min-w-0 flex-1 cursor-text overflow-hidden") {
+						text_field_view(a, 5, app_track_draft(a), false, true, t.name, vui.prev_rect())
+					}
 				}
 			} else if !narrow {
 				if vui.div("min-w-0 flex-1 cursor-text") {
