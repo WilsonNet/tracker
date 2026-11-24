@@ -499,7 +499,7 @@ view_track :: proc(a: ^App, v: ^View, i: int, strip_w: f32) {
 	selected := a.selected == i
 	recording := a.transport == .Recording && t.armed
 	marked := a.marked[i]
-	cls := "flex min-w-0 flex-1 flex-col gap-2 rounded-[2px] border p-3 transition-colors duration-150"
+	cls := "flex min-w-0 flex-1 flex-col gap-2 rounded-[2px] border p-3"
 	if compact {
 		cls = "flex min-w-0 flex-1 flex-col gap-1.5 rounded-[2px] border p-2 transition-colors duration-150"
 	}
