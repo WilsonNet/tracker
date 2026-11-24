@@ -131,6 +131,66 @@ engine_bounce_to_track_writes_new_take_and_keeps_sources :: proc(t: ^testing.T) 
 }
 
 @(test)
+engine_bounce_all_fills_dedicated_track_without_stacking :: proc(t: ^testing.T) {
+	base := "/tmp/tracker-engine-bounce-all"
+	os.remove_all(base)
+	defer os.remove_all(base)
+	_ = os.make_directory_all(base)
+	src1 := tone(9600, 0.2)
+	src2 := tone(9600, 0.2, 330)
+	defer delete(src1)
+	defer delete(src2)
+	testing.expect(t, wav_write(fmt.tprintf("%s/track1.wav", base), 48_000, 1, src1), "wav 1")
+	testing.expect(t, wav_write(fmt.tprintf("%s/track2.wav", base), 48_000, 1, src2), "wav 2")
+
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	e: Engine
+	testing.expect(t, engine_init(&e, []string{"--session", base}), "engine")
+	defer engine_destroy(&e)
+	testing.expect(t, engine_load_tracks(&e, &a), "load")
+
+	testing.expect(t, ui.app_bounce_track_index(&a) == -1, "no bounce track yet")
+	testing.expect(t, engine_bounce_all(&e, &a), "first bounce")
+	testing.expect(t, a.track_count == 5, "BOUNCE track added")
+	testing.expect(t, ui.app_bounce_track_index(&a) == 4 && a.tracks[4].name == "BOUNCE", "named BOUNCE")
+	testing.expect(t, a.tracks[4].has_audio && a.selected == 4, "flagged and selected")
+	testing.expect(t, engine_take_count(&e, 4) == 1 && e.takes[4].takes[0].name == "Bounce mix", "take")
+	testing.expect(t, len(e.loaded[4]) >= 9600, "mix loaded (tail may extend it)")
+	testing.expect(t, engine_take_count(&e, 0) == 1 && engine_take_count(&e, 1) == 1, "sources untouched")
+	testing.expect(t, os.exists(e.bounce_path), "bounce.wav still written")
+	peak1: f32
+	for v in e.loaded[4] {
+		peak1 = max(peak1, abs(v))
+	}
+	testing.expect(t, peak1 > 0.01, "bounce is not silent")
+
+	// again: reuses the track, keeps the old take, and does not sum itself in
+	testing.expect(t, engine_bounce_all(&e, &a), "second bounce")
+	testing.expect(t, a.track_count == 5 && engine_take_count(&e, 4) == 2, "same track, two takes")
+	peak2: f32
+	for v in e.loaded[4] {
+		peak2 = max(peak2, abs(v))
+	}
+	testing.expectf(t, abs(peak2 - peak1) < 0.001, "no stacking: %f vs %f", peak1, peak2)
+
+	// nothing but the BOUNCE track has audio: refused
+	b: ui.App
+	ui.app_init(&b, 1180, 760)
+	defer ui.app_destroy(&b)
+	e2: Engine
+	base2 := "/tmp/tracker-engine-bounce-all-empty"
+	os.remove_all(base2)
+	defer os.remove_all(base2)
+	_ = os.make_directory_all(base2)
+	testing.expect(t, engine_init(&e2, []string{"--session", base2}), "engine 2")
+	defer engine_destroy(&e2)
+	_ = engine_load_tracks(&e2, &b) // nothing recorded: reports false
+	testing.expect(t, !engine_bounce_all(&e2, &b) && b.track_count == 4, "empty project: no bounce, no track added")
+}
+
+@(test)
 engine_save_as_copies_tracks_beyond_four :: proc(t: ^testing.T) {
 	base := "/tmp/tracker-save-as-many"
 	os.remove_all(base)
@@ -258,4 +318,45 @@ project_and_settings_persist_marker_and_preroll :: proc(t: ^testing.T) {
 	old, old_ok := settings_load(spath)
 	defer settings_destroy(&old)
 	testing.expect(t, old_ok && old.preroll_s == 3, "default pre-roll for older settings files")
+}
+
+@(test)
+engine_delete_track_shifts_later_tracks_and_keeps_files :: proc(t: ^testing.T) {
+	base := "/tmp/tracker-engine-delete-track"
+	os.remove_all(base)
+	defer os.remove_all(base)
+	_ = os.make_directory_all(base)
+	for n in 1 ..= 5 {
+		audio := tone(4800 + n * 100, 0.2, f32(200 + n * 50))
+		defer delete(audio)
+		testing.expect(t, wav_write(fmt.tprintf("%s/track%d.wav", base, n), 48_000, 1, audio), "wav")
+	}
+
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	e: Engine
+	testing.expect(t, engine_init(&e, []string{"--session", base}), "engine")
+	defer engine_destroy(&e)
+	testing.expect(t, engine_load_tracks(&e, &a), "load")
+	ui.app_set_track_count(&a, 5)
+	a.tracks[1].name = "Keep"
+	len4 := len(e.loaded[3])
+
+	ok, msg := engine_delete_track(&e, &a, 1) // delete track 2
+	testing.expectf(t, ok, "delete: %s", msg)
+	testing.expect(t, a.track_count == 4, "one strip fewer")
+	testing.expect(t, len(e.loaded[2]) == len4, "track 4 audio now sits in slot 3")
+	testing.expect(t, e.loaded[4] == nil, "last slot vacated")
+	// files: 2 moved aside, 3->2, 4->3, 5->4, no track5
+	testing.expect(t, os.exists(fmt.tprintf("%s/deleted/track2.wav", base)), "deleted audio kept in deleted/")
+	testing.expect(t, !os.exists(fmt.tprintf("%s/track5.wav", base)), "track5.wav renamed away")
+	wav, wav_ok := wav_read(fmt.tprintf("%s/track3.wav", base))
+	defer wav_destroy(&wav)
+	testing.expect(t, wav_ok && wav.frames == len4, "track3.wav is the old track 4")
+	testing.expect(t, engine_take_count(&e, 2) == 1 && e.takes[2].takes[0].file == "track3.wav", "take list renumbered")
+
+	// at the four-track minimum the strip stays and is cleared
+	ok2, _ := engine_delete_track(&e, &a, 0)
+	testing.expect(t, ok2 && a.track_count == 4 && e.loaded[0] == nil && os.exists(fmt.tprintf("%s/deleted/track1.wav", base)), "cleared in place, file kept")
 }

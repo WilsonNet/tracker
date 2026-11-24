@@ -380,3 +380,12 @@ The implementation follows the project research rule in `AGENTS.md`; the
 significant sources are recorded in the README (Cairo image surfaces + paths,
 Pango Cairo integration, Inter/SIL OFL, SDL2 high-DPI, stb_truetype fallback,
 RF64/EBU, JACK, XDG, Odin core/vendor).
+
+## BOUNCE track and delete track (2026-11-24)
+
+| check | result |
+|---|---|
+| `make test` | 71 DSP + 143 core + 86 UI green. New: `engine_bounce_all` adds a `BOUNCE` track, writes `bounce.wav`, takes "Bounce mix", reuses the track on the second bounce and does not stack (peak equal), refuses an empty project without adding a track; `engine_delete_track` moves the WAVs to `deleted/`, shifts later tracks (files, take lists, loaded audio), clears in place at 4 tracks; UI delete dialog (KEEP default, Enter/Esc cancel, `y` deletes), model shift keeps names and vacates the last slot |
+| `make e2e` | 28 cases (`delete track asks before removing audio`); the with-audio dialog needs recorded takes, so unit tests cover it |
+| real window (`VUI_HIDDEN=1`, throwaway session with 2 tone WAVs) | BOUNCE click → track 5 `BOUNCE`, window scrolled to it, status `bounced mix to track 5 BOUNCE · 2.0 s · -4.5 dBFS`, `track5.wav` + `bounce.wav` on disk; `D` on track 1 → dialog (KEEP focused), `y` → `deleted/track1.wav`, `track2.wav`→`track1.wav`, `track5.wav`→`track4.wav`, strips renumbered, `unknown_classes` empty |
+| not verified | undoing a delete (mix undo does not cover audio; recovery is by hand from `deleted/`); Drive backup of a project after a delete on the live account |

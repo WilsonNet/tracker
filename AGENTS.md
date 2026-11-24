@@ -14,7 +14,7 @@ The app is a single native binary in `odin/src/` — no webview, no IPC.
 
 - **UI**: `src/ui/` — `view.odin` renders the `App` model as a vinland-ui element tree; `theme.odin` is the single source of design tokens; `text_edit.odin` owns caret/selection/clipboard/undo and `text_field_view.odin` maps pointer positions and paints the selection; `draw.odin` + `canvas_{cairo_linux,soft_other}.odin` + `font_runtime_{linux,other}.odin` power the headless harness (Cairo/Pango on Linux, pure-Odin + `stb_truetype` on macOS/other); `app.odin` holds state and key handling; `tracks.odin` the track count, visible window, marks, bounce-to-track dialog and track rename; `help.odin` the contextual F1 key sheet (pure model, `view.odin` only renders it).
 - **Window**: `src/ui_window.odin` — SDL3 GPU (Metal on macOS, Vulkan on Linux) + OpenGL 3.3 fallback via vinland-ui, key mapping (`Cmd`/`Ctrl` via `platform_primary_mod`), engine commands, HiDPI.
-- **Audio**: `engine.odin`, `engine_bounce_tracks.odin` (bounce marked tracks to a target track), `capture.odin` (miniaudio CoreAudio on macOS / PipeWire+ALSA on Linux), `jack_capture_{linux,other}.odin` + `jack_session_{linux,other}.odin` (Linux cooperative JACK), `wav.odin` (float32 WAV/RF64), `project.odin` (JSON persistence).
+- **Audio**: `engine.odin`, `engine_bounce_tracks.odin` (bounce marked tracks to a target track; BOUNCE button → dedicated `BOUNCE` track), `engine_track_delete.odin` (delete a track: WAVs to `deleted/`, later tracks shift up), `capture.odin` (miniaudio CoreAudio on macOS / PipeWire+ALSA on Linux), `jack_capture_{linux,other}.odin` + `jack_session_{linux,other}.odin` (Linux cooperative JACK), `wav.odin` (float32 WAV/RF64), `project.odin` (JSON persistence).
 - **Platform isolation**: `src/platform_{linux,darwin,other}.odin`, `src/file_dialog_{linux,darwin,other}.odin` (`osascript` on macOS, `zenity`/`kdialog` on Linux), `src/ui/platform_{linux,darwin,other}.odin`. See `PLATFORMS.md` and `.agents/rules/`.
 
 ## Cross-OS Isolation & Handoff
@@ -144,7 +144,7 @@ cover it.
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — unit tests (297 on Linux / 291 on macOS: DSP + core/engine/project/cloud + UI)
+- `make test` — unit tests (300 on Linux / 294 on macOS: DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
@@ -186,8 +186,8 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 71 DSP + core/engine/project/WAV/settings/cloud (141 on Linux, 135 on macOS without Linux JACK session tests) + 85 UI tests (297 total on Linux, 291 on macOS).
-- `make e2e` — 27 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, render dialog range/format, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay, project titling, tape scrubber shuttle/jog wheels + modifiers, F1 contextual help, add tracks/zoom/page, bounce-to-track dialog, 24 tracks at minimum size, inline track rename, pause/marker/pre-roll controls).
+- `make test` — 71 DSP + core/engine/project/WAV/settings/cloud (143 on Linux, 137 on macOS without Linux JACK session tests) + 86 UI tests (300 total on Linux, 294 on macOS).
+- `make e2e` — 28 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, render dialog range/format, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay, project titling, tape scrubber shuttle/jog wheels + modifiers, F1 contextual help, add tracks/zoom/page, bounce-to-track dialog, 24 tracks at minimum size, inline track rename, pause/marker/pre-roll controls, delete track).
 - The headless harness (`ui-test`, `ui-shot`; Cairo/Pango on Linux, pure-Odin + `stb_truetype` on macOS) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.
 - Do not claim a UI works without inspecting the generated PNG/report. Hardware recording evidence belongs in `odin/VERIFICATION.md`.

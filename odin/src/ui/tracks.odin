@@ -172,39 +172,111 @@ app_track_add :: proc(a: ^App) -> bool {
 	return true
 }
 
-// Removes the last strip, never one holding audio: nothing recorded is lost.
+// Delete the selected track. A track holding audio asks first (dialog); an
+// empty one goes straight away. Later tracks move up one slot. At the minimum
+// of 4 strips the strip stays and is cleared instead.
 app_track_remove :: proc(a: ^App) -> bool {
-	if a.transport == .Recording {
-		status_buf_set(a, "stop recording to remove a track")
-		toast(a, "stop recording to remove a track")
+	if a.transport != .Stopped {
+		status_buf_set(a, "stop the tape to delete a track")
+		toast(a, "stop the tape to delete a track")
 		return false
 	}
-	if a.track_count <= MIN_TRACKS {
+	i := a.selected
+	if i < 0 || i >= a.track_count {
+		toast(a, "select a track first")
+		return false
+	}
+	has := a.tracks[i].has_audio || a.take_count[i] > 0
+	if !has && a.track_count <= MIN_TRACKS {
 		status_buf_set(a, "4 tracks is the minimum")
 		toast(a, "4 tracks is the minimum")
 		return false
 	}
-	i := a.track_count - 1
-	if a.tracks[i].has_audio || a.take_count[i] > 0 {
-		msg := fmt.tprintf("track %d has audio · it is kept", i + 1)
-		status_buf_set(a, msg)
-		toast(a, msg)
-		return false
+	if has {
+		a.td_index = i
+		a.td_confirm = false
+		a.mode = .Track_Delete
+		status_buf_set(a, fmt.tprintf("delete track %d and its audio?", i + 1))
+		bump_revision(a)
+		return true
 	}
-	app_track_reset(a, i)
-	a.track_count -= 1
-	if a.selected < MAX_TRACKS {
-		a.selected = clamp(a.selected, 0, a.track_count - 1)
+	emit(a, .Delete_Track, i)
+	return true
+}
+
+app_td_close :: proc(a: ^App) {
+	if a.mode != .Track_Delete {
+		return
 	}
+	a.mode = .Normal
+	status_buf_set(a, "delete track cancelled")
+	bump_revision(a)
+}
+
+app_td_run :: proc(a: ^App) {
+	if a.mode != .Track_Delete || a.td_index < 0 || a.td_index >= a.track_count {
+		return
+	}
+	emit(a, .Delete_Track, a.td_index)
+}
+
+app_td_key :: proc(a: ^App, key: Key, ch: u8) {
+	#partial switch key {
+	case .Escape:
+		app_td_close(a)
+	case .Enter:
+		if a.td_confirm {
+			app_td_run(a)
+		} else {
+			app_td_close(a)
+		}
+	case .Left, .Right, .Tab, .Up, .Down:
+		a.td_confirm = !a.td_confirm
+		bump_revision(a)
+	case .Char:
+		switch ch {
+		case 'y', 'Y':
+			app_td_run(a)
+		case 'n', 'N':
+			app_td_close(a)
+		case 'h', 'l', 'j', 'k':
+			a.td_confirm = !a.td_confirm
+			bump_revision(a)
+		}
+	}
+}
+
+// Model half of a delete, called by the engine once the files are moved aside.
+// `strip` removes the slot (later tracks shift up); otherwise the slot is just
+// reset (the 4-track minimum).
+app_track_delete_apply :: proc(a: ^App, i: int, strip: bool) {
+	if i < 0 || i >= a.track_count {
+		return
+	}
+	app_track_reset(a, i) // frees an owned name
+	if strip {
+		last := a.track_count - 1
+		for j in i ..< last {
+			a.tracks[j] = a.tracks[j + 1]
+			a.track_name_owned[j] = a.track_name_owned[j + 1]
+			a.take_count[j] = a.take_count[j + 1]
+			a.take_active[j] = a.take_active[j + 1]
+			a.peak_history[j] = a.peak_history[j + 1]
+		}
+		a.track_name_owned[last] = false // the name moved down; do not free it twice
+		app_track_reset(a, last)
+		a.track_count -= 1
+	}
+	app_mark_clear(a)
+	a.mode = .Normal
+	a.selected = clamp(i, 0, a.track_count - 1)
 	if a.fx_channel < MAX_TRACKS {
 		a.fx_channel = clamp(a.fx_channel, 0, a.track_count - 1)
 	}
 	app_view_clamp(a)
 	app_layout(a)
-	status_buf_set(a, fmt.tprintf("track %d removed · %d tracks", i + 1, a.track_count))
-	app_history_note(a, "remove track")
-	app_touch(a)
-	return true
+	a.dirty = true
+	bump_revision(a)
 }
 
 // ---------------------------------------------------------------- view
@@ -495,4 +567,37 @@ app_track_commit_edit :: proc(a: ^App) -> bool {
 	toast(a, fmt.tprintf("track %d: %s", i + 1, t.name))
 	bump_revision(a)
 	return true
+}
+
+// ---------------------------------------------------------------- BOUNCE track
+
+BOUNCE_TRACK_NAME :: "BOUNCE"
+
+// Index of the dedicated bounce track (named BOUNCE), or -1.
+app_bounce_track_index :: proc(a: ^App) -> int {
+	for i in 0 ..< a.track_count {
+		if a.tracks[i].name == BOUNCE_TRACK_NAME {
+			return i
+		}
+	}
+	return -1
+}
+
+// Finds the BOUNCE track or adds one at the end and names it. -1 when all
+// MAX_TRACKS strips are already taken by other tracks.
+app_bounce_track_ensure :: proc(a: ^App) -> int {
+	if i := app_bounce_track_index(a); i >= 0 {
+		return i
+	}
+	if !app_track_add(a) {
+		return -1
+	}
+	i := a.track_count - 1
+	t := &a.tracks[i]
+	if a.track_name_owned[i] {
+		delete(t.name)
+	}
+	t.name = strings.clone(BOUNCE_TRACK_NAME)
+	a.track_name_owned[i] = true
+	return i
 }

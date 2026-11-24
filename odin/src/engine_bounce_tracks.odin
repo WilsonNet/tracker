@@ -111,17 +111,9 @@ engine_bounce_to_track :: proc(e: ^Engine, a: ^ui.App, target: int) -> (ok: bool
 		return false, "marked tracks have no audio yet"
 	}
 
-	path := fmt.tprintf("%s/track%d.wav", e.session_dir, target + 1)
-	engine_take_stabilize_canonical(e, target)
-	if !wav_write(path, e.sample_rate, 1, mono) {
-		delete(mono)
-		return false, fmt.tprintf("cannot write track%d.wav", target + 1)
+	if put_ok, put_msg := engine_put_bounce_take(e, a, target, mono, bounce_tracks_label(marked, a.track_count)); !put_ok {
+		return false, put_msg
 	}
-	engine_take_register_new(e, target, e.sample_rate, bounce_tracks_label(marked, a.track_count))
-	delete(e.loaded[target])
-	e.loaded[target] = mono
-	e.loaded_rate[target] = e.sample_rate
-	a.tracks[target].has_audio = true
 
 	sources := 0
 	for i in 0 ..< a.track_count {
@@ -129,5 +121,73 @@ engine_bounce_to_track :: proc(e: ^Engine, a: ^ui.App, target: int) -> (ok: bool
 			sources += 1
 		}
 	}
-	return true, fmt.tprintf("bounced %d tracks to track %d · %.1f s", sources, target + 1, f32(len(mono)) / f32(e.sample_rate))
+	return true, fmt.tprintf("bounced %d tracks to track %d · %.1f s", sources, target + 1, f32(len(e.loaded[target])) / f32(e.sample_rate))
+}
+
+// Writes `mono` as the new canonical take of `target`. Takes ownership of
+// `mono` (freed on failure, kept as the loaded audio on success). The target's
+// previous take stays reachable with t/T.
+engine_put_bounce_take :: proc(e: ^Engine, a: ^ui.App, target: int, mono: []f32, label: string) -> (ok: bool, message: string) {
+	path := fmt.tprintf("%s/track%d.wav", e.session_dir, target + 1)
+	engine_take_stabilize_canonical(e, target)
+	if !wav_write(path, e.sample_rate, 1, mono) {
+		delete(mono)
+		return false, fmt.tprintf("cannot write track%d.wav", target + 1)
+	}
+	engine_take_register_new(e, target, e.sample_rate, label)
+	delete(e.loaded[target])
+	e.loaded[target] = mono
+	e.loaded_rate[target] = e.sample_rate
+	a.tracks[target].has_audio = true
+	return true, ""
+}
+
+// BOUNCE button: the whole mix (track chains, sends, master chain) goes to
+// bounce.wav as stereo and, folded to mono, onto the dedicated BOUNCE track as a
+// new take. The BOUNCE track itself is left out of the mix, so bouncing again
+// never stacks the previous bounce under the new one.
+engine_bounce_all :: proc(e: ^Engine, a: ^ui.App) -> bool {
+	if e.session_dir == "" {
+		ui.app_bounce_finished(a, false, "no project folder")
+		return false
+	}
+	skip := ui.app_bounce_track_index(a)
+	any_audio := false
+	for i in 0 ..< a.track_count {
+		if i != skip && e.loaded[i] != nil && len(e.loaded[i]) > 0 {
+			any_audio = true
+		}
+	}
+	if !any_audio {
+		ui.app_bounce_finished(a, false, "record something first")
+		return false
+	}
+	out, ok := engine_render_mix(e, a, false, skip)
+	if !ok {
+		ui.app_bounce_finished(a, false, "record something first")
+		return false
+	}
+	defer dsp.render_destroy(&out)
+	if !wav_write(e.bounce_path, e.sample_rate, 2, out.samples) {
+		ui.app_bounce_finished(a, false, "cannot write bounce.wav")
+		return false
+	}
+	target := ui.app_bounce_track_ensure(a)
+	if target < 0 {
+		ui.app_bounce_finished(a, false, "bounce.wav written · no free track for BOUNCE (24 in use)")
+		return false
+	}
+	// Mono fold: 0.5 (L+R) keeps a centred source at unity and cannot exceed
+	// the limiter ceiling the stereo mix already respects.
+	mono := make([]f32, out.frames)
+	for f in 0 ..< out.frames {
+		mono[f] = (out.samples[f * 2] + out.samples[f * 2 + 1]) * 0.5
+	}
+	frames := out.frames
+	if put_ok, put_msg := engine_put_bounce_take(e, a, target, mono, "Bounce mix"); !put_ok {
+		ui.app_bounce_finished(a, false, put_msg)
+		return false
+	}
+	ui.app_bounce_finished(a, true, fmt.tprintf("bounced mix to track %d %s · %.1f s · %.1f dBFS", target + 1, ui.BOUNCE_TRACK_NAME, f32(frames) / f32(e.sample_rate), out.peak_db), target)
+	return true
 }

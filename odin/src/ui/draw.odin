@@ -256,6 +256,8 @@ draw_header :: proc(a: ^App, c: ^Canvas) {
 		mode_text = "RENDER"; mode_col = T.color.amber
 	case .Track_Bounce:
 		mode_text = "BOUNCE TO TRACK"; mode_col = T.color.amber
+	case .Track_Delete:
+		mode_text = "DELETE TRACK"; mode_col = T.color.red
 	}
 	if a.transport == .Recording {
 		mode_text = "RECORDING"; mode_col = T.color.red
@@ -516,6 +518,8 @@ draw_status :: proc(a: ^App, c: ^Canvas) {
 		mode_text = "RENDER"; mode_col = T.color.amber
 	case .Track_Bounce:
 		mode_text = "BOUNCE TO TRACK"; mode_col = T.color.amber
+	case .Track_Delete:
+		mode_text = "DELETE TRACK"; mode_col = T.color.red
 	}
 	if a.transport == .Recording {
 		mode_text = "REC"; mode_col = T.color.red
@@ -671,7 +675,7 @@ command_hint :: proc(kind: Command_Kind) -> string {
 	#partial switch kind {
 	case .Play, .Stop, .Pause, .Set_Marker, .Clear_Marker, .Goto_Marker, .Audition, .Record_Now, .Preroll_Next, .Record_Start, .Record_Stop, .Seek, .Seek_Zero, .Shuttle_Back, .Shuttle_Forward, .Jog_Back, .Jog_Forward:
 		return "transport"
-	case .Bounce, .Render_Mix, .Render_File, .Bounce_Tracks, .Bounce_To_Track:
+	case .Bounce, .Render_Mix, .Render_File, .Bounce_Tracks, .Bounce_To_Track, .Delete_Track:
 		return "render"
 	case .Track_Add, .Track_Remove, .Rename_Track, .Apply_Track_Name, .Zoom_In, .Zoom_Out, .Page_Next, .Page_Prev:
 		return "tracks"

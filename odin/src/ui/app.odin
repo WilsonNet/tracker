@@ -34,7 +34,7 @@ DESCRIBE_MAX :: 4096
 HISTORY_LABEL_MAX :: 40
 HISTORY_LEN :: 120
 
-Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent, Settings, Cloud, Render, Track_Bounce }
+Mode :: enum { Normal, Fx, Palette, Io, Bounce, Recent, Settings, Cloud, Render, Track_Bounce, Track_Delete }
 
 // External render settings. All formats are WAV; the choice is the sample
 // encoding. The mix itself always runs through the f32 engine chain.
@@ -165,7 +165,8 @@ Command_Kind :: enum {
 	Cloud_List,
 	Cloud_Save_Credentials,
 	Track_Add,
-	Track_Remove,
+	Track_Remove, // asks to delete the selected track (dialog when it holds audio)
+	Delete_Track, // index = track to delete; the engine moves its files aside
 	Bounce_Tracks,   // open the bounce-to-track dialog (marks sources)
 	Bounce_To_Track, // index = target track; marked tracks are the sources
 	Zoom_In,
@@ -510,6 +511,8 @@ App :: struct {
 	project_name_draft_len: int,
 	project_name_edit:      bool,
 	// Inline rename of one track strip (R / double-click the name).
+	td_index:      int, // track the delete dialog is about
+	td_confirm:    bool, // dialog focus: false = KEEP, true = DELETE
 	track_edit:            bool,
 	track_edit_index:      int,
 	track_name_draft:      [64]u8,
@@ -1430,6 +1433,8 @@ app_describe :: proc(a: ^App) -> string {
 		mode_name = "Render mix"
 	case .Track_Bounce:
 		mode_name = "Bounce to track"
+	case .Track_Delete:
+		mode_name = "Delete track"
 	}
 	transport := "stopped"
 	switch a.transport {
@@ -1859,6 +1864,8 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		_ = app_track_add(a)
 	case .Track_Remove:
 		_ = app_track_remove(a)
+	case .Delete_Track:
+		emit(a, .Delete_Track, index)
 	case .Bounce_Tracks:
 		_ = app_tb_open(a)
 	case .Bounce_To_Track:
@@ -2210,21 +2217,22 @@ app_force_stopped :: proc(a: ^App, msg: string) {
 	status_buf_set(a, msg)
 }
 
-app_bounce_finished :: proc(a: ^App, ok: bool, msg: string) {
+app_bounce_finished :: proc(a: ^App, ok: bool, msg: string, target := -1) {
 	a.mode = .Normal
 	a.bounce_progress = 1.0
 	a.bounce_active = false
 	status_buf_set(a, msg)
 	if ok {
-		for i in 0 ..< MAX_TRACKS {
-			if a.tracks[i].armed {
-				a.tracks[i].has_audio = true
-			}
+		if target >= 0 && target < a.track_count {
+			a.tracks[target].has_audio = true
+			a.selected = target
+			app_view_clamp(a)
 		}
 		toast(a, "bounce complete")
 	} else {
 		toast(a, "bounce failed")
 	}
+	bump_revision(a)
 }
 
 app_toggle_record :: proc(a: ^App, skip_preroll := false) {

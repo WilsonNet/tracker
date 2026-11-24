@@ -391,4 +391,4 @@ message state:
   "tracker-odin ui"` from a shell whose own command line contains that text.
 - e2e cannot assert PLAY→PAUSE: without an output device `engine_play` fails and
   the transport force-stops. Cover pause in unit tests.
-- Counts now: 297 Linux / 291 macOS unit tests, 27 e2e cases.
+- Counts now: 300 Linux / 294 macOS unit tests, 28 e2e cases.

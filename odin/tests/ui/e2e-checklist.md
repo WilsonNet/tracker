@@ -173,7 +173,7 @@ The − / + glyphs must sit on the vertical centre of the 28px box.
 | Tab / Shift-Tab | next / previous strip including master |
 | J / K | selected fader ∓0.05 |
 | a, 1-9 | arm selected / arm track n if it exists (and select it) |
-| N / D | add a track / remove the last empty track (4–24) |
+| N / D | add a track / delete the selected track (4–24; asks first when it holds audio) |
 | { } / ( ) | show fewer / more strips; previous / next page |
 | v / V | mark selected for bounce / open bounce-to-track dialog (j/k target, Enter run, Esc cancel) |
 | R | rename selected track inline (Enter save, Esc cancel, empty = default) |

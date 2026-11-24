@@ -193,6 +193,8 @@ view_frame :: proc(a: ^App, v: ^View) {
 			view_render(a)
 		case .Track_Bounce:
 			view_track_bounce(a)
+		case .Track_Delete:
+			view_track_delete(a)
 		}
 		if a.help_open {
 			view_help(a)
@@ -314,6 +316,8 @@ status_mode :: proc(a: ^App) -> (string, string) {
 		return "RENDER", "bg-sig-bg text-sig"
 	case .Track_Bounce:
 		return "BOUNCE→", "bg-sig-bg text-sig"
+	case .Track_Delete:
+		return "DELETE", "bg-rec-bg text-rec"
 	}
 	return "NORMAL", "bg-sig-bg text-sig"
 }
@@ -1423,6 +1427,8 @@ view_status :: proc(a: ^App) {
 			hint = "drag: trim  j/k: row  h/l: nudge  enter: render  esc: close"
 		case .Track_Bounce:
 			hint = "j/k: target  enter: bounce  esc: cancel"
+		case .Track_Delete:
+			hint = "y: delete  n/esc: keep  tab: switch"
 		}
 		vui.text(hint, "ml-2 whitespace-pre text-ink-muted")
 		vui.text("F1 keys", "ml-3 shrink-0 whitespace-pre font-semibold text-sig")
@@ -2403,7 +2409,8 @@ RAIL_BTN :: "flex shrink-0 items-center justify-center rounded-[2px] border px-2
 view_rail :: proc(a: ^App, v: ^View) {
 	n := app_view_count(a)
 	first := a.view_first
-	can_remove := a.track_count > MIN_TRACKS
+	sel_has := a.selected < a.track_count && (a.tracks[a.selected].has_audio || a.take_count[a.selected] > 0)
+	can_remove := a.track_count > MIN_TRACKS || sel_has
 	can_add := a.track_count < MAX_TRACKS
 	if vui.div("flex shrink-0 items-center gap-2 px-3 pb-2 pt-0.5 text-[10px] tracking-[0.06em] text-ink-muted") {
 		vui.text("TRACKS", "font-semibold")
@@ -2530,6 +2537,32 @@ view_track_bounce :: proc(a: ^App) {
 					status_buf_set(a, "bounce to track cancelled")
 				}
 				vui.text("mono · EQ comp fader pan · no sends or master FX · sources untouched", "ml-auto text-[10px] text-ink-muted")
+			}
+		}
+	}
+}
+
+@(private = "file")
+view_track_delete :: proc(a: ^App) {
+	if vui.pressable(OVERLAY) {
+		close_on_backdrop(a)
+		if vui.pressable(vui.cx(PANEL, "w-[460px] gap-3 p-5")) {
+			i := clamp(a.td_index, 0, MAX_TRACKS - 1)
+			if vui.div("flex items-baseline gap-3") {
+				vui.text("Delete track?", "text-[14px] font-semibold text-ink")
+				vui.text(fmt.tprintf("%02d %s", i + 1, a.tracks[i].name), "text-[12px] font-medium text-rec")
+				vui.text("ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
+			}
+			vui.text(fmt.tprintf("Track %d holds %d take%s. The strip goes and later tracks move up one.", i + 1, max(a.take_count[i], 1), "" if max(a.take_count[i], 1) == 1 else "s"), "text-[12px] text-ink-dim")
+			vui.text("Its audio files move to the project's deleted/ folder, not erased. Mix undo cannot bring the strip back.", "text-[11px] text-ink-muted")
+			if vui.div("flex items-center gap-2 border-t border-line-subtle pt-3") {
+				if vui.button("KEEP", vui.cx(BBTN, !a.td_confirm ? "border-sig bg-sig-bg text-sig" : "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
+					app_td_close(a)
+				}
+				if vui.button("DELETE TRACK", vui.cx(BBTN, a.td_confirm ? "border-rec bg-rec-bg text-rec" : "border-line text-ink-dim hover:border-rec hover:text-rec")) {
+					app_td_run(a)
+				}
+				vui.text("y delete · n keep", "ml-auto text-[10px] text-ink-muted")
 			}
 		}
 	}

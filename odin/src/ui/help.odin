@@ -33,6 +33,7 @@ app_help_context :: proc(a: ^App) -> string {
 	case .Cloud:   return "Cloud projects"
 	case .Render:  return "Render mix"
 	case .Track_Bounce: return "Bounce to track"
+	case .Track_Delete: return "Delete track"
 	}
 	return "Mixer"
 }
@@ -121,6 +122,12 @@ app_help_entries :: proc(a: ^App) -> []Help_Entry {
 		row(&out, "j k / ← →", "choose target track")
 		row(&out, "Enter", "bounce into target")
 		row(&out, "Esc", "cancel")
+	case a.mode == .Track_Delete:
+		head(&out, "Delete track")
+		row(&out, "y", "delete track and its audio")
+		row(&out, "n / Esc", "keep it")
+		row(&out, "Tab / ← →", "switch button")
+		row(&out, "Enter", "run focused button")
 	case a.mode == .Bounce:
 		head(&out, "Bounce")
 		row(&out, "Esc", "dismiss when finished")

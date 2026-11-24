@@ -2338,7 +2338,7 @@ ui_track_add_remove_and_limits :: proc(t: ^testing.T) {
 	app_init(&a, 1180, 760)
 	defer app_destroy(&a)
 	testing.expect(t, a.track_count == 4, "starts with four tracks")
-	testing.expect(t, !app_track_remove(&a), "cannot go below four")
+	testing.expect(t, !app_track_remove(&a), "empty strip at the minimum is refused")
 
 	for _ in 0 ..< 30 {
 		_ = app_track_add(&a)
@@ -2346,23 +2346,72 @@ ui_track_add_remove_and_limits :: proc(t: ^testing.T) {
 	testing.expectf(t, a.track_count == MAX_TRACKS, "capped at %d, got %d", MAX_TRACKS, a.track_count)
 	testing.expect(t, a.selected == MAX_TRACKS - 1, "new track is selected")
 
-	// a track with audio is never removed
-	a.tracks[MAX_TRACKS - 1].has_audio = true
-	testing.expect(t, !app_track_remove(&a), "track with audio is kept")
-	a.tracks[MAX_TRACKS - 1].has_audio = false
-	testing.expect(t, app_track_remove(&a) && a.track_count == MAX_TRACKS - 1, "empty last track removed")
+	// an empty selected track is deleted straight away (engine-side shift)
+	clear(&a.commands)
+	testing.expect(t, app_track_remove(&a) && a.mode == .Normal, "empty track: no dialog")
+	testing.expect(t, len(a.commands) == 1 && a.commands[0].kind == .Delete_Track && a.commands[0].index == MAX_TRACKS - 1, "Delete_Track emitted")
+	app_track_delete_apply(&a, MAX_TRACKS - 1, true)
+	testing.expect(t, a.track_count == MAX_TRACKS - 1, "strip removed")
 
-	// recording blocks both
+	// recording / playing blocks add and delete
 	a.transport = .Recording
-	testing.expect(t, !app_track_add(&a) && !app_track_remove(&a), "no add/remove while recording")
+	testing.expect(t, !app_track_add(&a) && !app_track_remove(&a), "no add/delete while recording")
 	a.transport = .Stopped
 
-	// keys: N adds, D removes
+	// keys: N adds, D deletes the selected (empty) track
 	app_set_track_count(&a, 4)
 	app_key(&a, .Char, 'N', true)
 	testing.expect(t, a.track_count == 5, "N adds a track")
+	clear(&a.commands)
 	app_key(&a, .Char, 'D', true)
-	testing.expect(t, a.track_count == 4, "D removes the last track")
+	testing.expect(t, len(a.commands) == 1 && a.commands[0].kind == .Delete_Track, "D asks to delete")
+}
+
+@(test)
+ui_track_delete_dialog_and_shift :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_track_count(&a, 6)
+	a.tracks[2].has_audio = true
+	a.take_count[2] = 2
+	a.selected = 2
+	clear(&a.commands)
+
+	// audio: dialog first, nothing emitted, default focus is KEEP
+	testing.expect(t, app_track_remove(&a) && a.mode == .Track_Delete, "dialog opens for a track with audio")
+	testing.expect(t, len(a.commands) == 0 && !a.td_confirm, "nothing deleted yet, KEEP focused")
+	testing.expect(t, app_help_context(&a) == "Delete track", "help context")
+	app_key(&a, .Enter) // Enter on KEEP cancels
+	testing.expect(t, a.mode == .Normal && len(a.commands) == 0, "Enter on KEEP cancels")
+	app_track_remove(&a)
+	app_key(&a, .Escape)
+	testing.expect(t, a.mode == .Normal && len(a.commands) == 0, "Esc cancels")
+
+	// y confirms
+	app_track_remove(&a)
+	app_key(&a, .Char, 'y')
+	testing.expect(t, len(a.commands) == 1 && a.commands[0].kind == .Delete_Track && a.commands[0].index == 2, "y emits Delete_Track")
+
+	// the model shift: later tracks move up, names follow
+	clear(&a.commands)
+	a.mode = .Normal
+	a.tracks[3].level = 0.55
+	a.tracks[3].has_audio = true
+	app_track_delete_apply(&a, 2, true)
+	testing.expect(t, a.track_count == 5, "one strip fewer")
+	testing.expect(t, a.tracks[2].level == 0.55 && a.tracks[2].has_audio, "track 4 became track 3")
+	testing.expect(t, a.tracks[2].name == "Track 4" && a.tracks[5].name == TRACK_NAMES[5], "names follow; vacated slot reset")
+	testing.expect(t, a.selected == 2 && a.mode == .Normal, "selection stays at the slot")
+
+	// minimum: audio clears the strip in place, count stays
+	app_set_track_count(&a, 4)
+	a.tracks[1].has_audio = true
+	a.selected = 1
+	testing.expect(t, app_track_remove(&a) && a.mode == .Track_Delete, "audio at the minimum still asks")
+	app_td_close(&a)
+	app_track_delete_apply(&a, 1, false)
+	testing.expect(t, a.track_count == 4 && !a.tracks[1].has_audio, "cleared in place at four tracks")
 }
 
 @(test)

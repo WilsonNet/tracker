@@ -11,7 +11,7 @@ fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
 ## Features
 
 - **4-track recording, up to 24 tracks** — four strips by default (tape-deck
-  layout); `N`/`D` add or remove tracks, `{ }` zoom how many show, `( )` page
+  layout); `N`/`D` add or delete tracks, `{ }` zoom how many show, `( )` page
 - **Bounce marked tracks to a track** — `v` marks, `V` opens the target dialog;
   sources stay, the target gets a new mono take
 - **Track names** — `R` or double-click a strip name; saved with the project and Drive backups
@@ -20,7 +20,7 @@ fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
 - **Overdub** — hear the existing mix while recording the next part
 - **Native effects** — 3-band EQ and compressor per track, shared FDN reverb and
   ping-pong delay sends, master compressor, widener and lookahead limiter
-- **Bounce / render** — write the canonical project `bounce.wav`, or `RENDER…` the current mix to an external WAV with a dual-handle time range and 32-bit float / 24-bit / 16-bit format, including reverb tails
+- **Bounce / render** — write the canonical project `bounce.wav` and drop the mix on a dedicated `BOUNCE` track (Zoom R4 style), or `RENDER…` the current mix to an external WAV with a dual-handle time range and 32-bit float / 24-bit / 16-bit format, including reverb tails
 - **Live metering** — peak/RMS per track plus compressor gain reduction
 - **Keyboard-first** — Vim navigation, `1`–`4` arm, `Space` play/stop, `R` record,
   `x` FX rack, `,` settings, `:` command palette
@@ -49,7 +49,7 @@ git clone https://github.com/WilsonNet/vinland-ui ../vinland-ui
 
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 297 unit tests (Linux) / 291 unit tests (macOS)
+make test         # 300 unit tests (Linux) / 294 unit tests (macOS)
 make check        # tests + headless UI tour + offline bounce
 
 ./bin/tracker-odin ui              # real window

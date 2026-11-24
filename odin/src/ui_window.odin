@@ -599,7 +599,10 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 				_ = window_save_project(a, e)
 			}
 		case .Bounce:
-			_ = engine_bounce(e, a)
+			if engine_bounce_all(e, a) {
+				ui_sync_takes(a, e)
+				_ = window_save_project(a, e)
+			}
 		case .Bounce_To_Track:
 			ok, msg := engine_bounce_to_track(e, a, cmd.index)
 			if ok {
@@ -607,6 +610,16 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 				_ = window_save_project(a, e)
 			}
 			ui.app_tb_finished(a, ok, msg)
+		case .Delete_Track:
+			ok, msg := engine_delete_track(e, a, cmd.index)
+			if ok {
+				ui_sync_takes(a, e)
+				_ = window_save_project(a, e)
+			} else {
+				a.mode = .Normal
+			}
+			ui.status_buf_set(a, msg)
+			ui.toast(a, msg)
 		case .Render_Mix:
 			ui.app_render_set_duration(a, engine_mix_duration(e, a))
 		case .Render_File:

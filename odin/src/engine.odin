@@ -1434,7 +1434,7 @@ engine_free_track_audio :: proc(tracks: [][]f32, owned: [MAX_ENGINE_TRACKS]bool)
 	delete(tracks)
 }
 
-engine_render_mix :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool = false) -> (dsp.Render_Output, bool) {
+engine_render_mix :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool = false, skip_track: int = -1) -> (dsp.Render_Output, bool) {
 	tracks, owned := engine_track_audio(e)
 	defer engine_free_track_audio(tracks, owned)
 	settings := settings_from_app(a)
@@ -1445,6 +1445,9 @@ engine_render_mix :: proc(e: ^Engine, a: ^ui.App, mute_armed: bool = false) -> (
 				settings.tracks[i].muted = true
 			}
 		}
+	}
+	if skip_track >= 0 && skip_track < len(settings.tracks) {
+		settings.tracks[skip_track].muted = true
 	}
 	out := dsp.render_mix(tracks, settings, f32(e.sample_rate))
 	if out.frames <= 0 {
@@ -1630,21 +1633,6 @@ engine_render_to_file :: proc(
 		return false, "cannot write the mix file"
 	}
 	return true, ""
-}
-
-engine_bounce :: proc(e: ^Engine, a: ^ui.App) -> bool {
-	out, ok := engine_render_mix(e, a)
-	if !ok {
-		ui.app_bounce_finished(a, false, "record something first")
-		return false
-	}
-	defer dsp.render_destroy(&out)
-	if !wav_write(e.bounce_path, e.sample_rate, 2, out.samples) {
-		ui.app_bounce_finished(a, false, "cannot write bounce.wav")
-		return false
-	}
-	ui.app_bounce_finished(a, true, fmt.tprintf("bounce %.1f s · %.1f dBFS", f32(out.frames) / f32(e.sample_rate), out.peak_db))
-	return true
 }
 
 // ---------------------------------------------------------------- polling

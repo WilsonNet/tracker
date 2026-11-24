@@ -85,7 +85,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 297 unit tests (Linux) / 291 (macOS)
+make test         # 300 unit tests (Linux) / 294 (macOS)
 make check        # unit + headless UI tour + offline end-to-end
 
 # 4. Run the app
@@ -114,9 +114,9 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | unit tests: 71 DSP, 141 core (Linux) / 135 core (macOS), 85 UI = 297 (Linux) / 291 (macOS) |
+| `test` | unit tests: 71 DSP, 143 core (Linux) / 137 core (macOS), 86 UI = 300 (Linux) / 294 (macOS) |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
-| `e2e` | 27 headless vinland-ui window cases (`tests/ui/window.vt`) |
+| `e2e` | 28 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
 | `ui-test` | run a harness script; `SCRIPT=... UI_OUT=...` |
@@ -132,8 +132,10 @@ directory is in `XDG_DATA_DIRS`.
 ./bin/tracker-odin ui --session DIR   # project/session directory
 ```
 
-- **Tracks:** 4 strips by default, up to 24 (`N` adds, `D` removes the last empty
-  one, or the `TRACKS − +` rail under the strips). Each strip has an input
+- **Tracks:** 4 strips by default, up to 24 (`N` adds, `D` or the rail's `−` deletes the
+  selected track: an empty one goes at once, one with audio asks first; its WAVs move
+  to `deleted/` in the project folder, later tracks shift up, and at 4 tracks the
+  strip is cleared instead). Each strip has an input
   selector, arm/solo/mute, pan, fader, peak/RMS meter and compressor
   gain-reduction meter. The rail also shows a dot per track (armed red, has
   audio amber, outlined = on screen). `{`/`}` change how many strips show
@@ -187,7 +189,7 @@ directory is in `XDG_DATA_DIRS`.
   while it is open.
 - **Takes and mix:** multi-take recording (`T1/2` on each strip), active-take cycling,
   whole-take comping from the palette, and arbitrary comp regions through the
-  `comp` CLI. `BOUNCE` writes the canonical `bounce.wav`; `RENDER…` opens a
+  `comp` CLI. `BOUNCE` writes the canonical `bounce.wav` (stereo, full master chain) **and** folds it to mono as a new take on a dedicated `BOUNCE` track (added when missing; the BOUNCE track is left out of its own mix, so repeated bounces never stack); `RENDER…` opens a
   range/format dialog and writes the same full-chain stereo mix to an external
   WAV. Drag either end of the range track (or click the track to move the
   nearest hand); `j/k` selects FROM/TO/FORMAT and `h/l` nudges by 0.5 s
@@ -241,7 +243,7 @@ directory is in `XDG_DATA_DIRS`.
 - **Keyboard:** `F1` key help, `Space` play/pause (punch out while recording), `r` record at the playhead (`Ctrl+r` no pre-roll), `M` marker, `p` audition, `0` stop → marker → 00:00, `b` bounce, `B` render dialog, `1–9` arm track, `j/k`
   select, `J/K` level, `h/l` jog `±250 ms` (`H/L` fine `±50 ms`, `Alt|Ctrl+h/l`
   micro `±10 ms`), `</>` shuttle `±5.0 s`, `|◄` return to marker, then zero, `m` mute,
-  `s` solo, `a` arm, `n` rename project, `R` rename track, `v`/`V` mark / bounce tracks to a track, `N`/`D` add / remove track, `{ }` zoom, `( )` page, `I` input, `x` FX, `c` click, `o`
+  `s` solo, `a` arm, `n` rename project, `R` rename track, `v`/`V` mark / bounce tracks to a track, `N`/`D` add / delete track, `{ }` zoom, `( )` page, `I` input, `x` FX, `c` click, `o`
   monitor, `y` JACK backend, `t`/`T` next/previous take, `u`/`U` undo/redo,
   `[`/`]` FX channel, `Tab`/`Shift+Tab` FX focus, `,` settings, `g` cloud projects,
   `:` command palette (`rewind to start`, `shuttle forward/back`, `jog forward/back`),
@@ -408,7 +410,7 @@ persist the project. A malformed `project.json` is renamed to
 ## Tests and verification
 
 ```sh
-make test        # 71 DSP + 141 core/engine/project/cloud + 85 UI = 297 tests (Linux)
+make test        # 71 DSP + 143 core/engine/project/cloud + 86 UI = 300 tests (Linux)
 make test-dsp    # only src/dsp
 make test-core   # only the root src package (engine/project/WAV)
 make test-ui     # only src/ui

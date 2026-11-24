@@ -30,7 +30,7 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"bounce", .Bounce},
 	{"bounce marked tracks to a track…", .Bounce_Tracks},
 	{"add track", .Track_Add},
-	{"remove last track", .Track_Remove},
+	{"delete track", .Track_Remove},
 	{"show fewer tracks (zoom in)", .Zoom_In},
 	{"show more tracks (zoom out)", .Zoom_Out},
 	{"next page of tracks", .Page_Next},
@@ -820,7 +820,7 @@ app_text_editing :: proc(a: ^App) -> bool {
 		return a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None
 	case .Normal:
 		return a.project_name_edit || a.track_edit
-	case .Fx, .Io, .Bounce, .Cloud, .Render, .Track_Bounce:
+	case .Fx, .Io, .Bounce, .Cloud, .Render, .Track_Bounce, .Track_Delete:
 		return false
 	}
 	return false
@@ -906,7 +906,7 @@ app_paste_text :: proc(a: ^App, text: string) {
 				bump_revision(a)
 			}
 		}
-	case .Fx, .Io, .Bounce, .Cloud, .Render, .Track_Bounce:
+	case .Fx, .Io, .Bounce, .Cloud, .Render, .Track_Bounce, .Track_Delete:
 	}
 }
 
@@ -1639,6 +1639,10 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 		app_tb_key(a, key, ch)
 		return
 	}
+	if a.mode == .Track_Delete {
+		app_td_key(a, key, ch)
+		return
+	}
 	if a.mode == .Normal && (a.project_name_edit || a.track_edit) {
 		if ctrl {
 			switch ch {
@@ -2103,7 +2107,7 @@ app_target_available :: proc(a: ^App, name: string) -> bool {
 		return false
 	case .Bounce:
 		return false
-	case .Render, .Track_Bounce:
+	case .Render, .Track_Bounce, .Track_Delete:
 		return false
 	}
 	return false
@@ -2306,6 +2310,8 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Track_Add"
 	case .Track_Remove:
 		return "Track_Remove"
+	case .Delete_Track:
+		return "Delete_Track"
 	case .Bounce_Tracks:
 		return "Bounce_Tracks"
 	case .Bounce_To_Track:
@@ -2375,6 +2381,8 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 			return "Render", true
 		case .Track_Bounce:
 			return "Track_Bounce", true
+		case .Track_Delete:
+			return "Track_Delete", true
 		}
 	case "selected":
 		return fmt.tprintf("%d", a.selected), true
