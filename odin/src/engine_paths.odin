@@ -69,7 +69,7 @@ engine_save_as_to :: proc(a: ^ui.App, e: ^Engine, project_path: string) -> bool 
 		return false
 	}
 	if save_dir_occupied(dir) {
-		ui.status_buf_set(a, "folder already contains a tracker project")
+		ui.status_buf_set(a, "folder already contains a tracker-fx project")
 		return false
 	}
 	for i in 1 ..= MAX_ENGINE_TRACKS {
@@ -111,7 +111,7 @@ engine_save_as_to :: proc(a: ^ui.App, e: ^Engine, project_path: string) -> bool 
 	return true
 }
 
-// True when a folder already holds tracker output. Used to avoid silently
+// True when a folder already holds tracker-fx output. Used to avoid silently
 // overwriting another project when the user picks a save folder.
 @(private)
 save_dir_occupied :: proc(dir: string) -> bool {
@@ -153,7 +153,7 @@ engine_apply_save_dir :: proc(a: ^ui.App, e: ^Engine, new_dir: string) -> bool {
 		return false
 	}
 	if save_dir_occupied(target) {
-		ui.status_buf_set(a, "folder already contains a tracker project")
+		ui.status_buf_set(a, "folder already contains a tracker-fx project")
 		return false
 	}
 	path := fmt.tprintf("%s/project.json", target)

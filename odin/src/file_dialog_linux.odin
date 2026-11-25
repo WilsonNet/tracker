@@ -53,11 +53,11 @@ zenity_available :: proc() -> bool {
 
 @(private)
 platform_pick_project_open :: proc(start: string) -> (string, bool) {
-	filter := "Tracker project | *.json"
+	filter := "Tracker-FX project | *.json"
 	argv: []string
 	if zenity_available() {
 		argv = []string{
-			"zenity", "--file-selection", "--title=Open Tracker Project",
+			"zenity", "--file-selection", "--title=Open Tracker-FX Project",
 			fmt.tprintf("--filename=%s/", start),
 			fmt.tprintf("--file-filter=%s", filter),
 		}
@@ -73,9 +73,9 @@ platform_pick_project_save :: proc(start: string) -> (string, bool) {
 	if zenity_available() {
 		argv = []string{
 			"zenity", "--file-selection", "--save", "--confirm-overwrite",
-			"--title=Save Tracker Project As",
+			"--title=Save Tracker-FX Project As",
 			fmt.tprintf("--filename=%s/project.json", start),
-			"--file-filter=Tracker project | *.json",
+			"--file-filter=Tracker-FX project | *.json",
 		}
 	} else {
 		argv = []string{"kdialog", "--getsavefilename", fmt.tprintf("%s/project.json", start), "*.json"}

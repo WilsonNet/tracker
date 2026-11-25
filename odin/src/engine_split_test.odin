@@ -24,7 +24,7 @@ engine_test_write_raw :: proc(path: string, frames, channels: int) -> bool {
 
 @(test)
 engine_split_take_writes_armed_tracks_and_wraps_inputs :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-odin-engine-split"
+	dir := "/tmp/tracker-fx-engine-split"
 	_ = os.remove_all(dir)
 	_ = os.make_directory_all(dir)
 	defer {
@@ -79,7 +79,7 @@ engine_split_take_writes_armed_tracks_and_wraps_inputs :: proc(t: ^testing.T) {
 
 @(test)
 engine_split_take_rejects_empty_partial_and_malformed_raw :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-odin-engine-split-bad"
+	dir := "/tmp/tracker-fx-engine-split-bad"
 	_ = os.remove_all(dir)
 	_ = os.make_directory_all(dir)
 	defer {
@@ -153,15 +153,15 @@ engine_record_stop_is_idempotent_before_start :: proc(t: ^testing.T) {
 
 @(test)
 engine_load_tracks_clears_stale_audio_on_bad_files :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-odin-engine-load"
+	dir := "/tmp/tracker-fx-engine-load"
 	_ = os.remove_all(dir)
 	_ = os.make_directory_all(dir)
 	defer {
 		_ = os.remove_all(dir)
 	}
 
-	good := "/tmp/tracker-odin-engine-load/track1.wav"
-	bad := "/tmp/tracker-odin-engine-load/track2.wav"
+	good := "/tmp/tracker-fx-engine-load/track1.wav"
+	bad := "/tmp/tracker-fx-engine-load/track2.wav"
 	tone: [8]f32
 	for i in 0 ..< len(tone) {
 		tone[i] = f32(i) * 0.1

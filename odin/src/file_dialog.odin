@@ -74,12 +74,12 @@ pick_mix_save :: proc(start_dir: string) -> (string, bool) {
 pick_session_open :: proc() -> (string, bool) {
 	home := os.get_env("HOME", context.allocator)
 	defer delete(home)
-	return platform_pick_directory("Open Tracker Session", home if home != "" else ".")
+	return platform_pick_directory("Open Tracker-FX Session", home if home != "" else ".")
 }
 
 // Chooses the folder where project.json, takes and bounces are written.
 pick_save_dir :: proc(current: string) -> (string, bool) {
 	home := os.get_env("HOME", context.allocator)
 	defer delete(home)
-	return platform_pick_directory("Choose Tracker Project Folder", dialog_start_dir(current, home))
+	return platform_pick_directory("Choose Tracker-FX Project Folder", dialog_start_dir(current, home))
 }

@@ -1,4 +1,4 @@
-# Tracker design/UX review — d39946d
+# Tracker-FX design/UX review — d39946d
 
 Method: design review only (native app; no web detector). Reviewed the shipped vinland window offscreen with `VUI_HIDDEN=1 VUI_PORT=7451` (llvmpipe, `unknown_classes: []`, 3–16 ms frames) at 1180x760, 900x620, 1440x900 and 1920x1080, plus the Cairo `ui-shot`/`ui-test` harness and `tests/ui/full-tour.json` (1x and 2x). The `real-*.png` files in this directory are the shipped window; `main-*.png` and `tour/` are the Cairo regression renderer.
 
@@ -96,7 +96,7 @@ Screenshots: `real-1440.png`, `real-1920.png`; compare `main-1920.png` (harness 
 ### 13. [P2] Cloud copy and actions mislead
 Screenshots: `real-cloud.png`, `real-settings.png`.
 - "Google Drive · hidden app data" (`view.odin:1779`) contradicts the product's visible, named My Drive folder (AGENTS). The disconnected empty state shows ENTER restore / U back up / R refresh (`:1831`) for actions that fail, while the only working action (OPEN SETTINGS) has no key binding. The destination of OPEN SETTINGS hides CONNECT below the fold (finding 5).
-- Fix: say "Google Drive · Tracker folder" (or the real folder name), hide/disable unavailable commands, show "ENTER open settings", and keep CONNECT visible.
+- Fix: say "Google Drive · Tracker-FX folder" (or the real folder name), hide/disable unavailable commands, show "ENTER open settings", and keep CONNECT visible.
 
 ### 14. [P2] Reduced motion is a setting the shipped animations ignore
 Source evidence; screenshot `tour/191-reduced-motion.png` (Cairo honours it), `real-recording-default.png` (native still pulses).

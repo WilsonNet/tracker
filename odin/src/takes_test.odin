@@ -140,17 +140,17 @@ takes_comp_rejects_invalid_regions :: proc(t: ^testing.T) {
 
 @(test)
 project_takes_backward_compatible_roundtrip :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-takes-project"
+	dir := "/tmp/tracker-fx-takes-project"
 	os.remove_all(dir)
 	testing.expect(t, ensure_dir(dir), "session dir")
 	defer os.remove_all(dir)
 
-	canonical := "/tmp/tracker-takes-project/track1.wav"
+	canonical := "/tmp/tracker-fx-takes-project/track1.wav"
 	samples := make([]f32, 100)
 	defer delete(samples)
 	testing.expect(t, wav_write(canonical, 48_000, 1, samples[:]), "wav fixture")
 	testing.expect(t, os.write_entire_file(
-		"/tmp/tracker-takes-project/project.json",
+		"/tmp/tracker-fx-takes-project/project.json",
 		`{"version":1,"name":"legacy","tracks":[{"name":"Guitar","file":"track1.wav","level":0.5}]}`,
 	) == nil, "legacy project")
 
@@ -164,7 +164,7 @@ project_takes_backward_compatible_roundtrip :: proc(t: ^testing.T) {
 		}
 	}
 
-	testing.expect(t, project_load_with_takes(&a, dir, "/tmp/tracker-takes-project/project.json", lists[:]), "legacy load")
+	testing.expect(t, project_load_with_takes(&a, dir, "/tmp/tracker-fx-takes-project/project.json", lists[:]), "legacy load")
 	testing.expect(t, len(lists[0].takes) == 1, "legacy take count")
 	testing.expect(t, lists[0].takes[0].name == "Take 1", "legacy take name")
 	testing.expect(t, lists[0].takes[0].file == "track1.wav", "legacy take file")
@@ -177,7 +177,7 @@ project_takes_backward_compatible_roundtrip :: proc(t: ^testing.T) {
 	testing.expect(t, comp_add_region(&lists[0], 1, 0, 40), "comp first")
 	testing.expect(t, comp_add_region(&lists[0], second, 40, 100), "comp second")
 
-	saved := "/tmp/tracker-takes-project/saved.json"
+	saved := "/tmp/tracker-fx-takes-project/saved.json"
 	testing.expect(t, project_save_with_takes(&a, lists[:], saved), "save failed")
 	text, read_err := os.read_entire_file(saved, context.allocator)
 	testing.expect(t, read_err == nil, "saved project unreadable")
@@ -207,16 +207,16 @@ project_takes_backward_compatible_roundtrip :: proc(t: ^testing.T) {
 
 	// The old app-facing entry points still load and save the same project.
 	testing.expect(t, project_load(&b, dir, saved), "legacy entry point load")
-	testing.expect(t, project_save(&b, "/tmp/tracker-takes-project/plain.json"), "legacy entry point save")
+	testing.expect(t, project_save(&b, "/tmp/tracker-fx-takes-project/plain.json"), "legacy entry point save")
 }
 
 @(test)
 project_takes_repeated_load_and_save_is_owned :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-takes-reload"
+	dir := "/tmp/tracker-fx-takes-reload"
 	os.remove_all(dir)
 	testing.expect(t, ensure_dir(dir), "session dir")
 	defer os.remove_all(dir)
-	path := "/tmp/tracker-takes-reload/project.json"
+	path := "/tmp/tracker-fx-takes-reload/project.json"
 
 	testing.expect(t, os.write_entire_file(path, `{"version":1,"tracks":[{"file":"track1.wav","takes":[
 		{"id":1,"name":"one","file":"track1-take1.wav","sampleRate":48000,"offset":0,"gain":1,"muted":false},
@@ -239,7 +239,7 @@ project_takes_repeated_load_and_save_is_owned :: proc(t: ^testing.T) {
 		testing.expect(t, lists[0].takes[1].name == "two", "name after reload")
 		testing.expect(t, lists[0].active == 2, "active after reload")
 	}
-	out := "/tmp/tracker-takes-reload/out.json"
+	out := "/tmp/tracker-fx-takes-reload/out.json"
 	testing.expect(t, project_save_with_takes(&a, lists[:], out), "save after reloads")
 
 	b: ui.App
@@ -258,7 +258,7 @@ project_takes_repeated_load_and_save_is_owned :: proc(t: ^testing.T) {
 
 @(test)
 takes_load_from_session_directory :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-takes-session"
+	dir := "/tmp/tracker-fx-takes-session"
 	os.remove_all(dir)
 	testing.expect(t, ensure_dir(dir), "session dir")
 	defer os.remove_all(dir)
@@ -267,8 +267,8 @@ takes_load_from_session_directory :: proc(t: ^testing.T) {
 	two := make([]f32, 16)
 	defer delete(one)
 	defer delete(two)
-	testing.expect(t, wav_write("/tmp/tracker-takes-session/track2-take1.wav", 48_000, 1, one[:]), "take 1 wav")
-	testing.expect(t, wav_write("/tmp/tracker-takes-session/track2-take2.wav", 44_100, 1, two[:]), "take 2 wav")
+	testing.expect(t, wav_write("/tmp/tracker-fx-takes-session/track2-take1.wav", 48_000, 1, one[:]), "take 1 wav")
+	testing.expect(t, wav_write("/tmp/tracker-fx-takes-session/track2-take2.wav", 44_100, 1, two[:]), "take 2 wav")
 
 	list: Take_List
 	defer take_list_destroy(&list)

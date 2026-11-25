@@ -5,7 +5,7 @@
 // validation, the lock-free ring, the chunk writer, the stop/drain path and
 // double-stop safety with synthetic frames. The live take is opt-in:
 //
-//   TRACKER_JACK_LIVE=1 odin test src \
+//   TRACKER_FX_JACK_LIVE=1 odin test src \
 //     -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lSDL2"
 
 package main
@@ -198,7 +198,7 @@ jack_session_validate_rejects_bad_requests :: proc(t: ^testing.T) {
 	// normal test runs so `make test` never depends on an audio server.
 	@(test)
 	jack_session_live_one_second_take :: proc(t: ^testing.T) {
-		live := os.get_env("TRACKER_JACK_LIVE", context.allocator)
+		live := os.get_env("TRACKER_FX_JACK_LIVE", context.allocator)
 		defer delete(live)
 		if live != "1" {
 			return

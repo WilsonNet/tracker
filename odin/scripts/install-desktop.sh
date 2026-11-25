@@ -2,7 +2,7 @@
 # Install (or remove) the native app in a user prefix (default ~/.local).
 #
 #   ./scripts/install-desktop.sh              # build + install
-#   PREFIX=/opt/tracker ./scripts/install-desktop.sh
+#   PREFIX=/opt/tracker-fx ./scripts/install-desktop.sh
 #   ./scripts/install-desktop.sh --uninstall  # remove installed files
 #
 # `make install` / `make uninstall` call this with PREFIX forwarded.
@@ -13,7 +13,7 @@ PREFIX="${PREFIX:-$HOME/.local}"
 BIN="$PREFIX/bin"
 APPS="$PREFIX/share/applications"
 ICONS="$PREFIX/share/icons/hicolor"
-FONTS="$PREFIX/share/fonts/tracker"
+FONTS="$PREFIX/share/fonts/tracker-fx"
 
 uninstall=0
 for arg in "$@"; do
@@ -40,33 +40,33 @@ refresh_caches() {
 }
 
 if [ "$uninstall" -eq 1 ]; then
-	rm -f "$BIN/tracker-odin" \
-		"$APPS/tracker-odin.desktop" \
-		"$ICONS/256x256/apps/tracker-odin.png" \
-		"$ICONS/scalable/apps/tracker-odin.svg"
+	rm -f "$BIN/tracker-fx" \
+		"$APPS/tracker-fx.desktop" \
+		"$ICONS/256x256/apps/tracker-fx.png" \
+		"$ICONS/scalable/apps/tracker-fx.svg"
 	rm -rf "$FONTS"
 	refresh_caches
-	echo "removed tracker-odin from $PREFIX"
+	echo "removed tracker-fx from $PREFIX"
 	exit 0
 fi
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
 	make build
 fi
-[ -x bin/tracker-odin ] || {
-	echo "bin/tracker-odin is missing; run 'make build' first" >&2
+[ -x bin/tracker-fx ] || {
+	echo "bin/tracker-fx is missing; run 'make build' first" >&2
 	exit 1
 }
 
 mkdir -p "$BIN" "$APPS" "$ICONS/256x256/apps" "$ICONS/scalable/apps" "$FONTS"
-install -m 755 bin/tracker-odin "$BIN/tracker-odin"
+install -m 755 bin/tracker-fx "$BIN/tracker-fx"
 install -m 644 assets/Inter-Regular.ttf assets/Inter-Medium.ttf \
 	assets/Inter-SemiBold.ttf assets/Inter-OFL.txt "$FONTS/"
 if command -v fc-cache >/dev/null 2>&1; then
 	fc-cache -f "$FONTS" >/dev/null 2>&1 || true
 fi
-install -m 644 assets/tracker.png "$ICONS/256x256/apps/tracker-odin.png"
-install -m 644 assets/tracker.svg "$ICONS/scalable/apps/tracker-odin.svg"
+install -m 644 assets/tracker-fx.png "$ICONS/256x256/apps/tracker-fx.png"
+install -m 644 assets/tracker-fx.svg "$ICONS/scalable/apps/tracker-fx.svg"
 
 # Quote the Exec path for the desktop-entry grammar: escape backslash, double
 # quote, backtick and dollar, then wrap the argument in double quotes. Without
@@ -75,24 +75,24 @@ desktop_exec_quote() {
 	printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/`/\\`/g' -e 's/\$/\\$/g')"
 }
 
-cat > "$APPS/tracker-odin.desktop" <<DESKTOP
+cat > "$APPS/tracker-fx.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Tracker (Odin)
+Name=Tracker-FX
 GenericName=Multitrack Recorder
 Comment=Minimal keyboard-first multitrack recorder (native Odin port)
-Exec=$(desktop_exec_quote "$BIN/tracker-odin") ui
-Icon=tracker-odin
+Exec=$(desktop_exec_quote "$BIN/tracker-fx") ui
+Icon=tracker-fx
 Terminal=false
 StartupNotify=false
-StartupWMClass=tracker
+StartupWMClass=tracker-fx
 Categories=AudioVideo;Audio;
 Keywords=recorder;multitrack;audio;music;
 DESKTOP
 
-chmod 644 "$APPS/tracker-odin.desktop"
+chmod 644 "$APPS/tracker-fx.desktop"
 refresh_caches
 
-echo "installed: $BIN/tracker-odin"
-echo "launcher:  $APPS/tracker-odin.desktop"
+echo "installed: $BIN/tracker-fx"
+echo "launcher:  $APPS/tracker-fx.desktop"

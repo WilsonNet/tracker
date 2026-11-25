@@ -209,7 +209,7 @@ Confirmed under Xvfb with explicit X11:
 the game, hence the existing `gpu-guard.sh` rule. It does not affect pointer/focus.
 
 Caveats in hidden mode:
-- The framework window is isolated, but app code is not. Tracker's native pickers shell out to
+- The framework window is isolated, but app code is not. Tracker-FX's native pickers shell out to
   `zenity`/`kdialog` (`odin/src/file_dialog.odin`); pressing `o`/`S`/a picker shortcut in a hidden
   app can map a real dialog and take focus. The same applies to any app command that opens a
   browser (OAuth) or another external process. Avoid those commands in hidden agent runs or stub
@@ -332,13 +332,13 @@ Backward compatibility is good: all of this is additive except the `background` 
   `app_id`):
   ```lua
   hl.window_rule({
-      name  = "tracker-agent-no-focus",
-      match = { class = "^(tracker-agent)$" },
+      name  = "tracker-fx-agent-no-focus",
+      match = { class = "^(tracker-fx-agent)$" },
       no_focus = true,          -- or no_initial_focus for launch-only
   })
   ```
   `Config.app_id` already controls Wayland app_id / X11 class (`app.odin:216-218`). Give background
-  sessions a distinct id (`tracker-agent`) so the rule does not affect normal launches.
+  sessions a distinct id (`tracker-fx-agent`) so the rule does not affect normal launches.
 - Add `vui-ctl --require-sandboxed` (or `--require-background`) that does a preflight `info` and exits
   non-zero when `sandboxed` is false (or when `background` is false / `keyboard_focus` is true).
   Keep normal behavior unchanged.
@@ -575,7 +575,7 @@ synthetic click. This complements the state sampling.
    (`control.odin:363-385`), so `vui-test` clicks transformed nodes at the wrong point.
 6. **The key table is tiny.** `key_from_name` (`control.odin:190-240`) accepts only tab, enter,
    escape, backspace, delete, arrows, home/end, page up/down, space, a/c/v/x/y/z/k, slash, F1.
-   Tracker is keyboard-first (`b`, `o`, `s`, `l`, `h`, etc.); `vui-ctl key o` returns "unknown key",
+   Tracker-FX is keyboard-first (`b`, `o`, `s`, `l`, `h`, etc.); `vui-ctl key o` returns "unknown key",
    and `vui-ctl type o` produces text, not a key press. Agents cannot exercise most shortcuts. Use
    SDL key names (`SDL_GetKeyFromName`) or a full table, and add `keydown`/`keyup` if holds matter.
 7. **`vui-test`'s `ctl` timeout is unused** (`tools/vui-test/main.odin:255-285`), and its suite `env`
@@ -594,7 +594,7 @@ synthetic click. This complements the state sampling.
 11. **`resize` mutates the user's visible window** (`control.odin:416-429`). Agent runs should use
     `VUI_HIDDEN=1` or restore the original size on `quit`; at minimum document it.
 12. **App-level external processes are outside any VUI guarantee.** `VUI_HIDDEN=1` only isolates
-    vinland-ui's own window. Native pickers (`zenity`/`kdialog` in Tracker), OAuth browser launches,
+    vinland-ui's own window. Native pickers (`zenity`/`kdialog` in Tracker-FX), OAuth browser launches,
     or any `App.on_command` side effect can open/focus real windows. Document this in the skill and
     avoid those commands during unattended runs; a test-only dialog stub is the robust fix.
 13. **`foreground`/`background` half-state** (see B2/B3): `info.focusable` lies after a failed
@@ -622,11 +622,11 @@ synthetic click. This complements the state sampling.
 - `skills/vinland-ui/SKILL.md:49-62` and `showroom/pages_intro.odin` (new section): same overclaims.
   Replace "non-focusable window ... a game or editor keeps keyboard and pointer focus" with the
   offscreen guarantee and the compositor-rule caveat.
-- `AGENTS.md` in tracker: "Normal launches open on the active workspace, so a visible run is fine to
+- `AGENTS.md` in tracker-fx: "Normal launches open on the active workspace, so a visible run is fine to
   inspect with `vui-ctl`" is the most dangerous line; qualify it: "visible runs map and can take
   focus; for agent verification use VUI_HIDDEN=1; only run visible when the user is not gaming/calling
   and accept the focus change."
-- `make ui-bg` in tracker: a visible non-focusable window is not a guarantee. Either make it
+- `make ui-bg` in tracker-fx: a visible non-focusable window is not a guarantee. Either make it
   `VUI_HIDDEN=1` (safe, but no visible window) or add the Hyprland `no_focus` rule and document the
   risk. Don't describe it as "while the user games".
 

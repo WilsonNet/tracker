@@ -374,7 +374,7 @@ audit_bench_wav :: proc(frames: int, rate: u32) -> (write_row, read_row: Audit_R
 	for i in 0 ..< len(samples) {
 		samples[i] = math.sin(f32(i) * 0.01) * 0.4
 	}
-	path := "/tmp/tracker-odin-audit-60s.wav"
+	path := "/tmp/tracker-fx-audit-60s.wav"
 	defer os.remove(path)
 	in_mb := f64(len(samples) * 4) / AUDIT_MB
 
@@ -424,7 +424,7 @@ audit_bench_png :: proc(width, height: int) -> Audit_Row {
 	for i in 0 ..< min(len(c.pixels), 200_000) {
 		c.pixels[i] = 0xFF20 + u32(i & 0xFF)
 	}
-	path := fmt.tprintf("/tmp/tracker-odin-audit-%dx%d.png", width, height)
+	path := fmt.tprintf("/tmp/tracker-fx-audit-%dx%d.png", width, height)
 	defer os.remove(path)
 
 	tr: Audit_Track
@@ -453,7 +453,7 @@ audit_bench_ui_test :: proc(runs: int) -> Audit_Row {
 	if !os.exists(script) {
 		return Audit_Row{name = "ui-test x20", note = "script not found (run from odin/)"}
 	}
-	out_dir := "/tmp/tracker-odin-audit-ui"
+	out_dir := "/tmp/tracker-fx-audit-ui"
 	if !os.exists(out_dir) {
 		_ = os.make_directory(out_dir)
 	}
@@ -581,7 +581,7 @@ audit_leak_render_and_wav :: proc(t: ^testing.T) {
 	fmt.printfln("[leak] render_mix 4x2s: alloc %.2f MB peak %.2f MB (%d allocs), live %d B", alloc, peak, count, leaked)
 	testing.expectf(t, leaked == 0, "render_mix leaked %d bytes", leaked)
 
-	path := "/tmp/tracker-odin-audit.wav"
+	path := "/tmp/tracker-fx-audit.wav"
 	defer os.remove(path)
 
 	tr2: Audit_Track
@@ -601,7 +601,7 @@ audit_leak_render_and_wav :: proc(t: ^testing.T) {
 
 @(test)
 audit_leak_engine_and_project :: proc(t: ^testing.T) {
-	session := "/tmp/tracker-odin-audit-session"
+	session := "/tmp/tracker-fx-audit-session"
 	if !os.exists(session) {
 		_ = os.make_directory(session)
 	}

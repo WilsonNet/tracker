@@ -65,7 +65,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | Tape scrubber (`\|◄` RTZ, Shuttle & Jog wheels, modifier speeds) | done | unit + engine seek/meter tests, `vui-ctl` screenshots, `window.vt` e2e |
 | Accessibility: keyboard-first, high contrast, reduced motion | done | tests + `--a11y-log` |
 | HiDPI 1×/1.25×/1.5×/2×/3× | done | SDL density in the window; stb_truetype atlases in the harness |
-| Window class `tracker` for compositor rules | done | `hyprctl clients`; optional scratchpad rule |
+| Window class `tracker-fx` for compositor rules | done | `hyprctl clients`; optional scratchpad rule |
 | Background driving without OS focus/pointer | done | `VUI_BACKGROUND=1`, `vui-ctl foreground` escape hatch; Xvfb pointer check, `check-background.sh` |
 
 ## Headless UI test harness

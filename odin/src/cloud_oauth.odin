@@ -13,8 +13,8 @@ import "core:time"
 
 @(private)
 cloud_oauth_html :: proc(ok: bool, detail: string) -> string {
-	title := "Tracker connected" if ok else "Tracker could not connect"
-	body := "You can close this window and return to Tracker." if ok else detail
+	title := "Tracker-FX connected" if ok else "Tracker-FX could not connect"
+	body := "You can close this window and return to Tracker-FX." if ok else detail
 	return fmt.aprintf(
 		"<!doctype html><meta charset=utf-8><title>%s</title><body style=\"background:#121212;color:#eee;font:16px monospace;padding:3rem\"><h1 style=\"color:#e8a33d;font-size:1.4rem\">%s</h1><p>%s</p></body>",
 		title, title, body,
@@ -97,7 +97,7 @@ cloud_wait_for_code :: proc(listener: net.TCP_Socket, expected_state: string) ->
 		}
 		got_state, has_state := cloud_query_value(query, "state")
 		if !has_state || got_state != expected_state {
-			cloud_send_http(client, "400 Bad Request", cloud_oauth_html(false, "State mismatch. Return to Tracker and try again."))
+			cloud_send_http(client, "400 Bad Request", cloud_oauth_html(false, "State mismatch. Return to Tracker-FX and try again."))
 			net.close(client)
 			delete(got_state)
 			return "", false, "OAuth state mismatch"

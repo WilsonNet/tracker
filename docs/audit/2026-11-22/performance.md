@@ -1,24 +1,24 @@
-# Tracker performance audit — 2026-11-22
+# Tracker-FX performance audit — 2026-11-22
 
 > **Follow-up (same day).** The pan-law hoist and the PNG zlib-level change
 > recommended here were applied after the audit; the measured table below is
 > the pre-change baseline. Compressor dB conversions, synchronous mixdown,
 > WAV streaming and the resampler remain open.
 
-Pinned source: `d39946d` (tracker), vinland-ui `357c115` (checkout modified by
+Pinned source: `d39946d` (tracker-fx), vinland-ui `357c115` (checkout modified by
 other sessions during the run). Primary app binary hash:
 `bca79a9a97815880cc17cc9343d86bc243cb58aa453cdf582c683f6c8347761d`
-(frozen at `/tmp/opencode/audit-perf/tracker-odin-d39946d`).
+(frozen at `/tmp/opencode/audit-perf/tracker-fx-d39946d`).
 
 Host: AMD Ryzen 7 6800H, 16 threads, 13.6 GiB RAM, Odin
 `dev-2026-11-nightly:9a69916`. Headless runs are `VUI_HIDDEN=1`, SDL offscreen,
 Mesa llvmpipe (software GL).
 
-**Load caveat.** Other sessions ran 3–5 hidden `tracker-odin ui` windows and
-rebuilt `odin/bin/tracker-odin` during this audit. Load average ranged ~3–18.
+**Load caveat.** Other sessions ran 3–5 hidden `tracker-fx ui` windows and
+rebuilt `odin/bin/tracker-fx` during this audit. Load average ranged ~3–18.
 Absolute wall/`frame_ms` numbers are therefore conservative and noisy; medians
 and code-cost ratios are the reliable part. To keep one artifact, the repo
-binary was copied to `/tmp/opencode/audit-perf/tracker-odin-d39946d` and all
+binary was copied to `/tmp/opencode/audit-perf/tracker-fx-d39946d` and all
 "frozen" rows below use that copy. Earlier low-load rows are shown where useful.
 
 **`/usr/bin/time` is not installed.** `measure.py` runs the command with
@@ -293,11 +293,11 @@ Also significant, below the top five:
 ## (d) Exact repro commands and artifacts
 
 All artifacts are under `/tmp/opencode/audit-perf/`. The app binary was frozen
-once because another session rebuilt `odin/bin/tracker-odin` mid-audit.
+once because another session rebuilt `odin/bin/tracker-fx` mid-audit.
 
 ```sh
-cd /home/wilsonn/www/tracker/odin
-BIN=/tmp/opencode/audit-perf/tracker-odin-d39946d   # sha256 bca79...
+cd /home/wilsonn/www/tracker-fx/odin
+BIN=/tmp/opencode/audit-perf/tracker-fx-d39946d   # sha256 bca79...
 python3 /tmp/opencode/audit-perf/measure.py 5 shot1180 "$BIN" ui-shot \
   --out /tmp/opencode/audit-perf/frozen-shot-1180.png --width 1180 --height 760
 
@@ -338,7 +338,7 @@ for n in 1 2 3 4; do cp /tmp/opencode/audit-perf/frozen-tone60.wav \
 # custom measurement harnesses (source-compiled, outside the repo)
 odin build /tmp/opencode/audit-perf/shot_bench.odin -file \
   -out:/tmp/opencode/audit-perf/shot_bench \
-  -collection:tracker=/home/wilsonn/www/tracker/odin/src \
+  -collection:tracker-fx=/home/wilsonn/www/tracker-fx/odin/src \
   -collection:vinland=/home/wilsonn/www/vinland-ui \
   -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0"
 /tmp/opencode/audit-perf/shot_bench     # draw vs PNG, 1180/1920 normal/FX
@@ -365,7 +365,7 @@ Key artifacts:
   `frozen-steady.log` — backend/control-server logs.
 - `measure.py`, `shot_bench.odin`, `view_bench.odin`, `dsp_bench.odin`,
   `resample_bench.odin` — the measurement harnesses.
-- `tracker-odin-d39946d` — frozen binary used for all app-level rows.
+- `tracker-fx-d39946d` — frozen binary used for all app-level rows.
 
 ## Caveats
 

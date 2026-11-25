@@ -40,28 +40,28 @@ settings_destroy :: proc(doc: ^Settings_Doc) {
 	doc.timing_mode = ""
 }
 
-// `$XDG_CONFIG_HOME/tracker` (or `~/.config/tracker`), matching recent.json.
+// `$XDG_CONFIG_HOME/tracker-fx` (or `~/.config/tracker-fx`), matching recent.json.
 settings_config_path :: proc() -> string {
 	dir := recent_config_dir()
 	defer delete(dir)
 	return fmt.aprintf("%s/settings.json", dir)
 }
 
-// Default project folder: `$XDG_DATA_HOME/tracker/session` (or
-// `~/.local/share/tracker/session`). Kept separate from settings so a fresh
+// Default project folder: `$XDG_DATA_HOME/tracker-fx/session` (or
+// `~/.local/share/tracker-fx/session`). Kept separate from settings so a fresh
 // install and the CLI record into the same place.
 default_session_dir :: proc() -> string {
 	xdg := os.get_env("XDG_DATA_HOME", context.allocator)
 	defer delete(xdg)
 	if xdg != "" {
-		return fmt.aprintf("%s/tracker/session", xdg)
+		return fmt.aprintf("%s/tracker-fx/session", xdg)
 	}
 	home := os.get_env("HOME", context.allocator)
 	defer delete(home)
 	if home == "" {
-		return fmt.aprintf(".local/share/tracker/session")
+		return fmt.aprintf(".local/share/tracker-fx/session")
 	}
-	return fmt.aprintf("%s/.local/share/tracker/session", home)
+	return fmt.aprintf("%s/.local/share/tracker-fx/session", home)
 }
 
 // Normalizes a folder typed in the settings overlay. Expands a leading `~`,

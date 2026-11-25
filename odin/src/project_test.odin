@@ -10,7 +10,7 @@ import ui "ui"
 
 @(test)
 project_round_trip_preserves_state :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-project-roundtrip.json"
+	path := "/tmp/tracker-fx-project-roundtrip.json"
 	defer os.remove(path)
 
 	a: ui.App
@@ -67,7 +67,7 @@ project_round_trip_preserves_state :: proc(t: ^testing.T) {
 
 @(test)
 project_minimal_json_gets_defaults :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-project-minimal.json"
+	path := "/tmp/tracker-fx-project-minimal.json"
 	defer os.remove(path)
 	testing.expect(t, os.write_entire_file(path, `{"version":1,"name":"min","extra":{"nested":[1,2,3]},"tracks":[{"futureField":true}]}`) == nil)
 
@@ -142,7 +142,7 @@ test_path :: proc(dir, name: string) -> string {
 
 @(test)
 project_load_rejects_malformed_documents :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-project-malformed.json"
+	path := "/tmp/tracker-fx-project-malformed.json"
 	defer os.remove(path)
 
 	bad := []string{
@@ -176,7 +176,7 @@ project_load_rejects_malformed_documents :: proc(t: ^testing.T) {
 
 @(test)
 project_load_version_rules :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-project-version.json"
+	path := "/tmp/tracker-fx-project-version.json"
 	defer os.remove(path)
 
 	a: ui.App
@@ -198,7 +198,7 @@ project_load_version_rules :: proc(t: ^testing.T) {
 
 @(test)
 project_load_handles_track_counts_and_missing_files :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-project-tracks"
+	dir := "/tmp/tracker-fx-project-tracks"
 	os.remove_all(dir)
 	testing.expect(t, ensure_dir(dir), "session dir")
 	defer os.remove_all(dir)
@@ -247,8 +247,8 @@ project_load_handles_track_counts_and_missing_files :: proc(t: ^testing.T) {
 
 @(test)
 project_load_rejects_path_traversal_file_names :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-project-traversal"
-	outside := "/tmp/tracker-project-outside.wav"
+	dir := "/tmp/tracker-fx-project-traversal"
+	outside := "/tmp/tracker-fx-project-outside.wav"
 	os.remove_all(dir)
 	testing.expect(t, ensure_dir(dir), "session dir")
 	testing.expect(t, ensure_dir(test_path(dir, "sub")), "sub dir")
@@ -272,9 +272,9 @@ project_load_rejects_path_traversal_file_names :: proc(t: ^testing.T) {
 	}{
 		{`track1.wav`, true, true},
 		{`sub/track1.wav`, true, true},
-		{`../tracker-project-outside.wav`, false, true},
-		{`sub/../../tracker-project-outside.wav`, false, true},
-		{`/tmp/tracker-project-outside.wav`, false, true},
+		{`../tracker-fx-project-outside.wav`, false, true},
+		{`sub/../../tracker-fx-project-outside.wav`, false, true},
+		{`/tmp/tracker-fx-project-outside.wav`, false, true},
 		// An escaped NUL is valid JSON but never a usable local file.
 		{`track1.wav\u0000/../x.wav`, false, true},
 	}
@@ -290,7 +290,7 @@ project_load_rejects_path_traversal_file_names :: proc(t: ^testing.T) {
 
 @(test)
 project_load_preserves_zero_level_and_partial_nested_params :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-project-partial.json"
+	path := "/tmp/tracker-fx-project-partial.json"
 	defer os.remove(path)
 
 	testing.expect(t, write_test_text(path, `{
@@ -324,7 +324,7 @@ project_load_preserves_zero_level_and_partial_nested_params :: proc(t: ^testing.
 
 @(test)
 project_load_clamps_invalid_ranges :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-project-ranges.json"
+	path := "/tmp/tracker-fx-project-ranges.json"
 	defer os.remove(path)
 
 	testing.expect(t, write_test_text(path, `{
@@ -360,7 +360,7 @@ project_load_clamps_invalid_ranges :: proc(t: ^testing.T) {
 
 @(test)
 project_load_unicode_and_long_names :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-project-unicode.json"
+	path := "/tmp/tracker-fx-project-unicode.json"
 	defer os.remove(path)
 
 	long, repeat_err := strings.repeat("é", 100)
@@ -399,7 +399,7 @@ project_load_unicode_and_long_names :: proc(t: ^testing.T) {
 
 @(test)
 project_save_is_atomic_and_creates_parents :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-project-atomic"
+	base := "/tmp/tracker-fx-project-atomic"
 	os.remove_all(base)
 	defer os.remove_all(base)
 
@@ -439,7 +439,7 @@ project_save_is_atomic_and_creates_parents :: proc(t: ^testing.T) {
 
 @(test)
 project_repeated_load_and_save_is_owned :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-project-reload"
+	dir := "/tmp/tracker-fx-project-reload"
 	os.remove_all(dir)
 	testing.expect(t, ensure_dir(dir), "session dir")
 	defer os.remove_all(dir)
@@ -474,7 +474,7 @@ project_repeated_load_and_save_is_owned :: proc(t: ^testing.T) {
 
 @(test)
 project_failed_load_preserves_previous_state :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-project-preserve.json"
+	path := "/tmp/tracker-fx-project-preserve.json"
 	defer os.remove(path)
 
 	a: ui.App
@@ -492,7 +492,7 @@ project_failed_load_preserves_previous_state :: proc(t: ^testing.T) {
 
 @(test)
 ui_test_harness_reports_and_cleans_up :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-project-harness"
+	dir := "/tmp/tracker-fx-project-harness"
 	os.remove_all(dir)
 	testing.expect(t, ensure_dir(dir), "harness dir")
 	defer os.remove_all(dir)
@@ -550,7 +550,7 @@ cli_flag_validation_and_directory_helpers :: proc(t: ^testing.T) {
 	testing.expect(t, !missing, "missing value reported as present")
 	testing.expect(t, flag_f32([]string{"--gain=nan"}, "--gain", 1.5) == 1.5, "NaN accepted")
 
-	base := "/tmp/tracker-project-dirs"
+	base := "/tmp/tracker-fx-project-dirs"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	nested := test_path(base, "nested/a b/c")
@@ -564,7 +564,7 @@ cli_flag_validation_and_directory_helpers :: proc(t: ^testing.T) {
 
 @(test)
 project_latency_and_accessibility_roundtrip :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-project-latency-a11y.json"
+	path := "/tmp/tracker-fx-project-latency-a11y.json"
 	defer os.remove(path)
 	a: ui.App
 	ui.app_init(&a, 1180, 760)
@@ -584,7 +584,7 @@ project_latency_and_accessibility_roundtrip :: proc(t: ^testing.T) {
 
 @(test)
 project_round_trips_variable_track_count :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-project-track-count"
+	dir := "/tmp/tracker-fx-project-track-count"
 	os.remove_all(dir)
 	defer os.remove_all(dir)
 	_ = os.make_directory_all(dir)
@@ -618,7 +618,7 @@ project_round_trips_variable_track_count :: proc(t: ^testing.T) {
 
 @(test)
 project_roundtrip_preserves_timing_mode_and_time_sig :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-odin-project-timing"
+	dir := "/tmp/tracker-fx-project-timing"
 	_ = os.remove_all(dir)
 	_ = os.make_directory_all(dir)
 	defer _ = os.remove_all(dir)

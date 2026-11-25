@@ -32,7 +32,7 @@ run_ui_shot :: proc(args: []string) -> bool {
 	}) || !validate_numbers(args, nil, []string{"--width", "--height"}) {
 		return false
 	}
-	out := flag_string(args, "--out", "/tmp/tracker-odin-ui.png")
+	out := flag_string(args, "--out", "/tmp/tracker-fx-ui.png")
 	width := flag_int(args, "--width", 1180)
 	height := flag_int(args, "--height", 760)
 	scale, scale_ok := ui_scale_from_flags(args, "--scale")
@@ -82,8 +82,8 @@ run_ui_shot :: proc(args: []string) -> bool {
 	}
 	if has_flag(args, "--settings") {
 		a.mode = .Settings
-		ui.app_set_save_dir(&a, "/home/studio/Music/Tracker")
-		ui.app_set_settings_path(&a, "/home/studio/Music/Tracker")
+		ui.app_set_save_dir(&a, "/home/studio/Music/Tracker-FX")
+		ui.app_set_settings_path(&a, "/home/studio/Music/Tracker-FX")
 	}
 	if has_flag(args, "--cloud") {
 		a.mode = .Cloud

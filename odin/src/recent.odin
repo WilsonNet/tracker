@@ -18,14 +18,14 @@ Recent_File :: struct {
 recent_config_dir :: proc() -> string {
 	if xdg := os.get_env("XDG_CONFIG_HOME", context.allocator); xdg != "" {
 		defer delete(xdg)
-		return fmt.aprintf("%s/tracker", xdg)
+		return fmt.aprintf("%s/tracker-fx", xdg)
 	}
 	home := os.get_env("HOME", context.allocator)
 	defer delete(home)
 	if home == "" {
-		return fmt.aprintf(".config/tracker")
+		return fmt.aprintf(".config/tracker-fx")
 	}
-	return fmt.aprintf("%s/.config/tracker", home)
+	return fmt.aprintf("%s/.config/tracker-fx", home)
 }
 
 recent_config_path :: proc() -> string {
@@ -70,7 +70,7 @@ recent_save :: proc(path: string, projects: []string) -> bool {
 	defer delete(data)
 	// write_file_atomic creates `path`'s own parent. Creating the default
 	// config directory here instead made a save to any other path (tests, a
-	// custom store) touch the user's ~/.config/tracker.
+	// custom store) touch the user's ~/.config/tracker-fx.
 	return write_file_atomic(path, data)
 }
 

@@ -1,6 +1,6 @@
 # Cross-Platform Matrix & Verification Handoff
 
-Tracker runs natively on **Linux** and **macOS** from one Odin codebase, with OS-specific boundaries isolated behind Odin `#+build` files.
+Tracker-FX runs natively on **Linux** and **macOS** from one Odin codebase, with OS-specific boundaries isolated behind Odin `#+build` files.
 
 > [!IMPORTANT]
 > **Session Workflow:** Read [Pending Cross-OS Verification](#pending-cross-os-verification) at the start of any coding session. Clear checkboxes verified on your current OS, and add a checkbox whenever you modify OS-specific code for the *other* OS that you cannot run locally.
@@ -46,10 +46,10 @@ make build && make test && make check
 make e2e
 odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui
 # Metal + GL live control check:
-VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-odin ui --demo --session /tmp/tracker-check
+VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-fx ui --demo --session /tmp/tracker-fx-check
 # CoreAudio hardware check (with audio interface connected):
-./bin/tracker-odin devices
-./bin/tracker-odin record --seconds 2 --channels 2 --device 0 --out /tmp/tracker-hw
+./bin/tracker-fx devices
+./bin/tracker-fx record --seconds 2 --channels 2 --device 0 --out /tmp/tracker-fx-hw
 ```
 
 ### Linux (`linux_amd64`)

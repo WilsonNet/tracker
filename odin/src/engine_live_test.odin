@@ -128,7 +128,7 @@ engine_latency_frames_rounds_at_odd_rates :: proc(t: ^testing.T) {
 
 @(test)
 engine_split_take_drops_latency_frames :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-odin-engine-latency"
+	dir := "/tmp/tracker-fx-engine-latency"
 	_ = os.remove_all(dir)
 	_ = os.make_directory_all(dir)
 	defer {

@@ -3,7 +3,7 @@
 // renders; keyboard input goes straight to ui.app_key, so every Vim binding
 // behaves exactly like the harness and the unit tests.
 //
-// Agents: VUI_PORT=7421 ./bin/tracker-odin ui  then  vui-ctl --port 7421 screenshot x.png
+// Agents: VUI_PORT=7421 ./bin/tracker-fx ui  then  vui-ctl --port 7421 screenshot x.png
 
 package main
 
@@ -22,7 +22,7 @@ Window_State :: struct {
 }
 
 @(private)
-TRACKER_ICON_PNG := #load("../assets/tracker.png")
+TRACKER_FX_ICON_PNG := #load("../assets/tracker-fx.png")
 
 run_ui_window :: proc(args: []string) -> bool {
 	width := flag_int(args, "--width", 1180)
@@ -45,13 +45,13 @@ run_ui_window :: proc(args: []string) -> bool {
 
 	va: vapp.App
 	cfg := vapp.Config {
-		title        = "Tracker",
+		title        = "Tracker-FX",
 		size         = {i32(width), i32(height)},
 		min_size     = {900, 620},
 		scale        = scale,
-		app_id       = "tracker", // Hyprland rule: open on the silent special workspace
+		app_id       = "tracker-fx", // Hyprland rule: open on the silent special workspace
 		control_port = flag_int(args, "--control-port", 0),
-		icon_png     = TRACKER_ICON_PNG,
+		icon_png     = TRACKER_FX_ICON_PNG,
 	}
 	if !vapp.init(&va, cfg, ctx) {
 		return false
@@ -100,7 +100,7 @@ run_ui_window :: proc(args: []string) -> bool {
 	cloud_store := cloud_store_path()
 	// An explicit session is a sandbox: keep cloud credentials beside the
 	// project so e2e/throwaway runs can never overwrite the user's real
-	// ~/.config/tracker/cloud.json.
+	// ~/.config/tracker-fx/cloud.json.
 	if session_given {
 		delete(cloud_store)
 		cloud_store = fmt.aprintf("%s/cloud.json", e.session_dir)
@@ -546,7 +546,7 @@ window_apply_save_dir :: proc(a: ^ui.App, e: ^Engine, dir: string, recent_store:
 	normalized, valid := normalize_save_dir(dir)
 	if !valid {
 		ui.status_buf_set(a, "project folder must be an absolute path")
-		ui.toast(a, "use an absolute path, e.g. ~/Music/Tracker")
+		ui.toast(a, "use an absolute path, e.g. ~/Music/Tracker-FX")
 		return false
 	}
 	defer delete(normalized)
@@ -579,7 +579,7 @@ window_sync_title :: proc(va: ^vapp.App, a: ^ui.App, last_title: ^string) {
 		return
 	}
 	name := ui.app_project(a)
-	desired := "Tracker" if name == "" || name == "untitled" else fmt.tprintf("Tracker — %s", name)
+	desired := "Tracker-FX" if name == "" || name == "untitled" else fmt.tprintf("Tracker-FX — %s", name)
 	if desired == last_title^ {
 		return
 	}

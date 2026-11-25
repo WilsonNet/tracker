@@ -1,4 +1,4 @@
-// tracker-odin: native multitrack recorder core.
+// tracker-fx: native multitrack recorder core.
 //
 // Phase 1 vertical slice: device enumeration, hardware capture to per-channel
 // float WAVs, an offline EQ -> compressor -> fader/pan -> master comp ->
@@ -50,7 +50,7 @@ main :: proc() {
 		ok = run_render(args[2:])
 	case "info":
 		if len(args) != 3 {
-			fmt.eprintln("usage: tracker-odin info FILE.wav")
+			fmt.eprintln("usage: tracker-fx info FILE.wav")
 			ok = false
 		} else {
 			ok = wav_print_info(args[2])
@@ -86,12 +86,12 @@ main :: proc() {
 	case "comp":
 		ok = run_comp(args[2:])
 	case "version", "--version":
-		fmt.printfln("tracker-odin %s", VERSION)
+		fmt.printfln("tracker-fx %s", VERSION)
 	case "help", "--help", "-h":
 		usage()
 	case:
 		fmt.eprintfln("unknown command: %s", args[1])
-		fmt.eprintln("run `tracker-odin help` for usage")
+		fmt.eprintln("run `tracker-fx help` for usage")
 		ok = false
 	}
 
@@ -101,28 +101,28 @@ main :: proc() {
 }
 
 usage :: proc(f: ^os.File = os.stdout) {
-	fmt.fprintln(f, `tracker-odin - native multitrack recorder core
+	fmt.fprintln(f, `tracker-fx - native multitrack recorder core
 
 usage:
-  tracker-odin devices
-  tracker-odin record --seconds 5 --out DIR [--channels 2] [--device INDEX] [--rate 48000] [--jack]
-  tracker-odin tone   --out FILE [--seconds 3] [--freq 440] [--amp 0.5] [--channels 1]
-  tracker-odin render --in DIR_OR_FILE --out FILE [chain options]
-  tracker-odin bounce --session DIR [--out FILE]
-  tracker-odin comp --session DIR --track N --list
-  tracker-odin comp --session DIR --track N --select ID
-  tracker-odin comp --session DIR --track N --take ID --start FRAME --end FRAME
-  tracker-odin comp --session DIR --track N --clear
-  tracker-odin info   FILE.wav
-  tracker-odin selftest
-  tracker-odin ui [--session DIR] [--ui-scale 1|1.25|1.5|2|3] [--demo] [--open FILE]
+  tracker-fx devices
+  tracker-fx record --seconds 5 --out DIR [--channels 2] [--device INDEX] [--rate 48000] [--jack]
+  tracker-fx tone   --out FILE [--seconds 3] [--freq 440] [--amp 0.5] [--channels 1]
+  tracker-fx render --in DIR_OR_FILE --out FILE [chain options]
+  tracker-fx bounce --session DIR [--out FILE]
+  tracker-fx comp --session DIR --track N --list
+  tracker-fx comp --session DIR --track N --select ID
+  tracker-fx comp --session DIR --track N --take ID --start FRAME --end FRAME
+  tracker-fx comp --session DIR --track N --clear
+  tracker-fx info   FILE.wav
+  tracker-fx selftest
+  tracker-fx ui [--session DIR] [--ui-scale 1|1.25|1.5|2|3] [--demo] [--open FILE]
                   [--jack] [--a11y-log] [--latency-ms N] [--width W --height H]
                   [--control-port PORT]
-  tracker-odin ui-shot --out FILE [--scale 1|1.25|1.5|2|3] [--width W --height H]
+  tracker-fx ui-shot --out FILE [--scale 1|1.25|1.5|2|3] [--width W --height H]
                   [--fx [--master]|--palette|--io|--settings|--cloud|--bounce] [--playing|--recording]
                   [--three] [--click]
-  tracker-odin ui-test --script FILE.json --out DIR [--scale 1|1.25|1.5|2|3]
-  tracker-odin version
+  tracker-fx ui-test --script FILE.json --out DIR [--scale 1|1.25|1.5|2|3]
+  tracker-fx version
 
 chain options for render:
   --level 0.8          track fader (unity = 1.0)
@@ -696,7 +696,7 @@ run_selftest :: proc() -> bool {
 		return false
 	}
 	defer delete(tmp_dir)
-	path := fmt.tprintf("%s/tracker-odin-selftest.wav", tmp_dir)
+	path := fmt.tprintf("%s/tracker-fx-selftest.wav", tmp_dir)
 	if !wav_write(path, rate, 2, out.samples) {
 		fmt.eprintln("FAIL: cannot write selftest WAV")
 		return false

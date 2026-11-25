@@ -8,7 +8,7 @@ import ui "ui"
 
 @(test)
 engine_takes_register_stabilize_and_comp :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-takes"
+	base := "/tmp/tracker-fx-engine-takes"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	_ = os.make_directory_all(base)
@@ -61,7 +61,7 @@ engine_takes_register_stabilize_and_comp :: proc(t: ^testing.T) {
 
 @(test)
 engine_take_cycle_rejects_master :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-take-master"
+	base := "/tmp/tracker-fx-engine-take-master"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	_ = os.make_directory_all(base)
@@ -74,7 +74,7 @@ engine_take_cycle_rejects_master :: proc(t: ^testing.T) {
 
 @(test)
 engine_comp_use_active_and_clear :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-comp-ui"
+	base := "/tmp/tracker-fx-engine-comp-ui"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	_ = os.make_directory_all(base)
@@ -99,7 +99,7 @@ engine_comp_use_active_and_clear :: proc(t: ^testing.T) {
 
 @(test)
 engine_take_delete_moves_wav_and_reloads_neighbor :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-take-delete"
+	base := "/tmp/tracker-fx-engine-take-delete"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	_ = os.make_directory_all(base)
@@ -189,7 +189,7 @@ engine_take_delete_moves_wav_and_reloads_neighbor :: proc(t: ^testing.T) {
 
 @(test)
 engine_take_new_opt_in_and_tape_overwrite :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-take-new"
+	base := "/tmp/tracker-fx-engine-take-new"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	_ = os.make_directory_all(base)

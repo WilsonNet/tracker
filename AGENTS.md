@@ -28,7 +28,7 @@ Push logic into the model/engine and keep `view.odin` a pure render of `App`. Ne
 
 ## Text editing
 
-SDL key events are consumed before vinland sees them, so Tracker owns text
+SDL key events are consumed before vinland sees them, so Tracker-FX owns text
 entry. Clicking the project title in the status bar (or pressing `n` / running
 `: rename project` / opening Settings `PROJECT` / clicking `RENAME` in Cloud
 projects) enters inline or form **EDIT**; `Enter` saves (`project.json` +
@@ -106,10 +106,10 @@ code** — it covers the element API, the utility subset that actually renders,
 design tokens, layout rules that differ from the web, and the screenshot/e2e loop.
 
 vinland-ui is maintained by the same owner, so framework changes are allowed.
-Keep them **generic and useful to every vinland app**: no tracker model types,
+Keep them **generic and useful to every vinland app**: no tracker-fx model types,
 product names, or audio assumptions in `vui`. Add or update an upstream test or
 example, run the vinland build/tests, and record the upstream change in the
-closeout. Prefer composing the UI in `tracker` when existing primitives already
+closeout. Prefer composing the UI in `tracker-fx` when existing primitives already
 cover it.
 
 - Build with `cd odin && make build`; rerun `./build.sh` in the vinland-ui checkout
@@ -143,7 +143,7 @@ cover it.
 
 All from `odin/`:
 
-- `make build` — compile `bin/tracker-odin`
+- `make build` — compile `bin/tracker-fx`
 - `make test` — unit tests (336 on Linux / 330 on macOS: DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
@@ -158,10 +158,10 @@ All from `odin/`:
 Useful direct invocations:
 
 ```sh
-./bin/tracker-odin ui --demo                  # synthetic meters, no hardware
-./bin/tracker-odin ui --open session/project.json --jack
-./bin/tracker-odin ui-shot --out /tmp/ui.png --fx --master --scale 2
-./bin/tracker-odin ui-test --script tests/ui/full-tour.json --out /tmp/ui
+./bin/tracker-fx ui --demo                  # synthetic meters, no hardware
+./bin/tracker-fx ui --open session/project.json --jack
+./bin/tracker-fx ui-shot --out /tmp/ui.png --fx --master --scale 2
+./bin/tracker-fx ui-test --script tests/ui/full-tour.json --out /tmp/ui
 ```
 
 ### Running the app (herdr)
@@ -170,19 +170,19 @@ See the project skill `.opencode/skills/herdr` for the full workflow.
 
 **Never split the pane/tab holding the agent conversation** — it steals width from the user's terminal. Run the app in its own tab.
 
-The window class is `tracker`. Normal launches open on the active workspace, so
+The window class is `tracker-fx`. Normal launches open on the active workspace, so
 a visible run is fine to inspect with `vui-ctl`. For silent dev runs there is a
-commented `tracker-dev-workspace` rule in `~/.config/hypr/hyprland.lua` that
-routes the class to `special:tracker silent`; uncomment it and run `hyprctl
+commented `tracker-fx-dev-workspace` rule in `~/.config/hypr/hyprland.lua` that
+routes the class to `special:tracker-fx silent`; uncomment it and run `hyprctl
 reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
-1. `herdr tab create --cwd "$PWD" --label "tracker"` — note `.result.root_pane.pane_id` and `.result.tab.tab_id` (no `--focus`)
-2. `herdr pane run <pane-id> "cd odin && VUI_PORT=7421 ./bin/tracker-odin ui"`
+1. `herdr tab create --cwd "$PWD" --label "tracker-fx"` — note `.result.root_pane.pane_id` and `.result.tab.tab_id` (no `--focus`)
+2. `herdr pane run <pane-id> "cd odin && VUI_PORT=7421 ./bin/tracker-fx ui"`
 3. `herdr pane wait-output <pane-id> --match 'vui: control server' --source recent-unwrapped --timeout 120000`
-4. `vui-ctl --port 7421 screenshot /tmp/opencode/tracker.png` — read it back
+4. `vui-ctl --port 7421 screenshot /tmp/opencode/tracker-fx.png` — read it back
 5. `herdr pane read <pane-id> --source recent-unwrapped --lines 80` — logs
 6. `herdr tab close <tab-id>` — kills the app and its children
-7. only if the dev scratchpad rule is enabled: `hyprctl dispatch 'hl.dsp.workspace.toggle_special("tracker")'` to show/hide the window
+7. only if the dev scratchpad rule is enabled: `hyprctl dispatch 'hl.dsp.workspace.toggle_special("tracker-fx")'` to show/hide the window
 
 ## Testing
 
@@ -199,7 +199,7 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 - **Track chain** — 3-band EQ (low shelf 110 Hz → mid bell → high shelf 7.5 kHz) → compressor → fader/pan, with post-fader sends into the shared reverb and delay buses.
 - **Master chain** — compressor → FDN reverb → ping-pong delay → mid/side widener (mono-safe below the bass crossover) → lookahead limiter with a soft-clip ceiling.
 - **Persistence** — atomic `project.json` (takes, active take, comp regions, FX, markers `markerFrame`/`endMarkerFrame`/`loopEnabled`/`punchOutEnabled`, view and a11y flags), recent projects and machine settings under `XDG_CONFIG_HOME` (`settings.json`: project folder, high contrast, reduced motion, pre-roll length & `prerollAudio`; `cloud.json`: Google OAuth client/token/folder with 0600), RF64/BW64 reading and writing. Settings (`SET`, `,`) houses a unified `PROJECT` section (`+ NEW PROJECT` inline creator into a clean unique sibling folder preserving machine prefs, `OPEN…`, `RECENT`, rename, and `Project folder` copy/move); an explicit `--session` isolates `settings.json`, `recent.json`, and `cloud.json` beside the session so tests and throwaway takes never touch user config.
-- **Cloud** — `cloud.odin` (store/PKCE/curl), `cloud_oauth.odin` (loopback OAuth), `cloud_drive.odin` (Drive v3), `cloud_jobs.odin` (background backup/restore + UI bridge). Scope is exactly `drive.file`; storage is a visible, named My Drive folder. Every created item carries `appProperties.tracker=1`, all queries are parent-scoped and marker-filtered, and there is **no remote DELETE**. Restore writes into a fresh local folder beside the current project, only after download succeeds, and never removes an existing target; a pre-existing name gets `-2`, `-3`, … Duplicate marked filenames are rejected instead of picked arbitrarily. Live setup, the new-machine path and safety tests: `docs/cloud-setup.md`, `tests/cloud/fake_drive.py`.
+- **Cloud** — `cloud.odin` (store/PKCE/curl), `cloud_oauth.odin` (loopback OAuth), `cloud_drive.odin` (Drive v3), `cloud_jobs.odin` (background backup/restore + UI bridge). Scope is exactly `drive.file`; storage is a visible, named My Drive folder. Every created item carries `appProperties.tracker-fx=1`, all queries are parent-scoped and marker-filtered, and there is **no remote DELETE**. Restore writes into a fresh local folder beside the current project, only after download succeeds, and never removes an existing target; a pre-existing name gets `-2`, `-3`, … Duplicate marked filenames are rejected instead of picked arbitrarily. Live setup, the new-machine path and safety tests: `docs/cloud-setup.md`, `tests/cloud/fake_drive.py`.
 - Bounce renders the same chain offline to stereo float `bounce.wav`, including reverb tails. The main window also exposes `RENDER…` (`B`) for the same non-destructive mix to an external WAV via a dual-handle range/format dialog (32-bit float, 24-bit PCM, 16-bit PCM) and a save dialog. Drag either handle or click the track to move the nearest one; `j/k` selects and `h/l` nudges. The range is applied after the full mix render so reverb/filter state stays continuous.
 
 ## Docs

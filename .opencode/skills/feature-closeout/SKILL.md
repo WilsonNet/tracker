@@ -30,7 +30,7 @@ make check                 # tests + 220-action UI tour + offline bounce + forma
 For UI work, follow the vinland-ui skill and additionally:
 
 ```sh
-VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-odin ui --session /tmp/closeout &
+VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-fx ui --session /tmp/closeout &
 vui-ctl --port 7421 info
 vui-ctl --port 7421 click-text "ARM"
 vui-ctl --port 7421 screenshot /tmp/opencode/closeout.png
@@ -52,14 +52,14 @@ saved values are actually exercised:
 ```sh
 XDG_DATA_HOME=/tmp/opencode/closeout/data \
 XDG_CONFIG_HOME=/tmp/opencode/closeout/config \
-VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-odin ui &
+VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-fx ui &
 vui-ctl --port 7421 type ","
 vui-ctl --port 7421 key down
 vui-ctl --port 7421 key enter
 vui-ctl --port 7421 screenshot /tmp/opencode/settings.png
 ```
 
-Then inspect `config/tracker/settings.json` and restart the app to prove the
+Then inspect `config/tracker-fx/settings.json` and restart the app to prove the
 value is loaded, not just written.
 
 Evidence that needs hardware (input capture, JACK, loopback) goes in
@@ -169,7 +169,7 @@ message state:
 
 ### Clipboard and edit mode (2026-11-22)
 
-- SDL key events are consumed by Tracker, so `vui.text_input` never sees
+- SDL key events are consumed by Tracker-FX, so `vui.text_input` never sees
   `Ctrl+V`. Handle paste in `window_on_event` (real keys) **and**
   `window_synthetic_keys` (vui-ctl) through `vapp.clipboard_read` and
   `ui.app_paste_text`.
@@ -211,7 +211,7 @@ message state:
 - Secrets stay masked through selection and save; assert the plaintext is
   absent from `vui-ctl tree`. e2e must pass an explicit `--session`, and the
   window must store `cloud.json` beside that session, never in the user's real
-  `~/.config/tracker`.
+  `~/.config/tracker-fx`.
 - Hovering an input must change the OS cursor: put `cursor-text` on the field
   row and its clipped value container. Blink the caret with a hard on/off
   timer (`ctx.animating = true`) instead of `animate-pulse`; omit the caret
@@ -231,9 +231,9 @@ message state:
 
 - Scope is exactly `drive.file`; do not widen it to full Drive. Storage is a
   visible My Drive folder whose name is user-configurable (`cloud.json`).
-- Every created file/folder carries `appProperties.tracker=1`; every lookup,
+- Every created file/folder carries `appProperties.tracker-fx=1`; every lookup,
   list and restore filter uses that marker. This protects same-named files even
-  inside the Tracker folder.
+  inside the Tracker-FX folder.
 - There is **no remote DELETE**. Do not add one without a separate product and
   safety review. Deleting the Drive folder is the user-facing deletion path.
 - Restore accepts single ordinary filenames only (`/`, `\`, NUL, `.` and `..`
@@ -300,12 +300,12 @@ message state:
 
 ### Window visibility (2026-11-21)
 
-- A Hyprland `workspace = "special:tracker silent"` rule made every `tracker`
+- A Hyprland `workspace = "special:tracker-fx silent"` rule made every `tracker-fx`
   window invisible. The rule is now an opt-in commented block in
   `~/.config/hypr/hyprland.lua`; normal launches open on the active workspace.
 - Before debugging "no window", check `hyprctl clients` for the class and
   workspace, then the window rules — not the renderer logs.
-- The app is `tracker-odin`; `tracker` is not a command.
+- The app is `tracker-fx`; `tracker-fx` is not a command.
 
 ### Background driving without stealing input (2026-11-22)
 
@@ -331,7 +331,7 @@ message state:
 - Proven by `vinland-ui/scripts/check-background.sh` under Xvfb + openbox:
   pointer position unchanged across `vui-ctl click-text`, `info` reports
   `background:true`/`focusable:false`, and the foreground/background toggle
-  round-trips. Tracker e2e (18) and showroom e2e (6) stay green.
+  round-trips. Tracker-FX e2e (18) and showroom e2e (6) stay green.
 
 ### macOS port & cross-OS `#+build` isolation (2026-11-23)
 
@@ -388,7 +388,7 @@ message state:
   keyboard-walk step in `tests/ui/window.vt` (the Client ID test counts `key down`).
 - `ui --demo` with an armed track and `r` still opens the real capture device;
   use a throwaway `--session` and press Space to stop. Never `pkill -f
-  "tracker-odin ui"` from a shell whose own command line contains that text.
+  "tracker-fx ui"` from a shell whose own command line contains that text.
 - e2e cannot assert PLAY→PAUSE: without an output device `engine_play` fails and
   the transport force-stops. Cover pause in unit tests.
 - Counts now: 303 Linux / 297 macOS unit tests, 28 e2e cases.
@@ -419,7 +419,7 @@ message state:
 
 - Keep `Settings_Item` enum order identical to `view_settings` top-to-bottom layout; adding `.New_Project`, `.Open_Project`, `.Recent_Projects` before `.Project_Name` shifts `window.vt` `key down` walks by +3.
 - `engine_new_project` saves the outgoing project (when dirty, existing, or holding audio) before clearing `Engine.loaded` and `Engine.takes`, creates a unique sibling `<parent>/<slug>[-N]` folder, resets per-project UI/mix/FX/marker state via `ui.app_reset_project`, and preserves machine preferences (`device`, `latency_ms`, `timing_mode`, `preroll`, `high_contrast`, `reduced_motion`, `cloud_*`, `recent_*`).
-- `ui_window.odin` isolates `recent_store` (`<session_dir>/recent.json`) when `session_given` is true, matching `settings.json` and `cloud.json`, so e2e tests (`create a new clean project from settings`) never pollute `~/.config/tracker/recent.json`.
+- `ui_window.odin` isolates `recent_store` (`<session_dir>/recent.json`) when `session_given` is true, matching `settings.json` and `cloud.json`, so e2e tests (`create a new clean project from settings`) never pollute `~/.config/tracker-fx/recent.json`.
 - Counts now: 318 Linux / 312 macOS unit tests, 31 e2e cases.
 
 ### Unbounded metronome, tape-first overwrite & opt-in takes (2026-11-24)

@@ -534,7 +534,7 @@ jack_session_start :: proc(
 	}
 
 	status: u32
-	client := jack_client_open(cstring("tracker"), JACK_NO_START_SERVER, &status, rawptr(nil))
+	client := jack_client_open(cstring("tracker-fx"), JACK_NO_START_SERVER, &status, rawptr(nil))
 	if client == nil {
 		buf: [128]u8
 		msg := fmt.bprintf(buf[:], "JACK server not available (status 0x%x)", status)

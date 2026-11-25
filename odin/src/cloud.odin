@@ -1,6 +1,6 @@
 // Google Drive project transfer.
 //
-// Scope is drive.file only: Tracker can see the files/folders it created in a
+// Scope is drive.file only: Tracker-FX can see the files/folders it created in a
 // visible, named My Drive folder, and nothing else. OAuth is the desktop
 // loopback + PKCE flow; the refresh token is stored in cloud.json with 0600
 // permissions. Drive REST calls go through curl so large WAVs stream without a
@@ -29,9 +29,9 @@ CLOUD_SCOPE :: "https://www.googleapis.com/auth/drive.file"
 // constants above.
 cloud_api_base: string = CLOUD_DRIVE_API
 cloud_upload_base: string = CLOUD_DRIVE_UPLOAD
-CLOUD_ROOT_NAME :: "Tracker"
+CLOUD_ROOT_NAME :: "Tracker-FX"
 CLOUD_INDEX_NAME :: "index.json"
-CLOUD_ID_FILE :: ".tracker-cloud-id"
+CLOUD_ID_FILE :: ".tracker-fx-cloud-id"
 CLOUD_NAME_MAX :: 96
 CLOUD_ID_MAX :: 64
 CLOUD_PATH_MAX :: 4096
@@ -279,7 +279,7 @@ cloud_curl_destroy :: proc(r: ^Cloud_Curl) {
 }
 
 cloud_temp_dir :: proc() -> string {
-	dir := fmt.aprintf("/tmp/tracker-cloud-%d", os.get_pid())
+	dir := fmt.aprintf("/tmp/tracker-fx-cloud-%d", os.get_pid())
 	_ = os.make_directory_all(dir)
 	return dir
 }

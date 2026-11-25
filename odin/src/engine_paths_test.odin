@@ -8,7 +8,7 @@ import ui "ui"
 
 @(test)
 engine_save_as_and_open_roundtrip :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-paths"
+	base := "/tmp/tracker-fx-engine-paths"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	source_dir := fmt.tprintf("%s/source", base)
@@ -37,7 +37,7 @@ engine_save_as_and_open_roundtrip :: proc(t: ^testing.T) {
 	testing.expect(t, os.exists(fmt.tprintf("%s/project.json", target_dir)), "project copied")
 	testing.expect(t, os.exists(fmt.tprintf("%s/track1.wav", target_dir)), "take copied")
 
-	// Save-as must not merge into an existing Tracker folder.
+	// Save-as must not merge into an existing Tracker-FX folder.
 	occupied := fmt.tprintf("%s/occupied", base)
 	_ = os.make_directory_all(occupied)
 	_ = os.write_entire_file(fmt.tprintf("%s/track1.wav", occupied), transmute([]u8)string("OTHER"))
@@ -62,7 +62,7 @@ engine_save_as_and_open_roundtrip :: proc(t: ^testing.T) {
 
 @(test)
 engine_load_tracks_adopts_project_rate :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-project-rate"
+	base := "/tmp/tracker-fx-engine-project-rate"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	_ = os.make_directory_all(base)
@@ -88,7 +88,7 @@ engine_load_tracks_adopts_project_rate :: proc(t: ^testing.T) {
 
 @(test)
 engine_apply_save_dir_copies_takes_and_retargets :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-apply-dir"
+	base := "/tmp/tracker-fx-engine-apply-dir"
 	_ = os.remove_all(base)
 	defer _ = os.remove_all(base)
 	source_dir := fmt.tprintf("%s/source", base)
@@ -121,7 +121,7 @@ engine_apply_save_dir_copies_takes_and_retargets :: proc(t: ^testing.T) {
 
 @(test)
 engine_init_rejects_a_file_session_path :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-session-file"
+	base := "/tmp/tracker-fx-engine-session-file"
 	_ = os.remove_all(base)
 	defer _ = os.remove_all(base)
 	_ = os.make_directory_all(base)
@@ -135,7 +135,7 @@ engine_init_rejects_a_file_session_path :: proc(t: ^testing.T) {
 
 @(test)
 engine_apply_save_dir_refuses_occupied_folder :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-occupied"
+	base := "/tmp/tracker-fx-engine-occupied"
 	_ = os.remove_all(base)
 	defer _ = os.remove_all(base)
 	source_dir := fmt.tprintf("%s/source", base)
@@ -154,7 +154,7 @@ engine_apply_save_dir_refuses_occupied_folder :: proc(t: ^testing.T) {
 
 	testing.expect(t, !engine_apply_save_dir(&a, &e, occupied), "occupied folder must be refused")
 	testing.expectf(t, e.session_dir == source_dir, "session moved to %s", e.session_dir)
-	testing.expect(t, ui.app_status(&a) == "folder already contains a tracker project", ui.app_status(&a))
+	testing.expect(t, ui.app_status(&a) == "folder already contains a tracker-fx project", ui.app_status(&a))
 }
 
 @(test)
@@ -187,7 +187,7 @@ project_folder_slug_and_unique_dir :: proc(t: ^testing.T) {
 	defer delete(s3)
 	testing.expect_value(t, s3, "untitled")
 
-	base := "/tmp/tracker-unique-dir"
+	base := "/tmp/tracker-fx-unique-dir"
 	_ = os.remove_all(base)
 	defer _ = os.remove_all(base)
 	_ = os.make_directory_all(base)
@@ -209,7 +209,7 @@ project_folder_slug_and_unique_dir :: proc(t: ^testing.T) {
 
 @(test)
 engine_new_project_resets_audio_and_keeps_machine_prefs :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-new-project"
+	base := "/tmp/tracker-fx-engine-new-project"
 	_ = os.remove_all(base)
 	defer _ = os.remove_all(base)
 	first_dir := fmt.tprintf("%s/old-song", base)

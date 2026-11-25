@@ -12,7 +12,7 @@ Read-only review at commit `d39946d`; scratch repros lived in
 
 ## P1
 
-- Save As copied takes into an existing Tracker folder, overwriting its audio.
+- Save As copied takes into an existing Tracker-FX folder, overwriting its audio.
   Fixed: `engine_save_as_to` refuses an occupied destination; regression test.
 - Startup and palette Load did not copy the project sample rate into the
   engine, so 44.1 kHz projects mixed/exported at 48 kHz. Fixed in

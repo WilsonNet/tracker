@@ -132,7 +132,7 @@ run_ui_test :: proc(args: []string) -> bool {
 	if !scale_ok {
 		return false
 	}
-	out_dir := flag_string(args, "--out", "/tmp/tracker-ui-test")
+	out_dir := flag_string(args, "--out", "/tmp/tracker-fx-ui-test")
 
 	data, err := os.read_entire_file(script_path, context.allocator)
 	if err != nil {

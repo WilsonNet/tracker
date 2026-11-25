@@ -5,7 +5,7 @@ import "core:math"
 import "core:os"
 import "core:testing"
 
-WAV_TMP :: "/tmp/tracker-odin-test"
+WAV_TMP :: "/tmp/tracker-fx-test"
 
 @(test)
 wav_float32_roundtrip :: proc(t: ^testing.T) {

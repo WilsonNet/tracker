@@ -50,7 +50,7 @@ wav_expect_reject :: proc(t: ^testing.T, path: string, buf: []byte) {
 
 @(test)
 wav_rejects_block_align_smaller_than_a_frame :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-odin-wav-badalign.wav"
+	path := "/tmp/tracker-fx-wav-badalign.wav"
 	defer os.remove(path)
 	payload := [8]byte{0, 1, 2, 3, 4, 5, 6, 7}
 	wav_expect_reject(t, path, wav_fixture(1, 2, 48_000, 1, 16, payload[:]))
@@ -58,7 +58,7 @@ wav_rejects_block_align_smaller_than_a_frame :: proc(t: ^testing.T) {
 
 @(test)
 wav_reads_24_bit_pcm_with_sign_extension :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-odin-wav-24bit.wav"
+	path := "/tmp/tracker-fx-wav-24bit.wav"
 	defer os.remove(path)
 	// Max positive, min negative, -1 LSB.
 	payload := [9]byte{
@@ -83,7 +83,7 @@ wav_reads_24_bit_pcm_with_sign_extension :: proc(t: ^testing.T) {
 
 @(test)
 wav_reads_32_bit_pcm_sign :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-odin-wav-pcm32.wav"
+	path := "/tmp/tracker-fx-wav-pcm32.wav"
 	defer os.remove(path)
 	payload := make([]byte, 12)
 	defer delete(payload)
@@ -106,7 +106,7 @@ wav_reads_32_bit_pcm_sign :: proc(t: ^testing.T) {
 
 @(test)
 wav_reads_fmt_after_data :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-odin-wav-fmtlast.wav"
+	path := "/tmp/tracker-fx-wav-fmtlast.wav"
 	defer os.remove(path)
 	payload := [4]byte{0x00, 0x40, 0x00, 0xC0} // +0.5, -0.5 as PCM16
 
@@ -142,7 +142,7 @@ wav_reads_fmt_after_data :: proc(t: ^testing.T) {
 
 @(test)
 wav_skips_odd_sized_chunks_with_padding :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-odin-wav-junk.wav"
+	path := "/tmp/tracker-fx-wav-junk.wav"
 	defer os.remove(path)
 	payload := [4]byte{0x00, 0x40, 0x00, 0xC0}
 
@@ -184,7 +184,7 @@ wav_skips_odd_sized_chunks_with_padding :: proc(t: ^testing.T) {
 
 @(test)
 wav_rejects_inconsistent_headers :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-odin-wav-badheader.wav"
+	path := "/tmp/tracker-fx-wav-badheader.wav"
 	defer os.remove(path)
 	payload := [4]byte{0, 0, 0, 0}
 
@@ -202,7 +202,7 @@ wav_rejects_inconsistent_headers :: proc(t: ^testing.T) {
 
 @(test)
 wav_truncated_data_reads_only_complete_frames :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-odin-wav-truncated.wav"
+	path := "/tmp/tracker-fx-wav-truncated.wav"
 	defer os.remove(path)
 	payload := [8]byte{0x00, 0x40, 0x00, 0xC0, 0x00, 0x20, 0x00, 0xE0}
 	buf := wav_fixture(1, 1, 48_000, 2, 16, payload[:])
@@ -223,7 +223,7 @@ wav_truncated_data_reads_only_complete_frames :: proc(t: ^testing.T) {
 
 @(test)
 wav_reads_padded_frames_by_block_align :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-odin-wav-padded.wav"
+	path := "/tmp/tracker-fx-wav-padded.wav"
 	defer os.remove(path)
 	// Stereo PCM16 with one padding byte per frame (block_align = 5).
 	payload := [10]byte{
@@ -249,7 +249,7 @@ wav_reads_padded_frames_by_block_align :: proc(t: ^testing.T) {
 
 @(test)
 wav_write_rejects_overflowing_size_fields :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-odin-wav-overflow.wav"
+	path := "/tmp/tracker-fx-wav-overflow.wav"
 	defer os.remove(path)
 	one := [1]f32{1.0}
 	testing.expect(t, !wav_write(path, 0, 1, one[:]), "zero rate accepted")

@@ -414,7 +414,7 @@ wav_decode :: proc(
 	return true
 }
 
-// Prints format details plus peak/RMS. Used by `tracker-odin info`.
+// Prints format details plus peak/RMS. Used by `tracker-fx info`.
 wav_print_info :: proc(path: string) -> bool {
 	wav, ok := wav_read(path)
 	if !ok {

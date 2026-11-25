@@ -8,22 +8,22 @@ minimum at `VUI_SCALE=1.5`.
 ## Setup (sandboxed only)
 
 ```sh
-S=/tmp/tracker-e2e; mkdir -p $S/config
+S=/tmp/tracker-fx-e2e; mkdir -p $S/config
 # never set VUI_HIDDEN_GPU; never run without VUI_HIDDEN=1
 XDG_CONFIG_HOME=$S/config VUI_HIDDEN=1 VUI_SCALE=1.5 VUI_PORT=7440 \
-  ./bin/tracker-odin ui --demo --session $S/session &
+  ./bin/tracker-fx ui --demo --session $S/session &
 C="../vinland-ui/build/vui-ctl --port 7440"
 $C info            # must contain "sandboxed":true, else stop
 ```
 
-- `XDG_CONFIG_HOME` keeps `recent.json` out of `~/.config/tracker` (save and
+- `XDG_CONFIG_HOME` keeps `recent.json` out of `~/.config/tracker-fx` (save and
   recent-open write it).
 - Do **not** run `: open project` / `: save project as`: they open a real
   desktop file picker.
 - Bounce is synchronous in the window, so the bounce overlay is never on screen
   long enough to check there (check it with `ui-shot` instead).
 - `vui-ctl key tab|enter|space` also reaches vinland's own focus handling (the
-  real window consumes keys first). While a text field is editing Tracker
+  real window consumes keys first). While a text field is editing Tracker-FX
   clears vinland focus; outside edit mode, click an empty area to clear focus
   before key steps that must be isolated.
 - Pointer modifiers are supported: `down`/`move`/`up` and `drag-text` accept

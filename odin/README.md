@@ -1,6 +1,6 @@
-# tracker-odin
+# tracker-fx
 
-Native Tracker application in [Odin](https://odin-lang.org/) for **Linux and macOS**. One
+Native Tracker-FX application in [Odin](https://odin-lang.org/) for **Linux and macOS**. One
 self-contained binary: SDL3 GPU (Metal on macOS, Vulkan on Linux) + OpenGL 3.3 fallback through vinland-ui, miniaudio (CoreAudio on macOS, PipeWire/ALSA on Linux) or a
 cooperative JACK client (Linux), and a hand-written DSP chain. No webview, no
 JavaScript runtime, no IPC boundary.
@@ -84,20 +84,20 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 
 # 3. Build and verify
 cd odin
-make build        # -> bin/tracker-odin
+make build        # -> bin/tracker-fx
 make test         # 336 unit tests (Linux) / 330 (macOS)
 make check        # unit + headless UI tour + offline end-to-end
 
 # 4. Run the app
-./bin/tracker-odin ui
+./bin/tracker-fx ui
 ```
 
-The default session is `$XDG_DATA_HOME/tracker/session` (usually
-`~/.local/share/tracker/session`); `--session DIR`
+The default session is `$XDG_DATA_HOME/tracker-fx/session` (usually
+`~/.local/share/tracker-fx/session`); `--session DIR`
 selects another one (parent directories are created) and deliberately ignores
 the saved folder and accessibility settings so tests and throwaway takes stay
 isolated. The Settings overlay (`SET`, `,`) changes the folder for normal
-launches and persists it in `~/.config/tracker/settings.json`.
+launches and persists it in `~/.config/tracker-fx/settings.json`.
 `ui --demo` runs the window with synthetic meters when no audio hardware is
 available.
 `ui --ui-scale 2` forces a display density (1, 1.25, 1.5, 2 or 3); otherwise
@@ -112,7 +112,7 @@ directory is in `XDG_DATA_DIRS`.
 
 | target | what it does |
 |---|---|
-| `build` | compile `bin/tracker-odin` |
+| `build` | compile `bin/tracker-fx` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
 | `test` | unit tests: 82 DSP, 161 core (Linux) / 155 core (macOS), 93 UI = 336 (Linux) / 330 (macOS) |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
@@ -127,9 +127,9 @@ directory is in `XDG_DATA_DIRS`.
 ## Native UI
 
 ```sh
-./bin/tracker-odin ui                 # real window
-./bin/tracker-odin ui --demo          # demo meters, no audio hardware
-./bin/tracker-odin ui --session DIR   # project/session directory
+./bin/tracker-fx ui                 # real window
+./bin/tracker-fx ui --demo          # demo meters, no audio hardware
+./bin/tracker-fx ui --session DIR   # project/session directory
 ```
 
 - **Tracks:** 4 strips by default, up to 24 (`N` adds, `D` or the rail's `−` deletes the
@@ -263,13 +263,13 @@ directory is in `XDG_DATA_DIRS`.
   selects a row and `Enter` runs it; clicking a text field enters EDIT with a real
   caret, selection, clipboard, and undo (`Tab`/`Shift+Tab` switches fields without
   losing drafts). Client secrets render as `*` even while editing. Machine preferences
-  persist in `~/.config/tracker/settings.json` (and `--session DIR` isolates
+  persist in `~/.config/tracker-fx/settings.json` (and `--session DIR` isolates
   `settings.json`, `recent.json`, and `cloud.json` beside the session).
 - **Project title & Google Drive naming:** Click the project title in the
   bottom status bar, press `n`, run `: rename project`, edit `Project name` in
   Settings, or click `RENAME` inside Cloud projects (`g`). `Enter` trims and
   persists the name to `project.json`, updates the window title
-  (`Tracker — <name>`), and renames the existing Google Drive backup folder
+  (`Tracker-FX — <name>`), and renames the existing Google Drive backup folder
   in place on the next backup (updating `index.json` without creating
   duplicate/orphaned folders). Empty names are rejected.
 - **Render dialog:** `B` or `RENDER…` opens Range + Format around a
@@ -306,12 +306,12 @@ Setup is in [`../docs/cloud-setup.md`](../docs/cloud-setup.md). The short versio
   test user.
 - Enter the Client ID/secret and a Drive folder name in Settings → CLOUD.
 - Testing-mode refresh tokens last 7 days; reconnect weekly, or publish the app.
-- The folder is visible in My Drive, so you can delete it without Tracker.
-  Tracker has no Google Drive delete operation.
-- Every file/folder Tracker creates carries an `appProperties` marker; queries
+- The folder is visible in My Drive, so you can delete it without Tracker-FX.
+  Tracker-FX has no Google Drive delete operation.
+- Every file/folder Tracker-FX creates carries an `appProperties` marker; queries
   and restores only see marked items. The fake-Drive test seeds an unrelated
   same-named file and proves it is neither downloaded, overwritten, nor deleted.
-- A live Google account round-trip verified the visible `Tracker/` hierarchy,
+- A live Google account round-trip verified the visible `Tracker-FX/` hierarchy,
   repeated backup, an innocent same-named `track1.wav`, and byte-identical
   restore into a fresh local folder (see `VERIFICATION.md`).
 
@@ -343,7 +343,7 @@ The default theme is the reference palette: `#010101` canvas, `#060606` bars and
 panels, `#1B1B1B` hairlines, `#F08A31` amber, `#BA022F` record red, `#00858D`
 solo/play teal, and the three-step ink ramp `#E8E8E8` / `#8F8F8F` / `#5D5D5D`.
 
-Sessions live in `~/.local/share/tracker/session` by default and contain
+Sessions live in `~/.local/share/tracker-fx/session` by default and contain
 `project.json`, `track1.wav` … `track24.wav` (as many as the project has tracks), take files, and `bounce.wav` (plus a
 transient `take.raw` while a take is being captured).
 
@@ -354,7 +354,7 @@ assertions and deterministic PNG screenshots. It needs no browser, no webview
 and no IPC socket, and the whole tour runs in well under a second.
 
 ```sh
-./bin/tracker-odin ui-test --script tests/ui/full-tour.json --out /tmp/ui
+./bin/tracker-fx ui-test --script tests/ui/full-tour.json --out /tmp/ui
 ```
 
 ```json
@@ -405,29 +405,29 @@ targets are unchanged); `ui-shot --scale N` does the same for a single frame.
 `ui-shot` renders one frame to PNG for fast visual iteration:
 
 ```sh
-./bin/tracker-odin ui-shot --out /tmp/ui.png --fx --master
-./bin/tracker-odin ui-shot --out /tmp/ui@2x.png --scale 2 --fx --master
-./bin/tracker-odin ui-shot --out /tmp/settings.png --settings
-./bin/tracker-odin ui-shot --out /tmp/cloud.png --cloud
+./bin/tracker-fx ui-shot --out /tmp/ui.png --fx --master
+./bin/tracker-fx ui-shot --out /tmp/ui@2x.png --scale 2 --fx --master
+./bin/tracker-fx ui-shot --out /tmp/settings.png --settings
+./bin/tracker-fx ui-shot --out /tmp/cloud.png --cloud
 ```
 
 ## CLI
 
 ```sh
-./bin/tracker-odin devices
-./bin/tracker-odin record --seconds 8 --channels 2 --out ~/Music/session
-./bin/tracker-odin record --jack --seconds 8 --channels 2 --out ~/Music/session
-./bin/tracker-odin tone --out /tmp/tone.wav --seconds 3 --freq 440
-./bin/tracker-odin render --in ~/Music/session --out /tmp/bounce.wav \
+./bin/tracker-fx devices
+./bin/tracker-fx record --seconds 8 --channels 2 --out ~/Music/session
+./bin/tracker-fx record --jack --seconds 8 --channels 2 --out ~/Music/session
+./bin/tracker-fx tone --out /tmp/tone.wav --seconds 3 --freq 440
+./bin/tracker-fx render --in ~/Music/session --out /tmp/bounce.wav \
   --level 0.9 --eq-low 3 --comp-threshold -20
-./bin/tracker-odin bounce --session ~/Music/session --out /tmp/mix.wav
-./bin/tracker-odin info /tmp/mix.wav
-./bin/tracker-odin selftest
-./bin/tracker-odin comp --session ~/Music/session --track 0 --list
-./bin/tracker-odin comp --session ~/Music/session --track 0 --take 2 --start 0 --end 96000
-./bin/tracker-odin ui --open ~/Music/session/project.json --jack
-./bin/tracker-odin ui --a11y-log
-./bin/tracker-odin ui-test --script tests/ui/full-tour.json --out /tmp/ui
+./bin/tracker-fx bounce --session ~/Music/session --out /tmp/mix.wav
+./bin/tracker-fx info /tmp/mix.wav
+./bin/tracker-fx selftest
+./bin/tracker-fx comp --session ~/Music/session --track 0 --list
+./bin/tracker-fx comp --session ~/Music/session --track 0 --take 2 --start 0 --end 96000
+./bin/tracker-fx ui --open ~/Music/session/project.json --jack
+./bin/tracker-fx ui --a11y-log
+./bin/tracker-fx ui-test --script tests/ui/full-tour.json --out /tmp/ui
 ```
 
 `render` accepts a directory of `track1.wav`…`track16.wav` or one WAV; tracks
@@ -446,7 +446,7 @@ longer writes the default session's `bounce.wav`. `comp --list` shows
 takes/regions; `--select` changes the active take; `--take/--start/--end` adds
 a region; `--clear` removes them.
 
-Save As refuses a folder that already contains a Tracker project or
+Save As refuses a folder that already contains a Tracker-FX project or
 `trackN.wav`, so it cannot merge two sessions. Closing the window during REC
 finalizes the take (the previous active take is stabilized to its take file
 first) and writes `project.json`; take stop/selection and a clean close also
@@ -510,7 +510,7 @@ odin/
                            charts, PNG, tests
   scripts/                 check.sh, install-desktop.sh, gen_font.py
   tests/ui/                full-tour.json, window.vt, e2e-checklist.md
-  assets/                  tracker.png / tracker.svg / Inter-*.ttf /
+  assets/                  tracker-fx.png / tracker-fx.svg / Inter-*.ttf /
                            Inter-OFL.txt / NotoSansMono-Regular.ttf
   assets/fonts/            JetBrainsMono-*.ttf (window) / JetBrainsMono-OFL.txt
 ```
@@ -535,8 +535,8 @@ Keyboard goes straight to `ui.app_key`, so every Vim binding matches the
 harness and the unit tests. Agents can drive the window with `vui-ctl`:
 
 ```sh
-VUI_PORT=7421 ./bin/tracker-odin ui --demo &
-vui-ctl --port 7421 screenshot tracker.png
+VUI_PORT=7421 ./bin/tracker-fx ui --demo &
+vui-ctl --port 7421 screenshot tracker-fx.png
 vui-ctl --port 7421 type x          # open the FX rack
 vui-ctl --port 7421 click-text MST
 ```
@@ -577,7 +577,7 @@ density.
   (SIL OFL 1.1). The Cairo/Pango harness uses `assets/Inter-*.ttf` (SIL OFL
   1.1) and `assets/NotoSansMono-Regular.ttf` (Apache-2.0).
   `scripts/install-desktop.sh` installs the Inter faces under
-  `$PREFIX/share/fonts/tracker` and refreshes fontconfig. Pango falls back to
+  `$PREFIX/share/fonts/tracker-fx` and refreshes fontconfig. Pango falls back to
   the system sans face if they are absent.
 - **HiDPI.** SDL opens the window with `HIGH_PIXEL_DENSITY`; density is
   `GetWindowSizeInPixels / GetWindowSize` and is recomputed every frame.

@@ -74,11 +74,11 @@ view_init :: proc(v: ^View, ctx: ^vui.Context) {
 	vui.font_register(f, "JetBrains Mono", JBM_BOLD, 700)
 	ctx.theme.fonts["mono"] = "JetBrains Mono"
 	ctx.theme.default_font = "mono"
-	v.ic_play = vui.icon_register(ctx, "tracker-play", {20, 20}, PLAY_PATH[:])
-	v.ic_close = vui.icon_register(ctx, "tracker-close", {20, 20}, CLOSE_PATH[:])
-	v.ic_left = vui.icon_register(ctx, "tracker-left", {20, 20}, LEFT_PATH[:])
-	v.ic_right = vui.icon_register(ctx, "tracker-right", {20, 20}, RIGHT_PATH[:])
-	v.ic_settings = vui.icon_register(ctx, "tracker-settings", {20, 20}, vui_icons.COG_6_TOOTH_PATHS[:])
+	v.ic_play = vui.icon_register(ctx, "tracker-fx-play", {20, 20}, PLAY_PATH[:])
+	v.ic_close = vui.icon_register(ctx, "tracker-fx-close", {20, 20}, CLOSE_PATH[:])
+	v.ic_left = vui.icon_register(ctx, "tracker-fx-left", {20, 20}, LEFT_PATH[:])
+	v.ic_right = vui.icon_register(ctx, "tracker-fx-right", {20, 20}, RIGHT_PATH[:])
+	v.ic_settings = vui.icon_register(ctx, "tracker-fx-settings", {20, 20}, vui_icons.COG_6_TOOTH_PATHS[:])
 	view_theme(&ctx.theme, false)
 	vui.set_dark(true)
 }
@@ -2450,7 +2450,7 @@ view_settings :: proc(a: ^App, v: ^View) {
 			if vui.div(vui.cx("flex cursor-text items-center gap-2 rounded-[2px] border px-2 py-1", folder_editing || folder_selected ? "border-sig" : "border-line")) {
 				vui.text("Drive folder", "w-28 shrink-0 text-[11px] text-ink-dim")
 				if vui.div("relative min-w-0 flex-1 cursor-text overflow-hidden") {
-					text_field_view(a, 2, app_cloud_folder(a), false, folder_editing, "Tracker", vui.prev_rect())
+					text_field_view(a, 2, app_cloud_folder(a), false, folder_editing, "Tracker-FX", vui.prev_rect())
 				}
 				folder_editing = a.cloud_edit == .Folder
 				if folder_editing {

@@ -1,8 +1,8 @@
 // Google Drive v3 transport on top of cloud_curl_request.
 //
 // The user-visible folder lives in My Drive (drive.file scope):
-//   Tracker/index.json
-//   Tracker/projects/<cloud-id>/project.json + WAVs + .tracker-cloud-id
+//   Tracker-FX/index.json
+//   Tracker-FX/projects/<cloud-id>/project.json + WAVs + .tracker-fx-cloud-id
 
 package main
 
@@ -15,9 +15,9 @@ import "core:time"
 
 CLOUD_FOLDER_MIME :: "application/vnd.google-apps.folder"
 CLOUD_ROOT_ID :: "root"
-CLOUD_APP_KEY :: "tracker"
+CLOUD_APP_KEY :: "tracker-fx"
 CLOUD_APP_VALUE :: "1"
-CLOUD_APP_QUERY :: "appProperties has { key='tracker' and value='1' }"
+CLOUD_APP_QUERY :: "appProperties has { key='tracker-fx' and value='1' }"
 
 // ---------------------------------------------------------------- errors
 
@@ -166,7 +166,7 @@ cloud_drive_find :: proc(token, parent, name: string, folder: bool, err: ^string
 		return "", false
 	}
 	if len(files) > 1 {
-		err^ = fmt.tprintf("multiple Tracker items named '%s'; remove duplicates in Drive", name)
+		err^ = fmt.tprintf("multiple Tracker-FX items named '%s'; remove duplicates in Drive", name)
 		return "", false
 	}
 	return strings.clone(files[0].id), true
@@ -176,13 +176,13 @@ cloud_drive_create_folder :: proc(token, name, parent: string, err: ^string) -> 
 	dir := cloud_temp_dir()
 	defer delete(dir)
 	props := struct {
-		tracker: string `json:"tracker"`,
+		tracker_fx: string `json:"tracker-fx"`,
 	}{CLOUD_APP_VALUE}
 	meta := struct {
 		name:      string   `json:"name"`,
 		mime:      string   `json:"mimeType"`,
 		parents:   []string `json:"parents"`,
-		props:     struct{ tracker: string `json:"tracker"` } `json:"appProperties"`,
+		props:     struct{ tracker_fx: string `json:"tracker-fx"` } `json:"appProperties"`,
 	}{name, CLOUD_FOLDER_MIME, []string{parent}, props}
 	data, merr := json.marshal(meta)
 	if merr != nil {
@@ -289,12 +289,12 @@ cloud_drive_upload :: proc(token, local_path, name, parent, existing_id: string,
 	defer delete(dir)
 
 	props := struct {
-		tracker: string `json:"tracker"`,
+		tracker_fx: string `json:"tracker-fx"`,
 	}{CLOUD_APP_VALUE}
 	meta := struct {
 		name:    string   `json:"name,omitempty"`,
 		parents: []string `json:"parents,omitempty"`,
-		props:   struct{ tracker: string `json:"tracker"` } `json:"appProperties"`,
+		props:   struct{ tracker_fx: string `json:"tracker-fx"` } `json:"appProperties"`,
 	}{props = props}
 	if existing_id == "" {
 		meta.name = name

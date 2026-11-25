@@ -52,12 +52,12 @@ platform_pick_project_open :: proc(start: string) -> (string, bool) {
 	script: string
 	if start != "" {
 		script = fmt.aprintf(
-			`POSIX path of (choose file with prompt "Open Tracker Project" of type {{"json"}} default location POSIX file %s)`,
+			`POSIX path of (choose file with prompt "Open Tracker-FX Project" of type {{"json"}} default location POSIX file %s)`,
 			qstart,
 		)
 	} else {
 		script = fmt.aprintf(
-			`POSIX path of (choose file with prompt "Open Tracker Project" of type {{"json"}})`,
+			`POSIX path of (choose file with prompt "Open Tracker-FX Project" of type {{"json"}})`,
 		)
 	}
 	defer delete(script)
@@ -71,12 +71,12 @@ platform_pick_project_save :: proc(start: string) -> (string, bool) {
 	script: string
 	if start != "" {
 		script = fmt.aprintf(
-			`POSIX path of (choose file name with prompt "Save Tracker Project As" default name "project.json" default location POSIX file %s)`,
+			`POSIX path of (choose file name with prompt "Save Tracker-FX Project As" default name "project.json" default location POSIX file %s)`,
 			qstart,
 		)
 	} else {
 		script = fmt.aprintf(
-			`POSIX path of (choose file name with prompt "Save Tracker Project As" default name "project.json")`,
+			`POSIX path of (choose file name with prompt "Save Tracker-FX Project As" default name "project.json")`,
 		)
 	}
 	defer delete(script)

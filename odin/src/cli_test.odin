@@ -123,7 +123,7 @@ cli_window_size_matches_layout_minimum :: proc(t: ^testing.T) {
 
 @(test)
 recent_save_creates_its_own_parent :: proc(t: ^testing.T) {
-	base := fmt.tprintf("/tmp/tracker-recent-parent-%d", os.get_pid())
+	base := fmt.tprintf("/tmp/tracker-fx-recent-parent-%d", os.get_pid())
 	os.remove_all(base)
 	defer os.remove_all(base)
 	path := fmt.tprintf("%s/nested/dir/recent.json", base)
@@ -136,7 +136,7 @@ recent_save_creates_its_own_parent :: proc(t: ^testing.T) {
 
 @(test)
 comp_take_lengths_report_project_frames :: proc(t: ^testing.T) {
-	base := fmt.tprintf("/tmp/tracker-comp-lengths-%d", os.get_pid())
+	base := fmt.tprintf("/tmp/tracker-fx-comp-lengths-%d", os.get_pid())
 	os.remove_all(base)
 	defer os.remove_all(base)
 	testing.expect(t, ensure_dir(base), "fixture dir")

@@ -12,17 +12,17 @@ STB_LIB    := $(ODIN_ROOT)/vendor/stb/lib/stb_truetype.a
 LINK_FLAGS := -extra-linker-flags:"-lm -ldl -lpthread -ljack -lz -lcairo -lpango-1.0 -lpangocairo-1.0 -lgobject-2.0 -lglib-2.0"
 endif
 
-BIN        := bin/tracker-odin
+BIN        := bin/tracker-fx
 
 PREFIX     ?= $(HOME)/.local
 export PREFIX
-SESSION    ?= $(HOME)/.local/share/tracker/session
+SESSION    ?= $(HOME)/.local/share/tracker-fx/session
 SCRIPT     ?= tests/ui/full-tour.json
-SHOT       ?= /tmp/tracker-odin-ui.png
-UI_OUT     ?= /tmp/tracker-ui-test
+SHOT       ?= /tmp/tracker-fx-ui.png
+UI_OUT     ?= /tmp/tracker-fx-ui-test
 VUI_PORT   ?= 7421
 
-E2E_OUT    ?= /tmp/tracker-e2e
+E2E_OUT    ?= /tmp/tracker-fx-e2e
 
 .PHONY: e2e all build stb test test-dsp test-core test-ui check clean run devices selftest ui ui-bg ui-shot ui-test bounce install uninstall
 

@@ -1,15 +1,15 @@
 ---
-name: "Tracker — Multitrack Recorder"
+name: "Tracker-FX — Multitrack Recorder"
 description: "A minimal multitrack audio recorder for the desktop. Keyboard-first, Vim-native, hardware-inspired — no timeline, no grid, just record."
 ---
 
-# Design System: Tracker
+# Design System: Tracker-FX
 
 ## 1. Overview
 
 **Creative North Star: "The Instrument Panel"**
 
-Tracker is a precision instrument, not a webpage. Every control has a clear purpose. The keyboard is the primary interface — Vim key bindings for every action — while the mouse provides discovery. The interface recedes during a session, leaving only meters, levels, and the transport. When you reach for the keyboard to arm a track or punch in, the tool responds instantly.
+Tracker-FX is a precision instrument, not a webpage. Every control has a clear purpose. The keyboard is the primary interface — Vim key bindings for every action — while the mouse provides discovery. The interface recedes during a session, leaving only meters, levels, and the transport. When you reach for the keyboard to arm a track or punch in, the tool responds instantly.
 
 The visual identity draws from hardware multitrack recorders (tactile, purpose-built, no fluff), modern precision tools like Linear (dark, minimal, fast), and keyboard-native environments like Obsidian (focused, extensible, local-first). The result should feel like a piece of studio gear — not a DAW, not a website, not a toy.
 
@@ -104,7 +104,7 @@ All native UI components live in `odin/src/ui/`; `odin/src/ui_window.odin` is th
 
 **Settings overlay** — grouped preferences (Project, Audio, Timing, Appearance, Cloud) in the same panel style. `PROJECT` leads with `+ NEW PROJECT`, `OPEN…`, `RECENT`, and a live track/take summary; `+ NEW PROJECT` expands an inline composer (`New clean project`) with live `<parent>/<slug>` folder preview (`Enter` creates a clean 4-track project in a unique sibling folder after saving the outgoing project and preserves machine/audio/timing/cloud settings; `Esc` cancels). Below it sit `Project name` and `Project folder` (copy/move current project with `BROWSE…` / `APPLY` / `DEFAULT`). One row is selected at a time with `j` / `k` or the arrows; `Enter` edits the field or runs the row. Clicking a field enters an explicit EDIT state (`EDIT` chip in the status bar); `Enter` applies and `Esc` asks once before discarding. Click or `Tab`/`Shift+Tab` switches between text fields while preserving drafts. The field shows a real caret and selection: click positions it, drag selects, Shift+click extends, double-click selects a word and triple-click selects the line. Arrows/Home/End and their Shift/Ctrl variants move or select; `Ctrl+A` selects all and the next type/paste/backspace replaces it; `Ctrl+C`/`X`/`V`/`Z`/`Y` use the clipboard and undo. Secrets are always rendered as `*`, including in EDIT. New settings are added as rows inside an existing group so the panel scales.
 
-**Cloud section** — a visible, named Google Drive folder (`Tracker` by default), Client ID/secret fields, a connection row with `CONNECT`/`DISCONNECT`, and `BACK UP NOW` / `RESTORE…`. Transfer status uses a thin amber progress bar and the same mono labels; no cloud illustrations, cards, or dashboard chrome. The keyboard-selected cloud row scrolls into view.
+**Cloud section** — a visible, named Google Drive folder (`Tracker-FX` by default), Client ID/secret fields, a connection row with `CONNECT`/`DISCONNECT`, and `BACK UP NOW` / `RESTORE…`. Transfer status uses a thin amber progress bar and the same mono labels; no cloud illustrations, cards, or dashboard chrome. The keyboard-selected cloud row scrolls into view.
 
 **Cloud projects overlay** — compact list of remote projects with name, short cloud id, modified time and size. Same overlay shell and amber selection as Recents; `Enter` restores, `U` backs up the current project, `R` refreshes. Disconnected and empty states teach the next action.
 

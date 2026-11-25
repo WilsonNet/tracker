@@ -25,7 +25,7 @@ recent_add_dedupes_and_caps :: proc(t: ^testing.T) {
 
 @(test)
 recent_roundtrip :: proc(t: ^testing.T) {
-	path := "/tmp/tracker-recent-json-test.json"
+	path := "/tmp/tracker-fx-recent-json-test.json"
 	defer os.remove(path)
 	projects := []string{"/tmp/one.json", "/tmp/two.json"}
 	testing.expect(t, recent_save(path, projects), "save")

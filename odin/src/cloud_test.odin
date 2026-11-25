@@ -11,11 +11,11 @@ import "core:time"
 
 @(test)
 cloud_store_roundtrip_is_private :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-odin-cloud-store"
+	dir := "/tmp/tracker-fx-cloud-store"
 	_ = os.remove_all(dir)
 	_ = os.make_directory_all(dir)
 	defer _ = os.remove_all(dir)
-	path := "/tmp/tracker-odin-cloud-store/cloud.json"
+	path := "/tmp/tracker-fx-cloud-store/cloud.json"
 
 	store := Cloud_Store {
 		version = CLOUD_VERSION,
@@ -72,7 +72,7 @@ cloud_url_roundtrip :: proc(t: ^testing.T) {
 
 @(test)
 cloud_session_id_persists_and_rejects_traversal :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-odin-cloud-id"
+	dir := "/tmp/tracker-fx-cloud-id"
 	_ = os.remove_all(dir)
 	_ = os.make_directory_all(dir)
 	defer _ = os.remove_all(dir)
@@ -85,7 +85,7 @@ cloud_session_id_persists_and_rejects_traversal :: proc(t: ^testing.T) {
 	defer delete(second)
 	testing.expect(t, ok2, "id reread")
 	testing.expect(t, first == second, "id is stable")
-	testing.expect(t, os.exists("/tmp/tracker-odin-cloud-id/.tracker-cloud-id"), "id file")
+	testing.expect(t, os.exists("/tmp/tracker-fx-cloud-id/.tracker-fx-cloud-id"), "id file")
 
 	files := cloud_collect_files(dir, []string{"../evil.wav", "take1.wav"})
 	defer cloud_files_free(files)
@@ -147,12 +147,12 @@ cloud_queries_are_always_parent_scoped :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(q, "trashed = false"), q)
 	testing.expect(t, strings.contains(q, "name = 'project.json'"), q)
 	testing.expect(t, strings.contains(CLOUD_APP_QUERY, "appProperties has"), CLOUD_APP_QUERY)
-	testing.expect(t, strings.contains(CLOUD_APP_QUERY, "key='tracker'"), CLOUD_APP_QUERY)
+	testing.expect(t, strings.contains(CLOUD_APP_QUERY, "key='tracker-fx'"), CLOUD_APP_QUERY)
 }
 
 @(test)
 cloud_restore_names_reject_traversal :: proc(t: ^testing.T) {
-	good := []string{"project.json", "track1.wav", ".tracker-cloud-id", "take-2.wav"}
+	good := []string{"project.json", "track1.wav", ".tracker-fx-cloud-id", "take-2.wav"}
 	for name in good {
 		testing.expectf(t, cloud_safe_file_name(name), "rejected safe name %s", name)
 	}
@@ -164,16 +164,16 @@ cloud_restore_names_reject_traversal :: proc(t: ^testing.T) {
 
 @(test)
 cloud_restore_never_reuses_an_existing_folder :: proc(t: ^testing.T) {
-	root := "/tmp/tracker-odin-restore-safety"
+	root := "/tmp/tracker-fx-restore-safety"
 	_ = os.remove_all(root)
 	_ = os.make_directory_all(root)
 	defer _ = os.remove_all(root)
 
-	_ = os.make_directory_all("/tmp/tracker-odin-restore-safety/Night")
-	_ = os.make_directory_all("/tmp/tracker-odin-restore-safety/Night-2")
+	_ = os.make_directory_all("/tmp/tracker-fx-restore-safety/Night")
+	_ = os.make_directory_all("/tmp/tracker-fx-restore-safety/Night-2")
 	first := cloud_unique_dir(root, "Night")
 	defer delete(first)
-	testing.expect(t, first == "/tmp/tracker-odin-restore-safety/Night-3", first)
+	testing.expect(t, first == "/tmp/tracker-fx-restore-safety/Night-3", first)
 
 	partial := cloud_partial_dir(first)
 	defer delete(partial)
@@ -186,21 +186,21 @@ cloud_restore_never_reuses_an_existing_folder :: proc(t: ^testing.T) {
 	// Exhaust the -2..-99 suffixes; the timestamp fallback must not use a
 	// freed base path or return an existing directory.
 	for i in 3 ..= 99 {
-		_ = os.make_directory_all(fmt.tprintf("/tmp/tracker-odin-restore-safety/Night-%d", i))
+		_ = os.make_directory_all(fmt.tprintf("/tmp/tracker-fx-restore-safety/Night-%d", i))
 	}
 	fallback := cloud_unique_dir(root, "Night")
 	defer delete(fallback)
 	testing.expect(t, fallback != "" && !os.exists(fallback), fallback)
-	testing.expect(t, strings.has_prefix(fallback, "/tmp/tracker-odin-restore-safety/Night-"), fallback)
+	testing.expect(t, strings.has_prefix(fallback, "/tmp/tracker-fx-restore-safety/Night-"), fallback)
 }
 
 @(test)
 cloud_backup_file_set_is_explicit :: proc(t: ^testing.T) {
-	root := "/tmp/tracker-odin-cloud-files"
+	root := "/tmp/tracker-fx-cloud-files"
 	_ = os.remove_all(root)
 	_ = os.make_directory_all(root)
 	defer _ = os.remove_all(root)
-	names := []string{"project.json", ".tracker-cloud-id", "track1.wav", "bounce.wav", "take1.wav", "notes.txt"}
+	names := []string{"project.json", ".tracker-fx-cloud-id", "track1.wav", "bounce.wav", "take1.wav", "notes.txt"}
 	for name in names {
 		testing.expect(t, os.write_entire_file(fmt.tprintf("%s/%s", root, name), "x") == nil, name)
 	}
@@ -215,9 +215,9 @@ cloud_backup_file_set_is_explicit :: proc(t: ^testing.T) {
 }
 
 @(test)
-cloud_hidden_folder_defaults_to_tracker :: proc(t: ^testing.T) {
+cloud_hidden_folder_defaults_to_tracker_fx :: proc(t: ^testing.T) {
 	store: Cloud_Store
-	testing.expect(t, cloud_folder_name(&store) == "Tracker", "default folder")
+	testing.expect(t, cloud_folder_name(&store) == "Tracker-FX", "default folder")
 	store.folder_name = strings.clone("Studio Backups")
 	defer cloud_store_destroy(&store)
 	testing.expect(t, cloud_folder_name(&store) == "Studio Backups", cloud_folder_name(&store))
@@ -225,11 +225,11 @@ cloud_hidden_folder_defaults_to_tracker :: proc(t: ^testing.T) {
 
 @(test)
 cloud_credentials_and_folder_persist :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-odin-cloud-config"
+	dir := "/tmp/tracker-fx-cloud-config"
 	_ = os.remove_all(dir)
 	_ = os.make_directory_all(dir)
 	defer _ = os.remove_all(dir)
-	path := "/tmp/tracker-odin-cloud-config/cloud.json"
+	path := "/tmp/tracker-fx-cloud-config/cloud.json"
 
 	c := Cloud{}
 	cloud_init(&c, path)

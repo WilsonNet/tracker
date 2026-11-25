@@ -1,6 +1,6 @@
-# Tracker window end-to-end suite (vinland-ui vui-test runner; headless + sandboxed).
+# Tracker-FX window end-to-end suite (vinland-ui vui-test runner; headless + sandboxed).
 #   /path/to/vinland-ui/build/vui-test odin/tests/ui/window.vt
-app ../../bin/tracker-odin ui --session {test}/session
+app ../../bin/tracker-fx ui --session {test}/session
 size 1180x760
 scale 1
 baselines baselines

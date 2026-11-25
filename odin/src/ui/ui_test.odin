@@ -169,7 +169,7 @@ ui_screenshot_is_a_real_png :: proc(t: ^testing.T) {
 	defer canvas_destroy(&c)
 	app_draw(&a, &c)
 
-	path := "/tmp/tracker-odin-ui-test.png"
+	path := "/tmp/tracker-fx-ui-test.png"
 	defer os.remove(path)
 	testing.expect(t, canvas_screenshot(&c, path), "screenshot failed")
 	data, err := os.read_entire_file(path, context.allocator)
@@ -1134,7 +1134,7 @@ ui_font_text_screenshot_has_grayscale_edges :: proc(t: ^testing.T) {	c: Canvas
 	canvas_init(&c, 420, 80)
 	defer canvas_destroy(&c)
 	canvas_clear(&c, COLORS_DEFAULT.bg)
-	canvas_text(&c, 8, 6, "TRACKER gjpqy", COLORS_DEFAULT.ink, 2)
+	canvas_text(&c, 8, 6, "TRACKER-FX gjpqy", COLORS_DEFAULT.ink, 2)
 	canvas_text(&c, 8, 44, "00:01:23.456  -12.3 dB", COLORS_DEFAULT.ink_dim)
 
 	levels: [256]bool
@@ -1155,7 +1155,7 @@ ui_font_text_screenshot_has_grayscale_edges :: proc(t: ^testing.T) {	c: Canvas
 	testing.expectf(t, ink > 300, "too few text pixels: %d", ink)
 	testing.expectf(t, level_count > 8, "text has only %d luminance levels (not anti-aliased)", level_count)
 
-	path := "/tmp/tracker-odin-font-test.png"
+	path := "/tmp/tracker-fx-font-test.png"
 	defer os.remove(path)
 	testing.expect(t, canvas_screenshot(&c, path), "font screenshot failed")
 	data, err := os.read_entire_file(path, context.allocator)
@@ -1636,10 +1636,10 @@ ui_settings_edits_and_applies_project_folder :: proc(t: ^testing.T) {
 	app_init(&a, 1180, 760)
 	defer app_destroy(&a)
 
-	app_set_save_dir(&a, "/tmp/tracker-ui-settings")
+	app_set_save_dir(&a, "/tmp/tracker-fx-ui-settings")
 	app_execute(&a, .Settings)
 	testing.expect(t, a.mode == .Settings, "settings mode")
-	testing.expect(t, app_settings_path(&a) == "/tmp/tracker-ui-settings", "path seeded from save dir")
+	testing.expect(t, app_settings_path(&a) == "/tmp/tracker-fx-ui-settings", "path seeded from save dir")
 
 	for _ in 0 ..< int(Settings_Item.Path) {
 		app_key(&a, .Down)
@@ -1650,7 +1650,7 @@ ui_settings_edits_and_applies_project_folder :: proc(t: ^testing.T) {
 	for i in 0 ..< len(suffix) {
 		app_key(&a, .Char, suffix[i])
 	}
-	testing.expectf(t, app_settings_path(&a) == "/tmp/tracker-ui-settings/studio", "typed %s", app_settings_path(&a))
+	testing.expectf(t, app_settings_path(&a) == "/tmp/tracker-fx-ui-settings/studio", "typed %s", app_settings_path(&a))
 	app_key(&a, .Enter)
 	testing.expect(t, !a.settings_path_edit, "enter stops editing")
 	testing.expect(t, a.last_command == .Apply_Save_Dir, "apply command emitted")
@@ -1712,7 +1712,7 @@ ui_settings_escape_cancels_path_edit :: proc(t: ^testing.T) {
 	a: App
 	app_init(&a, 1180, 760)
 	defer app_destroy(&a)
-	app_set_save_dir(&a, "/tmp/tracker-ui-cancel")
+	app_set_save_dir(&a, "/tmp/tracker-fx-ui-cancel")
 	app_execute(&a, .Settings)
 	for _ in 0 ..< int(Settings_Item.Path) {
 		app_key(&a, .Down)
@@ -1849,7 +1849,7 @@ ui_cloud_edit_select_all_replaces_and_backspace_keeps_utf8 :: proc(t: ^testing.T
 	app_key(&a, .Escape)
 	app_key(&a, .Escape)
 
-	app_set_cloud_credentials(&a, "old-key", "old-secret", "Tracker")
+	app_set_cloud_credentials(&a, "old-key", "old-secret", "Tracker-FX")
 	a.settings_sel = .Cloud_Client_ID
 	app_key(&a, .Enter)
 	app_select_all_text(&a)
@@ -2123,7 +2123,7 @@ ui_screenshots_render_at_every_supported_scale :: proc(t: ^testing.T) {
 		app_draw(&a, &c)
 		testing.expectf(t, canvas_nonblank(&c), "%.2fx frame blank", scale)
 
-		path := fmt.aprintf("/tmp/tracker-hidpi-%.2f.png", scale)
+		path := fmt.aprintf("/tmp/tracker-fx-hidpi-%.2f.png", scale)
 		shot_ok := canvas_screenshot(&c, path)
 		testing.expectf(t, shot_ok, "%.2fx screenshot failed", scale)
 		data, err := os.read_entire_file(path, context.allocator)

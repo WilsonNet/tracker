@@ -6,8 +6,8 @@ under `/tmp/opencode/audit-flow-573890/` and are not committed.
 
 ## Side effect disclosed
 
-Running `./bin/tracker-odin bounce` without `--session` overwrote the real
-`~/.local/share/tracker/session/bounce.wav`. This report is also a source for
+Running `./bin/tracker-fx bounce` without `--session` overwrote the real
+`~/.local/share/tracker-fx/session/bounce.wav`. This report is also a source for
 the CLI safeguard added in the closeout commit. No takes or `project.json` were
 touched.
 

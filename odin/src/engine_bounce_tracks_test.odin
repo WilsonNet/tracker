@@ -79,7 +79,7 @@ bounce_tracks_label_lists_sources :: proc(t: ^testing.T) {
 
 @(test)
 engine_bounce_to_track_writes_new_take_and_keeps_sources :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-bounce-tracks"
+	base := "/tmp/tracker-fx-engine-bounce-tracks"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	_ = os.make_directory_all(base)
@@ -133,7 +133,7 @@ engine_bounce_to_track_writes_new_take_and_keeps_sources :: proc(t: ^testing.T) 
 
 @(test)
 engine_bounce_all_fills_dedicated_track_without_stacking :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-bounce-all"
+	base := "/tmp/tracker-fx-engine-bounce-all"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	_ = os.make_directory_all(base)
@@ -181,7 +181,7 @@ engine_bounce_all_fills_dedicated_track_without_stacking :: proc(t: ^testing.T) 
 	ui.app_init(&b, 1180, 760)
 	defer ui.app_destroy(&b)
 	e2: Engine
-	base2 := "/tmp/tracker-engine-bounce-all-empty"
+	base2 := "/tmp/tracker-fx-engine-bounce-all-empty"
 	os.remove_all(base2)
 	defer os.remove_all(base2)
 	_ = os.make_directory_all(base2)
@@ -193,7 +193,7 @@ engine_bounce_all_fills_dedicated_track_without_stacking :: proc(t: ^testing.T) 
 
 @(test)
 engine_save_as_copies_tracks_beyond_four :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-save-as-many"
+	base := "/tmp/tracker-fx-save-as-many"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	src_dir := fmt.tprintf("%s/src", base)
@@ -222,7 +222,7 @@ engine_save_as_copies_tracks_beyond_four :: proc(t: ^testing.T) {
 
 @(test)
 engine_punch_in_keeps_audio_before_and_after_the_punch :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-punch"
+	base := "/tmp/tracker-fx-engine-punch"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	_ = os.make_directory_all(base)
@@ -299,7 +299,7 @@ engine_punch_in_keeps_audio_before_and_after_the_punch :: proc(t: ^testing.T) {
 
 @(test)
 project_and_settings_persist_marker_and_preroll :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-marker-preroll"
+	dir := "/tmp/tracker-fx-marker-preroll"
 	os.remove_all(dir)
 	defer os.remove_all(dir)
 	_ = os.make_directory_all(dir)
@@ -344,7 +344,7 @@ project_and_settings_persist_marker_and_preroll :: proc(t: ^testing.T) {
 
 @(test)
 engine_auto_punch_out_trims_to_exact_end_marker_and_preserves_tail :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-punch-out"
+	base := "/tmp/tracker-fx-engine-punch-out"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	_ = os.make_directory_all(base)
@@ -399,7 +399,7 @@ engine_auto_punch_out_trims_to_exact_end_marker_and_preserves_tail :: proc(t: ^t
 
 @(test)
 engine_delete_track_shifts_later_tracks_and_keeps_files :: proc(t: ^testing.T) {
-	base := "/tmp/tracker-engine-delete-track"
+	base := "/tmp/tracker-fx-engine-delete-track"
 	os.remove_all(base)
 	defer os.remove_all(base)
 	_ = os.make_directory_all(base)
@@ -443,7 +443,7 @@ engine_delete_track_shifts_later_tracks_and_keeps_files :: proc(t: ^testing.T) {
 	defer ui.app_destroy(&a2)
 	ui.app_set_track_count(&a2, 5)
 	e3: Engine
-	base3 := "/tmp/tracker-engine-delete-empty"
+	base3 := "/tmp/tracker-fx-engine-delete-empty"
 	os.remove_all(base3)
 	defer os.remove_all(base3)
 	_ = os.make_directory_all(base3)

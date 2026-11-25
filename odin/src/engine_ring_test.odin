@@ -77,14 +77,14 @@ recorder_push_rejects_unusable_state :: proc(t: ^testing.T) {
 // any audio hardware.
 @(test)
 recorder_writer_drains_while_recording :: proc(t: ^testing.T) {
-	dir := "/tmp/tracker-odin-engine-writer"
+	dir := "/tmp/tracker-fx-engine-writer"
 	_ = os.remove_all(dir)
 	_ = os.make_directory_all(dir)
 	defer {
 		_ = os.remove_all(dir)
 	}
 
-	raw_path := "/tmp/tracker-odin-engine-writer/take.raw"
+	raw_path := "/tmp/tracker-fx-engine-writer/take.raw"
 	raw, ferr := os.open(raw_path, os.O_WRONLY | os.O_CREATE | os.O_TRUNC)
 	testing.expect(t, ferr == nil, "open raw take")
 	if ferr != nil {

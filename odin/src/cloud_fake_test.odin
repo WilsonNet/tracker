@@ -47,7 +47,7 @@ fake_start :: proc() -> (server: Fake_Server, ok: bool) {
 	}
 	server.port = bound.port
 	source_dir := filepath.dir(#file)
-	command := fmt.tprintf("python3 '%s/../tests/cloud/fake_drive.py' %d >/tmp/tracker-fake-drive.log 2>&1 & echo $!", source_dir, server.port)
+	command := fmt.tprintf("python3 '%s/../tests/cloud/fake_drive.py' %d >/tmp/tracker-fx-fake-drive.log 2>&1 & echo $!", source_dir, server.port)
 	state, out, err, exec_err := os.process_exec(os.Process_Desc{command = []string{"sh", "-c", command}}, context.allocator)
 	defer delete(out)
 	defer delete(err)
@@ -161,7 +161,7 @@ cloud_fake_drive_roundtrip_never_touches_unrelated_files :: proc(t: ^testing.T) 
 		cloud_upload_base = old_upload
 	}
 
-	base := "/tmp/tracker-fake-drive"
+	base := "/tmp/tracker-fx-fake-drive"
 	_ = os.remove_all(base)
 	_ = os.make_directory_all(base)
 	defer _ = os.remove_all(base)
@@ -171,7 +171,7 @@ cloud_fake_drive_roundtrip_never_touches_unrelated_files :: proc(t: ^testing.T) 
 	testing.expect(t, os.write_entire_file(fmt.tprintf("%s/track1.wav", session), "MARKED") == nil, "audio fixture")
 
 	c := Cloud{}
-	cloud_init(&c, "/tmp/tracker-fake-drive/cloud.json")
+	cloud_init(&c, "/tmp/tracker-fx-fake-drive/cloud.json")
 	defer cloud_destroy(&c)
 	c.store.access_token = strings.clone("fake-token")
 	c.store.refresh_token = strings.clone("fake-refresh")
@@ -205,7 +205,7 @@ cloud_fake_drive_roundtrip_never_touches_unrelated_files :: proc(t: ^testing.T) 
 	testing.expect(t, entry.name == "Test Project", entry.name)
 
 	// Seed an unrelated, same-named file directly into the project folder.
-	// It has no Tracker appProperties marker, so Tracker must neither see nor
+	// It has no Tracker-FX appProperties marker, so Tracker-FX must neither see nor
 	// overwrite it.
 	seed := strings.concatenate([]string{`{"parent":"`, entry.folder_id, `","name":"track1.wav","content":"INNOCENT"}`})
 	defer delete(seed)
@@ -272,14 +272,14 @@ cloud_fake_drive_roundtrip_never_touches_unrelated_files :: proc(t: ^testing.T) 
 		if json.unmarshal(all_data, &all) == nil {
 			saw_root := false
 			for f in all.files {
-				if f.name == "track1.wav" && f.props["tracker"] != "1" {
+				if f.name == "track1.wav" && f.props["tracker-fx"] != "1" {
 					testing.expect(t, f.content == "INNOCENT", "innocent file was overwritten")
 				}
 				if f.name == "Studio" && len(f.parents) == 1 && f.parents[0] == "root" {
 					saw_root = true
 				}
 				if f.name == "Studio" || f.name == "index.json" || f.name == "project.json" {
-					testing.expect(t, f.props["tracker"] == "1", "Tracker file lacks the app marker")
+					testing.expect(t, f.props["tracker-fx"] == "1", "Tracker-FX file lacks the app marker")
 				}
 			}
 			testing.expect(t, saw_root, "configured Drive folder name was not used")
@@ -293,7 +293,7 @@ cloud_fake_drive_roundtrip_never_touches_unrelated_files :: proc(t: ^testing.T) 
 	dup_ok, dup_upload_err := cloud_drive_upload(token, dup_path, "track1.wav", entry.folder_id, "", nil)
 	testing.expect(t, dup_ok, dup_upload_err)
 	_, dup_found := cloud_drive_find(token, entry.folder_id, "track1.wav", false, &dup_err)
-	testing.expect(t, !dup_found && strings.contains(dup_err, "multiple Tracker items"), dup_err)
+	testing.expect(t, !dup_found && strings.contains(dup_err, "multiple Tracker-FX items"), dup_err)
 
 	// A second local project with the same display name must get a new cloud
 	// identity and a sibling Drive folder, never overwrite the first project.
@@ -357,7 +357,7 @@ cloud_fake_drive_rename_reuses_folder_and_updates_index :: proc(t: ^testing.T) {
 		cloud_upload_base = old_upload
 	}
 
-	base := "/tmp/tracker-fake-drive-rename"
+	base := "/tmp/tracker-fx-fake-drive-rename"
 	_ = os.remove_all(base)
 	_ = os.make_directory_all(base)
 	defer _ = os.remove_all(base)
@@ -502,7 +502,7 @@ cloud_fake_drive_roundtrips_renamed_many_track_project :: proc(t: ^testing.T) {
 		cloud_upload_base = old_upload
 	}
 
-	base := "/tmp/tracker-fake-drive-tracks"
+	base := "/tmp/tracker-fx-fake-drive-tracks"
 	_ = os.remove_all(base)
 	_ = os.make_directory_all(base)
 	defer _ = os.remove_all(base)

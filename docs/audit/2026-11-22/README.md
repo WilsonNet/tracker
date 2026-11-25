@@ -1,7 +1,7 @@
 # Read-only audit — 2026-11-22
 
 Five independent reviews of the native app and vinland-ui at commit `d39946d`
-(Tracker) and `357c115` (vinland-ui). The reviewers changed no code. This
+(Tracker-FX) and `357c115` (vinland-ui). The reviewers changed no code. This
 directory preserves their reports; the changes that came out of the audit are
 listed at the end.
 
@@ -25,7 +25,7 @@ reports as a backlog, then re-measure before claiming a number.
   state, and `VUI_BACKGROUND=1` + `vui-ctl foreground`/`background`/`release`
   provide explicit no-focus vs escape-hatch modes. `vui-test` now owns the
   sandbox environment (`VUI_HIDDEN`, `SDL_VIDEO_DRIVER`, display variables).
-- Tracker: `make ui-bg`, the background-input workflow, and the X11/Xvfb proof
+- Tracker-FX: `make ui-bg`, the background-input workflow, and the X11/Xvfb proof
   script are documented in `AGENTS.md`, `odin/README.md`, `odin/VERIFICATION.md`
   and the Vinland/Herdr skills.
 - Data safety from `code.md`/`flow.md`: guarded master take cycling

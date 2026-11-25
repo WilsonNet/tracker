@@ -1,6 +1,6 @@
 ---
 name: herdr
-description: Use whenever running, restarting, inspecting, or stopping the Tracker app through herdr — "run the app", "check the logs", "kill it", "run it for me" — and for any herdr tab/pane work in this repo. Covers the dedicated-tab rule, readiness waits, the hidden app workspace, and cleanup.
+description: Use whenever running, restarting, inspecting, or stopping the Tracker-FX app through herdr — "run the app", "check the logs", "kill it", "run it for me" — and for any herdr tab/pane work in this repo. Covers the dedicated-tab rule, readiness waits, the hidden app workspace, and cleanup.
 ---
 
 # Herdr workflow in this repo
@@ -21,7 +21,7 @@ test "${HERDR_ENV:-}" = 1
 Create a tab without focus (`--focus` would yank the user's view; don't pass it):
 
 ```bash
-herdr tab create --cwd "$PWD" --label "tracker"
+herdr tab create --cwd "$PWD" --label "tracker-fx"
 # → .result.tab.tab_id        e.g. w1:t2
 # → .result.root_pane.pane_id e.g. w1:p7
 ```
@@ -37,7 +37,7 @@ cd odin && make build        # ≈1 s
 Run the app in the pane and wait for the control server:
 
 ```bash
-herdr pane run <pane-id> "cd odin && VUI_PORT=7421 ./bin/tracker-odin ui"
+herdr pane run <pane-id> "cd odin && VUI_PORT=7421 ./bin/tracker-fx ui"
 herdr pane wait-output <pane-id> \
   --match 'vui: control server' \
   --source recent-unwrapped --timeout 120000
@@ -62,9 +62,9 @@ close it. Never leave an orphaned instance.
 
 | Goal | Command | Ready when |
 |---|---|---|
-| Real app | `cd odin && VUI_PORT=7421 ./bin/tracker-odin ui` | `vui: control server on 127.0.0.1:7421` |
-| Demo meters, no hardware | `cd odin && VUI_PORT=7421 ./bin/tracker-odin ui --demo` | same |
-| Offscreen UI check | `cd odin && VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-odin ui --demo &` | same |
+| Real app | `cd odin && VUI_PORT=7421 ./bin/tracker-fx ui` | `vui: control server on 127.0.0.1:7421` |
+| Demo meters, no hardware | `cd odin && VUI_PORT=7421 ./bin/tracker-fx ui --demo` | same |
+| Offscreen UI check | `cd odin && VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-fx ui --demo &` | same |
 | Visible, cannot steal focus | `cd odin && make ui-bg` | same |
 | Window E2E suite | `cd odin && make e2e` | `N passed, 0 failed` |
 | Headless UI tour | `cd odin && make check` | `== PASS ==` |
@@ -78,9 +78,9 @@ and run again in the same tab).
 
 ## The app window
 
-The window class is `tracker`. Normal launches open on the active workspace, so
+The window class is `tracker-fx`. Normal launches open on the active workspace, so
 you can screenshot the real window through `vui-ctl`. The persistent
-`special:tracker` scratchpad and a **commented** `tracker-dev-workspace` rule
+`special:tracker-fx` scratchpad and a **commented** `tracker-fx-dev-workspace` rule
 live in `~/.config/hypr/hyprland.lua`; uncomment that rule and `hyprctl reload`
 to make dev runs silent again. Agents should verify offscreen with `VUI_HIDDEN=1`
 rather than relying on the scratchpad.
@@ -88,22 +88,22 @@ rather than relying on the scratchpad.
 To move a visible run to the scratchpad manually:
 
 ```bash
-hyprctl dispatch 'hl.dsp.window.move({ workspace = "special:tracker", follow = false, window = "class:^(tracker)$" })'
+hyprctl dispatch 'hl.dsp.window.move({ workspace = "special:tracker-fx", follow = false, window = "class:^(tracker-fx)$" })'
 ```
 
 Show/hide it when the user asks:
 
 ```bash
-hyprctl dispatch 'hl.dsp.workspace.toggle_special("tracker")'
+hyprctl dispatch 'hl.dsp.workspace.toggle_special("tracker-fx")'
 ```
 
 Move it to a numbered workspace without switching the user's view:
 
 ```bash
-hyprctl dispatch 'hl.dsp.window.move({ workspace = 4, follow = false, window = "class:^(tracker)$" })'
+hyprctl dispatch 'hl.dsp.window.move({ workspace = 4, follow = false, window = "class:^(tracker-fx)$" })'
 ```
 
-Kill it: `hyprctl dispatch 'hl.dsp.window.close({ window = "class:^(tracker)$" })'`
+Kill it: `hyprctl dispatch 'hl.dsp.window.close({ window = "class:^(tracker-fx)$" })'`
 or close the tab.
 
 ## UI verification
@@ -122,7 +122,7 @@ or close the tab.
 - Every UI change must be driven through `vui-ctl`, not just `ui-shot` or unit
   tests: open the changed panel, click/type the full flow, screenshot, read it.
 - Settings: `,` or the SET button; `j/k` + `Enter` navigate rows. The project
-  folder and a11y choices persist in `~/.config/tracker/settings.json`.
+  folder and a11y choices persist in `~/.config/tracker-fx/settings.json`.
   Launch with isolated `XDG_DATA_HOME`/`XDG_CONFIG_HOME` when testing settings;
   an explicit `--session` deliberately ignores saved settings.
 - Text fields: click enters EDIT, `Enter` applies, `Esc` asks before
@@ -141,7 +141,7 @@ or close the tab.
 - Arm preview is miniaudio/PipeWire only. With `--jack` the input graph starts
   with the take; do not report it as a hang.
 - `make e2e` runs the 17 cases in `tests/ui/window.vt` headless and sandboxed
-  through `vinland-ui/build/vui-test`; inspect `/tmp/tracker-e2e/report.html`.
+  through `vinland-ui/build/vui-test`; inspect `/tmp/tracker-fx-e2e/report.html`.
 - Hardware recording evidence belongs in `odin/VERIFICATION.md`; the loopback
   checks are `cd odin && ./scripts/check.sh --hardware --jack --loopback`.
 
@@ -150,7 +150,7 @@ or close the tab.
 1. `herdr pane read` shows no panic / error / bind failure.
 2. The `vui: control server` readiness match appeared.
 3. `vui-ctl --port 7421 info` returns OK with the expected window size.
-4. `hyprctl clients -j | jq '.[] | select(.class=="tracker")'` shows exactly one
+4. `hyprctl clients -j | jq '.[] | select(.class=="tracker-fx")'` shows exactly one
    window, on the expected workspace.
 
 ## Don't

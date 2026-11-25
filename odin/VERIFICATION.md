@@ -12,10 +12,10 @@ Measured on Linux (Arch Linux, PipeWire 1.6.11, Odin `dev-2026-11-nightly`, 2026
 | Window e2e | `make e2e` (`vui-test tests/ui/window.vt`) | **21/21 passed** on Metal (`VUI_HIDDEN=1`) |
 | Tape scrubber (`\|◄`, `SHUTTLE`, `JOG`) | `vui-ctl` + unit/engine tests + `window.vt` | Hover scroll & drag on dual platters (`5.0 s` / `1.0 s` Shift / `0.25 s` Ctrl\|Alt; `250 ms` / `50 ms` Shift / `10 ms` Ctrl\|Alt), keyboard (`h/l`, `H/L`, `Ctrl\|Alt+h/l`, `</>`, `0`), palette commands, `\|◄` / double-click RTZ, live playback seek + stopped head meter peeking; verified at `1180×760` and `900×620` (`RHYTHM ON`) |
 | Project titling & Drive rename | `vui-ctl` + fake Drive + `window.vt` | Status bar click / `n` / `: rename project` / Settings `PROJECT` / Cloud `RENAME`; persists to `project.json` and reloads on restart; fake-Drive `PATCH` renames `untitled-<id>` in place with zero orphaned folders and `DELETES == 0` |
-| Metal UI (`vui-ctl`) | `VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-odin ui` | `backend: "GPU"`, `gpu_driver: "metal"`, `video_driver: "cocoa"`, `frame_ms: 2.68`, `unknown_classes: []`; visually verified I/O (`CoreAudio input devices`), Settings (`COREAUDIO`), FX `MST`, Render dialog |
-| OpenGL 3.3 fallback | `VUI_BACKEND=gl VUI_HIDDEN=1 VUI_PORT=7422 ./bin/tracker-odin ui --demo` | `backend: "GL"`, `gl_renderer: "Apple M4"`, `unknown_classes: []`, `frame_ms: 2.66` |
-| Scarlett 4i4 USB CLI 2ch | `./bin/tracker-odin record --seconds 2 --channels 2 --device 0` | `96,000` frames @ `48,000 Hz` (short 0), `track1.wav` **−52.30 dBFS peak / −60.33 dBFS rms** (phantom-powered condenser @ 9 o'clock), `track2.wav` −86.99 / −99.59 dBFS; bounce `mix.wav` −50.08 dBFS |
-| Scarlett 4i4 USB CLI 6ch | `./bin/tracker-odin record --seconds 2 --channels 6 --device 0` | `96,000` frames @ `48,000 Hz` (short 0), tracks 1–6 unmixed in hardware order (ch 1 −52.46 / −60.10, ch 2 −89.38 / −99.92, ch 3 −94.34 / −101.81, ch 4 −94.45 / −101.84, ch 5/6 −120.00 dBFS) |
+| Metal UI (`vui-ctl`) | `VUI_HIDDEN=1 VUI_PORT=7421 ./bin/tracker-fx ui` | `backend: "GPU"`, `gpu_driver: "metal"`, `video_driver: "cocoa"`, `frame_ms: 2.68`, `unknown_classes: []`; visually verified I/O (`CoreAudio input devices`), Settings (`COREAUDIO`), FX `MST`, Render dialog |
+| OpenGL 3.3 fallback | `VUI_BACKEND=gl VUI_HIDDEN=1 VUI_PORT=7422 ./bin/tracker-fx ui --demo` | `backend: "GL"`, `gl_renderer: "Apple M4"`, `unknown_classes: []`, `frame_ms: 2.66` |
+| Scarlett 4i4 USB CLI 2ch | `./bin/tracker-fx record --seconds 2 --channels 2 --device 0` | `96,000` frames @ `48,000 Hz` (short 0), `track1.wav` **−52.30 dBFS peak / −60.33 dBFS rms** (phantom-powered condenser @ 9 o'clock), `track2.wav` −86.99 / −99.59 dBFS; bounce `mix.wav` −50.08 dBFS |
+| Scarlett 4i4 USB CLI 6ch | `./bin/tracker-fx record --seconds 2 --channels 6 --device 0` | `96,000` frames @ `48,000 Hz` (short 0), tracks 1–6 unmixed in hardware order (ch 1 −52.46 / −60.10, ch 2 −89.38 / −99.92, ch 3 −94.34 / −101.81, ch 4 −94.45 / −101.84, ch 5/6 −120.00 dBFS) |
 | Scarlett 4i4 USB live UI | `VUI_HIDDEN=1` live session: arm preview + REC + `MON ON` + playback | Live arm preview meter/waveform before REC; 2.133 s take (`track1-take1.wav`, 102,400 frames, −51.93 dBFS peak) + 1.280 s `MON ON` duplex take (`track1.wav`, 61,440 frames, −52.46 dBFS peak); playback verified |
 
 ## Linux build and unit tests
@@ -30,13 +30,13 @@ Measured on Linux (Arch Linux, PipeWire 1.6.11, Odin `dev-2026-11-nightly`, 2026
 | harness renderer | Cairo paths + Pango text | AA curves, gradients, shadows, Inter |
 | charts | level history + 5 FX response graphs | 17 screenshots inspected |
 | static checks | `odin check src -no-entry-point -vet -collection:vinland=../../vinland-ui` | clean |
-| packaging | `PREFIX=/tmp/tracker ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
+| packaging | `PREFIX=/tmp/tracker-fx ./scripts/install-desktop.sh` | binary, PNG+SVG, desktop entry, Inter fonts |
 
 Total: **290 unit tests** (Linux, 2026-11-24).
 
 ## Headless UI harness
 
-`./bin/tracker-odin ui-test --script tests/ui/full-tour.json --out /tmp/ui`
+`./bin/tracker-fx ui-test --script tests/ui/full-tour.json --out /tmp/ui`
 
 - **220 actions, 0 failures**
 - **17 PNG screenshots** at 900×620, 1180×760, 1920×1080; layout geometry asserted at all three sizes
@@ -66,9 +66,9 @@ compositor, so `VUI_HIDDEN=1` remains the hard no-desktop-contact guarantee.
 | check | result |
 |---|---|
 | `vinland-ui/scripts/check-background.sh` (Xvfb + openbox) | window mapped `background:true`, `focusable:false`; pointer stayed at `640,400` across a synthetic `click-text`; screenshot rendered |
-| `vui-ctl info` on Tracker in background mode | `background:true`, `focusable:false`, `keyboard_focus` reported from SDL window flags |
+| `vui-ctl info` on Tracker-FX in background mode | `background:true`, `focusable:false`, `keyboard_focus` reported from SDL window flags |
 | escape hatch | `vui-ctl foreground` clears background suppression and raises/flashes the window; `vui-ctl background` restores it |
-| regression | Tracker `tests/ui/window.vt` 18/18; vinland showroom e2e 6/6 after the change |
+| regression | Tracker-FX `tests/ui/window.vt` 18/18; vinland showroom e2e 6/6 after the change |
 
 On Wayland a compositor may refuse to make an existing surface focusable; the
 `foreground` response reports that, and the documented fallback is to restart
@@ -83,7 +83,7 @@ tests and the 18-case e2e suite pass after them.
 |---|---|
 | master `t`/`T` no longer indexes take lists out of bounds | `engine_take_cycle` guard + regression test |
 | project sample rate adopted on startup/palette load | `engine_load_tracks` sets `e.sample_rate` from the loaded project; 44.1 kHz regression test |
-| Save As refuses an occupied Tracker folder | `engine_save_as_to` guard; regression test leaves the destination take unchanged |
+| Save As refuses an occupied Tracker-FX folder | `engine_save_as_to` guard; regression test leaves the destination take unchanged |
 | closing during REC finalizes the take before take-list teardown | `engine_destroy` stops first, window close stops/syncs/saves; old canonical is stabilized |
 | take stop/selection and clean close persist `project.json` | `window_save_project` in `ui_window.odin` |
 | unreadable `project.json` quarantined and takes recovered | renamed `project.json.corrupt-<pid>`; manual malformed-session repro |
@@ -139,7 +139,7 @@ Verified against the real window with isolated XDG dirs, no `--session`:
 VUI_HIDDEN=1 VUI_PORT=7426 \
   XDG_DATA_HOME=/tmp/opencode/final2/data \
   XDG_CONFIG_HOME=/tmp/opencode/final2/config \
-  ./bin/tracker-odin ui &
+  ./bin/tracker-fx ui &
 
 vui-ctl --port 7426 click-text SET
 vui-ctl --port 7426 key down            # j/k selection reaches APPLY
@@ -151,7 +151,7 @@ vui-ctl --port 7426 key enter           # apply
 
 | check | result |
 |---|---|
-| Project folder | `/tmp/opencode/final2/data/tracker/session/kb2` created with `project.json` |
+| Project folder | `/tmp/opencode/final2/data/tracker-fx/session/kb2` created with `project.json` |
 | settings.json | `saveDir` updated, `highContrast` toggled via keyboard |
 | visuals | 1180×760 and 900×620 screenshots inspected; `unknown_classes: []` |
 | folder picker | BROWSE starts in the parent of the current project folder (`dialog_start_dir`) so sibling projects are one click away |
@@ -185,7 +185,7 @@ vui-ctl --port 7421 key v ctrl
 | select all | `Ctrl+A` + paste/type/backspace replaces the whole field |
 | click switching | Client ID draft survived clicking Client secret, typing `S`, clicking Client ID |
 | Tab | Client ID → Client secret; typing `T` updated the secret count to `**` |
-| Shift+Tab | Client ID → Drive folder; `TrackerX` and `IDDRAFT` drafts both survived |
+| Shift+Tab | Client ID → Drive folder; `Tracker-FXX` and `IDDRAFT` drafts both survived |
 | UTF-8 | path backspace removes a whole rune (`café` → `caf`) |
 | switched draft close | closing with a draft in a non-edit row asks before discarding |
 | edit mode | selecting a field shows the `EDIT` chip |
@@ -220,7 +220,7 @@ be asserted, not just seen in a screenshot.
 | secret mask | secret stayed `**********` with a selection/caret; plaintext never appeared in `tree` |
 | tab switching | Tab/Shift+Tab moved ID ↔ secret and preserved both drafts |
 | save | Enter on the secret saved `id`/`sec` to the isolated `cloud.json`; the window stayed responsive |
-| session isolation | `--session` stores `cloud.json` beside the session, so e2e never overwrites `~/.config/tracker/cloud.json` |
+| session isolation | `--session` stores `cloud.json` beside the session, so e2e never overwrites `~/.config/tracker-fx/cloud.json` |
 | e2e | `settings text field selection and secret mask`: click, keyboard selection, double-click, Tab/Shift+Tab, mask and save |
 | unit tests | caret/selection, word ops, copy/cut/paste, undo/redo, UTF-8 and select-all (`ui_text_*`) |
 | upstream | vinland-ui `357c115` adds triple-click and Ctrl+Y to the `vui-ctl` synthetic surface |
@@ -228,7 +228,7 @@ be asserted, not just seen in a screenshot.
 A double/triple click must not be converted into a drag on the following frame:
 the button-up arrives in a later frame, so multi-click selections lock drag
 updates until release. Synthetic Tab also reaches vinland's focus traversal;
-Tracker clears vinland focus while a text field is editing so a later synthetic
+Tracker-FX clears vinland focus while a text field is editing so a later synthetic
 Enter cannot activate BROWSE and block on the native folder dialog.
 
 ## Track count, bounce-to-track and F1 help (2026-11-23)
@@ -268,7 +268,7 @@ transport, backup and restore code:
 | check | result |
 |---|---|
 | OAuth callback | loopback listener accepts `code` + matching `state`; PKCE URL uses S256 and `drive.file` |
-| client metadata | every Tracker folder/file carries `appProperties: {tracker: "1"}` |
+| client metadata | every Tracker-FX folder/file carries `appProperties: {tracker-fx: "1"}` |
 | backup | `project.json` + `track1.wav` uploaded into `Studio/...`; index written |
 | innocent file | a same-named `track1.wav` without the marker is seeded inside the project folder |
 | second backup | innocent file remains byte-identical; marked file updated instead |
@@ -300,14 +300,14 @@ with only `https://www.googleapis.com/auth/drive.file`:
 | check | result |
 |---|---|
 | consent | loopback callback accepted the code/state; Settings showed `Google Drive connected` |
-| Drive layout | visible `Tracker/` with `index.json`, `projects/untitled-umnNNw/`; every item carried `appProperties.tracker=1` |
-| backup | `project.json`, `track1.wav` and `.tracker-cloud-id` uploaded; `cloud.json`/`settings.json` were not uploaded |
+| Drive layout | visible `Tracker-FX/` with `index.json`, `projects/untitled-umnNNw/`; every item carried `appProperties.tracker-fx=1` |
+| backup | `project.json`, `track1.wav` and `.tracker-fx-cloud-id` uploaded; `cloud.json`/`settings.json` were not uploaded |
 | repeated backup | marked files updated in place instead of creating a second project folder |
 | innocent file | an app-created, same-named `track1.wav` without the marker (18 B, `INNOCENT-LIVE-TEST`) stayed byte-identical while the marked `track1.wav` was updated |
 | restore | downloaded into a fresh `untitled-umnNNw` folder; `project.json` and `track1.wav` SHA-256 matched the originals |
 | local folder collision | a pre-created `untitled-umnNNw/DO-NOT-TOUCH.txt` made restore choose `untitled-umnNNw-2`; the dummy folder stayed untouched; the unit test also exhausts `-2..-99` and checks the timestamp fallback |
 | delete + restore | deleted the restored local folder and restored again; `project.json` and `track1.wav` SHA-256 matched the previous restore |
-| Drive folder collision | an unmarked `untitled-umnNNw` folder in `projects/` stayed empty; backup used the marked Tracker folder |
+| Drive folder collision | an unmarked `untitled-umnNNw` folder in `projects/` stayed empty; backup used the marked Tracker-FX folder |
 | Drive file collision | an unmarked `track1.wav` stayed `INNOCENT-AGGRESSIVE`; the marked `track1.wav` was updated and hash-matched the local file |
 | duplicate marked names | `cloud_drive_find` rejects multiple marked files with the same name instead of choosing one |
 | same display name | a second local project named `Test Project` got a new cloud id, a sibling Drive folder and a second index entry; the first project was untouched |
@@ -338,7 +338,7 @@ are fixed, and the fake-Drive test now asserts an exact form-body round-trip.
 | comp region | 2 takes, region [0, 48000) → 1.000 s comp bounce |
 | bounce | stereo float, limiter ceiling held |
 | project save/reload | takes, active take, latency and a11y flags restored |
-| recent projects | `/tmp/tracker-feature/project.json` persisted and reopened |
+| recent projects | `/tmp/tracker-fx-feature/project.json` persisted and reopened |
 | HiDPI | 1180×760, 1770×1140, 2360×1520, 3540×2280 screenshots |
 
 A real 2-second take through the native window and a 4-second take followed by
@@ -370,8 +370,8 @@ the high-contrast theme changes colour only.
 ## Packaging
 
 `make install` and `make uninstall` are idempotent. The desktop entry uses
-`Name=Tracker (Odin)`, `StartupWMClass=tracker`, quoted `Exec`, PNG and SVG
-icons. The window class `tracker` lets an optional compositor rule route dev
+`Name=Tracker-FX`, `StartupWMClass=tracker-fx`, quoted `Exec`, PNG and SVG
+icons. The window class `tracker-fx` lets an optional compositor rule route dev
 runs to a scratchpad; normal launches open on the active workspace.
 
 ## Sources consulted
@@ -394,7 +394,7 @@ RF64/EBU, JACK, XDG, Odin core/vendor).
 
 | check | result |
 |---|---|
-| `tracker-odin devices` (macOS, Scarlett 4i4 USB default output + MX Brio default input) | `capture_find_default_index` disambiguates miniaudio CoreAudio `isDefault` bleed from playback onto capture: only `[1] MX Brio` carries `*`, not `[0] Scarlett 4i4 USB` |
+| `tracker-fx devices` (macOS, Scarlett 4i4 USB default output + MX Brio default input) | `capture_find_default_index` disambiguates miniaudio CoreAudio `isDefault` bleed from playback onto capture: only `[1] MX Brio` carries `*`, not `[0] Scarlett 4i4 USB` |
 | `make test` + `-vet` (macOS) | **297 passed** (71 DSP + 140 core + 86 UI), `odin check -vet` clean; new tests cover `capture_config_unmixed` (`channelMixMode = .simple`), `capture_find_default_index`, `engine_resolve_device_index_ex` cross-OS prefix match & ambiguity/monitor guards, and `engine_match_device` / `engine_set_device` UI sync |
 | `make check` & `make e2e` | **PASS** (220-action UI tour, offline bounce, `ffprobe`, **28/28** `window.vt` cases on Metal) |
 | restored Linux project on macOS (`VUI_HIDDEN=1`, copy of `wilson-1` with `"Scarlett 4i4 USB Analog Surround 5.1"`) | Header I/O, status bar, and I/O overlay resolve and show `Scarlett 4i4 USB`; clicking `REC` opens `recording 6 ch · Scarlett 4i4 USB @ 48000 Hz · overdub` instead of falling back to `MX Brio`; `unknown_classes: []` |

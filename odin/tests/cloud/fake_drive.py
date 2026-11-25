@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tiny fake of the Google Drive v3 surface used by Tracker's cloud tests.
+"""Tiny fake of the Google Drive v3 surface used by Tracker-FX's cloud tests.
 
 It deliberately records DELETE calls instead of implementing them, so the test
 can prove the client never asks Drive to remove anything.
@@ -193,7 +193,7 @@ class Handler(BaseHTTPRequestHandler):
                     continue
                 if mime_ne and f["mimeType"] == mime_ne.group(1):
                     continue
-                if marked and f.get("props", {}).get("tracker") != "1":
+                if marked and f.get("props", {}).get("tracker-fx") != "1":
                     continue
                 out.append(self._file_json(f))
             return self._send(200, json_bytes({"files": out}))

@@ -240,7 +240,7 @@ Details:
 10. **Cleanups:** `last_mix` is dead (`engine.odin:73`); `Recorder.error`
     is written but never read (`engine.odin:188`); `G_RECORDER` is a global
     that limits the process to one recorder (`engine.odin:76`); the default
-    session dir fails when `~/.local/share/tracker` does not exist because
+    session dir fails when `~/.local/share/tracker-fx` does not exist because
     `os.make_directory` does not create parents (`engine.odin:103-107`) —
     reproduce with a fresh HOME: `ui` exits with "cannot create session dir".
 

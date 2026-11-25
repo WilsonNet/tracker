@@ -1,4 +1,4 @@
-# Tracker — Multitrack Recorder
+# Tracker-FX — Multitrack Recorder
 
 A minimal multitrack audio recorder for the desktop. No timeline, no grid — just arm, level, record, listen.
 
@@ -6,7 +6,7 @@ Native [Odin](https://odin-lang.org/) application for **Linux and macOS**, drawn
 [vinland-ui](https://github.com/WilsonNet/vinland-ui) toolkit (SDL3 GPU Metal/Vulkan, OpenGL 3.3
 fallback). Keyboard-first and Vim-native, inspired by the Zoom R4 MultiTrak.
 
-![Tracker with the FX rack open](docs/screenshot-app.png)
+![Tracker-FX with the FX rack open](docs/screenshot-app.png)
 
 ## Features
 
@@ -48,17 +48,17 @@ sibling vinland-ui checkout, and the system libraries listed in
 git clone https://github.com/WilsonNet/vinland-ui ../vinland-ui
 
 cd odin
-make build        # -> bin/tracker-odin
+make build        # -> bin/tracker-fx
 make test         # 300 unit tests (Linux) / 294 unit tests (macOS)
 make check        # tests + headless UI tour + offline bounce
 
-./bin/tracker-odin ui              # real window
-./bin/tracker-odin ui --demo       # synthetic meters, no audio hardware
+./bin/tracker-fx ui              # real window
+./bin/tracker-fx ui --demo       # synthetic meters, no audio hardware
 ```
 
-Sessions default to `$XDG_DATA_HOME/tracker/session` (usually
-`~/.local/share/tracker/session`); press `,` and choose a
-project folder to change it (persisted in `~/.config/tracker/settings.json`),
+Sessions default to `$XDG_DATA_HOME/tracker-fx/session` (usually
+`~/.local/share/tracker-fx/session`); press `,` and choose a
+project folder to change it (persisted in `~/.config/tracker-fx/settings.json`),
 or pass `--session DIR` for an isolated run that ignores saved settings.
 For Google Drive transfer, follow [docs/cloud-setup.md](docs/cloud-setup.md)
 (includes the new-machine restore path).
@@ -94,7 +94,7 @@ DESIGN.md      visual design system
 
 ## Implementation
 
-Tracker is a single native binary in [`odin/src/`](odin/src): the window is
+Tracker-FX is a single native binary in [`odin/src/`](odin/src): the window is
 SDL3 GPU (Metal/Vulkan, OpenGL fallback) through vinland-ui, audio runs through miniaudio (CoreAudio / PipeWire / ALSA) or
 a cooperative JACK client on Linux, and the DSP is plain Odin. There is no webview, no
 JavaScript runtime and no IPC boundary.

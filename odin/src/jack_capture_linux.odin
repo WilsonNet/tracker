@@ -128,7 +128,7 @@ jack_query_capture_ports :: proc(client: ^jack_client_t) -> [^]cstring {
 // True when a JACK server (jackd or PipeWire's JACK layer) accepts clients.
 jack_available :: proc() -> bool {
 	status: u32
-	client := jack_client_open(cstring("tracker-probe"), JACK_NO_START_SERVER, &status, rawptr(nil))
+	client := jack_client_open(cstring("tracker-fx-probe"), JACK_NO_START_SERVER, &status, rawptr(nil))
 	if client == nil {
 		return false
 	}
@@ -140,7 +140,7 @@ jack_available :: proc() -> bool {
 // Caller frees each string and then the slice: delete(name), delete(names).
 jack_port_names :: proc() -> []string {
 	status: u32
-	client := jack_client_open(cstring("tracker-probe"), JACK_NO_START_SERVER, &status, rawptr(nil))
+	client := jack_client_open(cstring("tracker-fx-probe"), JACK_NO_START_SERVER, &status, rawptr(nil))
 	if client == nil {
 		return nil
 	}
@@ -175,7 +175,7 @@ jack_record :: proc(seconds: f32, channels: int, rate: u32, port_names: []string
 	}
 
 	status: u32
-	client := jack_client_open(cstring("tracker"), JACK_NO_START_SERVER, &status, rawptr(nil))
+	client := jack_client_open(cstring("tracker-fx"), JACK_NO_START_SERVER, &status, rawptr(nil))
 	if client == nil {
 		fmt.eprintln("JACK server not available")
 		return {}, false
