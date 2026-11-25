@@ -47,3 +47,18 @@ stays_finite_on_noise_burst :: proc(t: ^testing.T) {
 		testing.expectf(t, !math.is_nan(y) && !math.is_inf(y), "diverged at sample %d: %v", i, y)
 	}
 }
+
+@(test)
+biquad_high_pass_rejects_dc_and_passes_highs :: proc(t: ^testing.T) {
+	f := biquad_high_pass(FS, 280.0, 0.7071)
+	dc_out: f32 = 0
+	for _ in 0 ..< 4_800 {
+		dc_out = biquad_process(&f, 1.0)
+	}
+	testing.expectf(t, abs(dc_out) < 1e-3, "DC not attenuated: %v", dc_out)
+
+	mag_high := biquad_magnitude_at(&f, FS, 4_000.0)
+	testing.expectf(t, mag_high > 0.98, "4 kHz magnitude too low: %v", mag_high)
+	mag_low := biquad_magnitude_at(&f, FS, 60.0)
+	testing.expectf(t, mag_low < 0.06, "60 Hz magnitude too high: %v", mag_low)
+}

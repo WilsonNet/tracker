@@ -172,6 +172,7 @@ view_frame :: proc(a: ^App, v: ^View) {
 			view_fx(a, v)
 		}
 		view_bounce_row(a, v)
+		view_tempo_listen_bar(a)
 		view_section_bar(a)
 		view_status(a)
 		view_rhythm(a, v)
@@ -207,7 +208,7 @@ view_frame :: proc(a: ^App, v: ^View) {
 
 // Busy = the window should keep rendering (meters, clock, toast, pulse).
 view_busy :: proc(a: ^App) -> bool {
-	return a.transport != .Stopped || a.monitor || a.bounce_active || a.toast_time > 0 || a.mode == .Palette || a.mode == .Recent || a.demo || a.input_live || a.cloud_busy
+	return a.transport != .Stopped || a.monitor || a.bounce_active || a.toast_time > 0 || a.mode == .Palette || a.mode == .Recent || a.demo || a.input_live || a.cloud_busy || a.tempo_listen
 }
 
 @(private = "file")
@@ -307,6 +308,9 @@ status_mode :: proc(a: ^App) -> (string, string) {
 	if a.transport == .Recording {
 		return "REC", "bg-rec text-ink"
 	}
+	if a.mode == .Normal && a.tempo_listen {
+		return "LISTEN", "bg-sig text-canvas"
+	}
 	switch a.mode {
 	case .Normal:
 		return "NORMAL", "bg-sig-bg text-sig"
@@ -339,7 +343,7 @@ TBTN :: "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[2px] px-3
 
 @(private = "file")
 view_transport :: proc(a: ^App, v: ^View) {
-	if vui.div("flex shrink-0 items-center gap-6 border-b border-line bg-panel px-4 py-2") {
+	if vui.div("flex shrink-0 items-center gap-4 border-b border-line bg-panel px-4 py-2") {
 		mode, mcls := status_mode(a)
 		vui.text(mode, vui.cx("shrink-0 whitespace-nowrap rounded-[2px] px-2 py-1 text-[12px] font-semibold leading-none tracking-[0.04em]", mcls))
 
@@ -400,7 +404,7 @@ view_transport :: proc(a: ^App, v: ^View) {
 			}
 		}
 
-		if vui.div("ml-4 flex shrink-0 items-center gap-2") {
+		if vui.div("ml-2 flex shrink-0 items-center gap-2") {
 			vui.text("BPM", "text-[12px] font-semibold tracking-[0.04em] text-ink-dim")
 			if vui.div("flex h-7 items-center rounded-[2px] border border-line bg-canvas hover:border-sig-dim") {
 				if w := wheel_here(); w != 0 {
@@ -422,9 +426,25 @@ view_transport :: proc(a: ^App, v: ^View) {
 					}
 				}
 			}
+			rec_now := a.transport == .Recording
+			listen_on := a.tempo_listen
+			listen_cls := "border-sig bg-sig-bg text-sig" if listen_on else "border-line text-ink-dim hover:border-sig-dim hover:bg-panel-hover hover:text-ink"
+			if rec_now {
+				listen_cls = vui.cx(listen_cls, "opacity-40")
+			}
+			if vui.button_box(vui.cx("flex h-7 shrink-0 items-center gap-1.5 rounded-[2px] border px-2 text-[11px] font-semibold tracking-[0.06em] transition-colors duration-150 focus-visible:ring-1 focus-visible:ring-sig", listen_cls), {.Disabled} if rec_now else {}) {
+				if listen_on {
+					pulse_cls := "bg-sig-hi" if a.tempo_listen_flash > 0 else "bg-sig" if a.reduced_motion else "animate-pulse bg-sig"
+					vui.el(vui.cx("size-1.5 rounded-full", pulse_cls))
+				}
+				vui.text("TAP")
+				if vui.clicked() && !rec_now {
+					app_execute(a, .Tempo_Listen)
+				}
+			}
 		}
 
-		if vui.div("ml-3 flex min-w-0 items-center gap-1") {
+		if vui.div("ml-2 flex min-w-0 items-center gap-1") {
 			mon := a.monitor
 			if vui.button_box(vui.cx(TBTN, "border", mon ? "border-line-sig bg-sig-bg text-sig" : "border-line text-ink-dim hover:border-sig-dim hover:bg-panel-hover hover:text-ink")) {
 				vui.el("size-1.5 rounded-full bg-sig shadow-[0_0_6px_var(--color-sig)]" if mon else "size-1.5 rounded-full bg-ink-muted")
@@ -1432,6 +1452,129 @@ view_bounce_row :: proc(a: ^App, v: ^View) {
 }
 
 @(private = "file")
+Tempo_Meter_Draw :: struct {
+	level:  f32,
+	thresh: f32,
+	flash:  f32,
+	live:   bool,
+	sens:   Tempo_Sensitivity,
+}
+
+@(private = "file")
+tempo_meter_floor :: proc(s: Tempo_Sensitivity) -> f32 {
+	switch s {
+	case .Low:  return 0.080
+	case .Med:  return 0.032
+	case .High: return 0.012
+	}
+	return 0.032
+}
+
+@(private = "file")
+tempo_meter_draw :: proc(ctx: ^vui.Context, r: vui.Rect, data: rawptr) {
+	d := (^Tempo_Meter_Draw)(data)
+	border_col := tok("sig-hi") if d.flash > 0 else tok("line")
+	vui.draw_rect(ctx, r, border_col, 2)
+	inner := vui.Rect{r.x + 1, r.y + 1, max(r.w - 2, 0), max(r.h - 2, 0)}
+	vui.draw_rect(ctx, inner, tok("canvas"), 1)
+	if inner.w <= 2 || inner.h <= 1 {
+		return
+	}
+	for q in 1 ..< 4 {
+		qx := inner.x + inner.w * (f32(q) * 0.25)
+		vui.draw_line(ctx, {qx, inner.y}, {qx, inner.y + inner.h}, tok("line-subtle"), 1.0)
+	}
+	eff_level := d.level if d.live else max(d.level, d.flash * 0.65)
+	fill_norm := clamp(math.sqrt(clamp(eff_level, 0, 1)), 0, 1)
+	if fill_norm > 0.01 {
+		fill_rect := vui.Rect{inner.x, inner.y, inner.w * fill_norm, inner.h}
+		fill_col := tok("sig-hi") if d.flash > 0 else tok("sig")
+		vui.draw_rect(ctx, fill_rect, fill_col, 1)
+	}
+	eff_thresh := d.thresh if (d.live && d.thresh > 0) else tempo_meter_floor(d.sens)
+	thresh_norm := clamp(math.sqrt(clamp(eff_thresh, 0, 1)), 0.05, 0.96)
+	tx := inner.x + inner.w * thresh_norm
+	vui.draw_line(ctx, {tx, inner.y}, {tx, inner.y + inner.h}, tok("ink-dim"), 1.5)
+}
+
+@(private = "file")
+view_tempo_listen_bar :: proc(a: ^App) {
+	if !a.tempo_listen {
+		return
+	}
+	eff := app_tempo_listen_effective_bpm(a)
+	if vui.div("relative flex shrink-0 flex-col border-t border-line-sig bg-panel") {
+		if vui.div("flex items-center gap-2 px-4 py-1.5") {
+			if vui.div("flex min-w-0 items-center gap-2") {
+				vui.el(vui.cx("size-1.5 shrink-0 rounded-full", "bg-sig-hi" if a.tempo_listen_flash > 0 else "bg-sig"))
+				vui.text("TEMPO LISTEN", "shrink-0 text-[10px] font-semibold tracking-[0.06em] text-sig")
+				md := new(Tempo_Meter_Draw, context.temp_allocator)
+				md^ = {
+					level  = a.tempo_listen_level,
+					thresh = a.tempo_listen_thresh,
+					flash  = a.tempo_listen_flash,
+					live   = a.tempo_listen_audio_live,
+					sens   = a.tempo_listen_sens,
+				}
+				vui.canvas("h-3.5 w-24 shrink-0", tempo_meter_draw, md)
+				lit_count := min(a.tempo_listen_hits, 4)
+				active_pip := (a.tempo_listen_hits - 1) % 4 if a.tempo_listen_hits > 0 else -1
+				if vui.div("flex shrink-0 items-center gap-1") {
+					for b in 0 ..< 4 {
+						vui.push_id(200 + b)
+						lit := b < lit_count
+						hot := a.tempo_listen_flash > 0 && b == active_pip
+						vui.el(vui.cx("size-1.5 rounded-[1px]", "bg-sig-hi" if hot else "bg-sig" if lit else "bg-line"))
+						vui.pop_id()
+					}
+				}
+				if a.tempo_listen_hits == 0 {
+					vui.text("clap or hit guitar…", "truncate text-[11px] text-ink-dim")
+				} else if a.tempo_listen_hits == 1 {
+					vui.text("1 hit · keep going…", "truncate text-[11px] text-sig")
+				} else {
+					vui.text(fmt.tprintf("%d BPM · %d hits", eff, a.tempo_listen_hits), "whitespace-nowrap text-[11px] font-semibold tabular-nums text-sig")
+				}
+			}
+
+			if vui.div("ml-auto flex shrink-0 items-center gap-1.5") {
+				if vui.button("TAP BEAT", "rounded-[2px] border border-line px-2 py-0.5 text-[10px] font-semibold tracking-[0.06em] text-ink-dim hover:border-sig-dim hover:bg-panel-hover hover:text-ink focus-visible:ring-1 focus-visible:ring-sig") {
+					app_execute(a, .Tempo_Tap)
+				}
+				can_half := eff > 0 && int(math.round(f32(eff) * 0.5)) >= 40
+				if vui.button("÷2", vui.cx("rounded-[2px] border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums focus-visible:ring-1 focus-visible:ring-sig", can_half ? "border-line text-ink-dim hover:border-sig-dim hover:text-ink" : "border-line-subtle text-ink-muted/60"), {} if can_half else {.Disabled}) {
+					app_execute(a, .Tempo_Half)
+				}
+				can_double := eff > 0 && eff * 2 <= 240
+				if vui.button("×2", vui.cx("rounded-[2px] border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums focus-visible:ring-1 focus-visible:ring-sig", can_double ? "border-line text-ink-dim hover:border-sig-dim hover:text-ink" : "border-line-subtle text-ink-muted/60"), {} if can_double else {.Disabled}) {
+					app_execute(a, .Tempo_Double)
+				}
+				sens_label := fmt.tprintf("SENS %s", app_tempo_listen_sens_label(a.tempo_listen_sens))
+				if vui.button(sens_label, "rounded-[2px] border border-line px-2 py-0.5 text-[10px] font-semibold tracking-[0.04em] text-ink-dim hover:border-sig-dim hover:text-ink focus-visible:ring-1 focus-visible:ring-sig") {
+					app_execute(a, .Tempo_Sens_Next)
+				}
+				if vui.button("RESET", "rounded-[2px] border border-line px-2 py-0.5 text-[10px] font-semibold tracking-[0.06em] text-ink-dim hover:border-sig-dim hover:text-ink focus-visible:ring-1 focus-visible:ring-sig") {
+					app_execute(a, .Tempo_Reset)
+				}
+				if vui.button("DONE", "rounded-[2px] border border-line-sig bg-sig-bg px-2 py-0.5 text-[10px] font-semibold tracking-[0.06em] text-sig hover:bg-panel-hover focus-visible:ring-1 focus-visible:ring-sig") {
+					app_execute(a, .Tempo_Apply)
+				}
+				if vui.button("×", "rounded-[2px] px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink focus-visible:ring-1 focus-visible:ring-sig") {
+					app_execute(a, .Tempo_Cancel)
+				}
+			}
+		}
+		if a.tempo_listen_hits >= 2 {
+			pct: f32 = 100.0 if a.reduced_motion else clamp((1.0 - a.tempo_listen_silence / TEMPO_AUTOLOCK_SECONDS) * 100.0, 0, 100)
+			if vui.div("h-[2px] w-full bg-canvas") {
+				vui.el("h-full bg-sig")
+				vui.last_style().width = vui.pct(pct)
+			}
+		}
+	}
+}
+
+@(private = "file")
 view_section_bar :: proc(a: ^App) {
 	if !a.end_marker_set {
 		return
@@ -1539,6 +1682,8 @@ view_status :: proc(a: ^App) {
 		hint := "type: project name  enter: save  esc: cancel" if (a.mode == .Normal && a.project_name_edit) else "space: play/pause  M: marker  r: record  j/k: nav"
 		if a.mode == .Normal && a.track_edit {
 			hint = "type: track name  enter: save  esc: cancel"
+		} else if a.mode == .Normal && a.tempo_listen {
+			hint = "clap/play: set tempo  enter: done  esc: cancel"
 		}
 		#partial switch a.mode {
 		case .Fx:

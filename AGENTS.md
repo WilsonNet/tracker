@@ -144,7 +144,7 @@ cover it.
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — unit tests (318 on Linux / 312 on macOS: DSP + core/engine/project/cloud + UI)
+- `make test` — unit tests (336 on Linux / 330 on macOS: DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
@@ -186,15 +186,15 @@ reload`. Agent verification should still use offscreen `VUI_HIDDEN=1`.
 
 ## Testing
 
-- `make test` — 74 DSP + core/engine/project/WAV/settings/cloud (160 on Linux, 154 on macOS without Linux JACK session tests) + 92 UI tests (326 total on Linux, 320 on macOS).
-- `make e2e` — 32 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, render dialog range/format, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay, project titling, create clean new project, tape scrubber shuttle/jog wheels + modifiers, timing mode Grid/Free switch, F1 contextual help, add tracks/zoom/page, bounce-to-track dialog, 24 tracks at minimum size, inline track rename, pause/marker/pre-roll controls, delete track, delete take, section end marker/loop/auto punch-out/pre-roll audio).
+- `make test` — 82 DSP + core/engine/project/WAV/settings/cloud (161 on Linux, 155 on macOS without Linux JACK session tests) + 93 UI tests (336 total on Linux, 330 on macOS).
+- `make e2e` — 33 cases in `tests/ui/window.vt` (layout, arm/solo/mute, input pills, record gating, FX rack, knob drag, BPM, render dialog range/format, palette, I/O, rhythm, undo, minimum size, fine drag, settings keyboard flow, text selection/caret and secret masking, cloud settings/overlay, project titling, create clean new project, tape scrubber shuttle/jog wheels + modifiers, timing mode Grid/Free switch, F1 contextual help, add tracks/zoom/page, bounce-to-track dialog, 24 tracks at minimum size, inline track rename, pause/marker/pre-roll controls, delete track, delete take, section end marker/loop/auto punch-out/pre-roll audio, tempo listen clap/tap bar).
 - The headless harness (`ui-test`, `ui-shot`; Cairo/Pango on Linux, pure-Odin + `stb_truetype` on macOS) remains the pixel-stable regression surface; the vinland window is verified through `vui-test` and `vui-ctl`.
 - `scripts/check.sh` validates screenshots with `python3`; `ffprobe`/`sox` format checks run when installed.
 - Do not claim a UI works without inspecting the generated PNG/report. Hardware recording evidence belongs in `odin/VERIFICATION.md`.
 
 ## Audio Engine
 
-- **Capture** — miniaudio/ALSA and cooperative JACK (PipeWire). Arming a track while stopped opens a capture-only preview that feeds the input meter and history graph before REC; no take file is written. Each track records one selectable input channel; WAVs are true mono. Device hotplug falls back and can be rescanned.
+- **Capture** — miniaudio/ALSA and cooperative JACK (PipeWire). Arming a track while stopped opens a capture-only preview that feeds the input meter and history graph before REC; no take file is written. Activating Tempo Listen (`f` / `TAP`) also opens the `Preview` stream (even with no tracks armed, except when `e.headless_window` is true) and runs `dsp.tempo_detector_process` (`proc "contextless"`, 420 Hz HPF + dual-envelope adaptive threshold) via lock-free atomics to detect hand claps or guitar hits/strums across armed inputs (or all channels when none are armed). Each track records one selectable input channel; WAVs are true mono. Device hotplug falls back and can be rescanned.
 - **Engine** — lock-free capture ring drained by a writer thread, real-time streaming playback via `dsp.Live_Mixer` (wait-free 3-slot triple buffer for live fader/pan/mute/solo/FX updates, pre-resampled `play_tracks` cache, persistent warm low-latency playback device configured per OS in `platform_{darwin,linux,other}.odin`), duplex live monitoring, metronome (40–240 BPM, Grid absolute clicktrack anchored to Bar 1 Beat 1 with accented downbeat + real time signatures `4/4, 3/4, 6/8, 5/4, 7/8, 2/4`, or opt-in Free relative click), pre-roll audio choice (`SONG` including armed lead-in ramp-out at punch-in vs `CLK` click-only until punch-in), sample-accurate `IN → OUT` playback looping with de-click fade (playback-only, never loop-recording), opt-in auto punch-out at `OUT`, manual latency trim, mixed-rate resampling to the project rate. Always call `engine_tracks_begin_edit`/`engine_tracks_end_edit` around mutations to `Engine.loaded` so the warm audio callback is quiesced safely.
 - **Track chain** — 3-band EQ (low shelf 110 Hz → mid bell → high shelf 7.5 kHz) → compressor → fader/pan, with post-fader sends into the shared reverb and delay buses.
 - **Master chain** — compressor → FDN reverb → ping-pong delay → mid/side widener (mono-safe below the bass crossover) → lookahead limiter with a soft-clip ceiling.

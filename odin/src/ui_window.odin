@@ -138,6 +138,7 @@ run_ui_window :: proc(args: []string) -> bool {
 	e.device_index = default_idx
 	e.default_device_index = default_idx
 	a.demo = has_flag(args, "--demo")
+	e.headless_window = !window_should_warm_audio(&a)
 	a.engine_clock = !a.demo
 	a.latency_ms = clamp(flag_f32(args, "--latency-ms", a.latency_ms), 0, 10_000)
 	if has_flag(args, "--jack") {

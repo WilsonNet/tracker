@@ -91,6 +91,7 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | tape-first in-place overwrite + opt-in multi-take (`+ TAKE` / `Ctrl+t` / `: new take`) & unbounded recording metronome fix (2026-11-24) | done (`engine_takes.odin`, `engine.odin`, `ui/tracks.odin`, `ui/view.odin`) |
 | clean new project & unified Settings PROJECT management (`+ NEW PROJECT`, `OPEN…`, `RECENT`, inline `<parent>/<slug>` composer, full 4-track/audio/FX/marker reset keeping machine prefs, `--session` recent isolation; 2026-11-24) | done (`engine_paths.odin`, `ui/app.odin`, `ui/view.odin`) |
 | pre-roll song/click audio, section end marker, loop playback & opt-in auto punch-out (2026-11-25) | done (`ui/transport.odin`, `ui/view.odin`, `engine.odin`, `settings.odin`, `project.odin`): `SONG` (existing tracks + armed lead-in ramp-out at punch) vs `CLK` pre-roll audio (`A` / pill / Settings), `OUT` end marker (`E`), contextual Section bar (`IN → OUT`), playback-only `LOOP` (`w`), opt-in `PUNCH OUT` (`O`, exact trim + tail preservation) |
+| audio-triggered tempo listen (`f` / `TAP`, clap / guitar transient detection + manual tap fallback, 2026-11-25) | done (`dsp/biquad.odin`, `dsp/tempo.odin`, `engine.odin`, `ui/transport.odin`, `ui/view.odin`): contextless 420 Hz HPF + 30 ms warmup + dual-envelope adaptive threshold + 210 ms refractory lockout + median-trimmed IOI estimator inside `Preview`; contextual `TEMPO LISTEN` bar with live gauge/threshold tick, 4 beat pips, auto-lock countdown, `TAP BEAT`, `÷2`/`×2`, `SENS`, `RESET`, `DONE`, `Esc` restore, and single-step undo |
 | `F1` contextual key sheet (`ui/help.odin`) | done; covers every mode and sub-state |
 | not done | removing a track that holds audio (refused on purpose), undo of a bounce (the target's previous take stays selectable with `t`/`T`), stereo bounce targets, loop recording (intentional: press `r` per pass), headless Cairo/soft canvas overlays for the help sheet and bounce dialog |
 
@@ -98,8 +99,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **326** Linux / **320** macOS (74 DSP, 160/154 core/engine/project/cloud, 92 UI) |
-| UI e2e | 32 headless vinland-ui cases |
+| unit tests | **336** Linux / **330** macOS (82 DSP, 161/155 core/engine/project/cloud, 93 UI) |
+| UI e2e | 33 headless vinland-ui cases |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |
 | hardware capture | 96,000 frames / 2.000 s |

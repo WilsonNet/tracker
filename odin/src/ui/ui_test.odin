@@ -3241,3 +3241,78 @@ ui_end_marker_loop_playback_and_auto_punch_out :: proc(t: ^testing.T) {
 	testing.expect(t, !a.end_marker_set && !a.loop_enabled && !a.punch_out_enabled, "project reset clears section")
 	testing.expect(t, !a.preroll_audio, "project reset preserves preroll_audio machine preference")
 }
+
+@(test)
+ui_tempo_listen_tap_autolock_cancel_and_undo :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	a.bpm = 112
+	a.metronome = false
+	app_history_reset(&a)
+
+	// f enters Tempo Listen; manual taps at 0.5 s -> 120 BPM live preview; Esc restores 112 BPM.
+	app_key(&a, .Char, 'f')
+	testing.expect(t, a.tempo_listen, "f opens tempo listen")
+	testing.expect(t, app_help_context(&a) == "Tempo listen", "help context updates while listening")
+	app_execute(&a, .Tempo_Tap)
+	app_tick(&a, 0.5)
+	app_execute(&a, .Tempo_Tap)
+	app_tick(&a, 0.5)
+	app_execute(&a, .Tempo_Tap)
+	testing.expectf(t, a.tempo_listen_hits == 3 && a.bpm == 120, "live bpm %d hits %d", a.bpm, a.tempo_listen_hits)
+	app_key(&a, .Escape)
+	testing.expect(t, !a.tempo_listen && a.bpm == 112 && !a.metronome, "Esc restores bpm and metronome")
+
+	// Scale ×2 -> 240, ÷2 -> 120, RESET -> 112 & 0 hits, re-tap & Enter applies + enables click + 1 undo step.
+	app_key(&a, .Char, 'f')
+	app_execute(&a, .Tempo_Tap)
+	app_tick(&a, 0.5)
+	app_execute(&a, .Tempo_Tap)
+	testing.expect(t, a.bpm == 120, "tapped 120")
+	testing.expect(t, app_tempo_listen_scale(&a, 2.0) && a.bpm == 240, "x2 doubles to 240")
+	testing.expect(t, !app_tempo_listen_scale(&a, 2.0), "x2 clamps out of range > 240")
+	testing.expect(t, app_tempo_listen_scale(&a, 0.5) && a.bpm == 120, "÷2 halves back to 120")
+	app_execute(&a, .Tempo_Sens_Next)
+	testing.expect(t, a.tempo_listen_sens == .High, "sens cycles Med -> High")
+	app_execute(&a, .Tempo_Reset)
+	testing.expect(t, a.tempo_listen && a.tempo_listen_hits == 0 && a.bpm == 112, "reset clears hits and restores preview bpm")
+
+	app_execute(&a, .Tempo_Tap)
+	app_tick(&a, 0.5)
+	app_execute(&a, .Tempo_Tap)
+	app_key(&a, .Enter)
+	testing.expect(t, !a.tempo_listen && a.bpm == 120 && a.metronome, "Enter applies tempo and enables metronome")
+	app_key(&a, .Char, 'u')
+	testing.expect(t, a.bpm == 112 && !a.metronome, "single undo restores previous bpm and metronome")
+
+	// Stray single hit resets after 2.0 s without closing; >= 2 hits auto-lock after 2.2 s.
+	app_key(&a, .Char, 'f')
+	app_tempo_listen_audio_update(&a, 0.4, 0.1, 1, 0, 0, true, true)
+	testing.expect(t, a.tempo_listen_hits == 1, "audio update records 1st hit")
+	app_tick(&a, 2.1)
+	testing.expect(t, a.tempo_listen && a.tempo_listen_hits == 0, "stray single hit resets after 2s")
+
+	app_tempo_listen_audio_update(&a, 0.5, 0.1, 2, 134, 0, true, true)
+	// Subsequent no-hit tick frames must not wipe detected hits or scaling.
+	app_tempo_listen_audio_update(&a, 0.01, 0.1, 2, 134, 0.2, false, true)
+	testing.expect(t, a.tempo_listen_hits == 2 && a.bpm == 134, "idle audio update keeps hit count and bpm")
+	app_tick(&a, 2.3)
+	testing.expect(t, !a.tempo_listen && a.bpm == 134 && a.metronome, "2+ hits auto-lock after 2.2s silence")
+
+	// Space / r apply >= 2 hits and transition to play/record; recording blocks tempo listen.
+	app_key(&a, .Char, 'f')
+	app_execute(&a, .Tempo_Tap)
+	app_tick(&a, 0.6)
+	app_execute(&a, .Tempo_Tap) // 100 BPM
+	app_key(&a, .Space)
+	testing.expect(t, !a.tempo_listen && a.bpm == 100 && a.metronome && a.transport == .Playing, "Space locks tempo and starts playback")
+	app_key(&a, .Space)
+
+	app_key(&a, .Char, '1')
+	app_key(&a, .Char, 'r', false, true)
+	testing.expect(t, a.transport == .Recording, "recording active")
+	app_key(&a, .Char, 'f')
+	testing.expect(t, !a.tempo_listen, "cannot open tempo listen while recording")
+	app_key(&a, .Space)
+}

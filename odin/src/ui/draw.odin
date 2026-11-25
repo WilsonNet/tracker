@@ -673,7 +673,7 @@ draw_module_visual :: proc(a: ^App, c: ^Canvas, m: Fx_Module, r: Rect) {
 @(private)
 command_hint :: proc(kind: Command_Kind) -> string {
 	#partial switch kind {
-	case .Play, .Stop, .Pause, .Set_Marker, .Clear_Marker, .Goto_Marker, .Set_End_Marker, .Clear_End_Marker, .Goto_End_Marker, .Loop_Toggle, .Punch_Out_Toggle, .Audition, .Record_Now, .Preroll_Next, .Preroll_Audio, .Timing_Mode, .Time_Sig_Next, .Record_Start, .Record_Stop, .Seek, .Seek_Zero, .Shuttle_Back, .Shuttle_Forward, .Jog_Back, .Jog_Forward:
+	case .Play, .Stop, .Pause, .Set_Marker, .Clear_Marker, .Goto_Marker, .Set_End_Marker, .Clear_End_Marker, .Goto_End_Marker, .Loop_Toggle, .Punch_Out_Toggle, .Audition, .Record_Now, .Preroll_Next, .Preroll_Audio, .Timing_Mode, .Time_Sig_Next, .Record_Start, .Record_Stop, .Seek, .Seek_Zero, .Shuttle_Back, .Shuttle_Forward, .Jog_Back, .Jog_Forward, .Tempo_Listen, .Tempo_Tap, .Tempo_Apply, .Tempo_Cancel, .Tempo_Reset, .Tempo_Half, .Tempo_Double, .Tempo_Sens_Next:
 		return "transport"
 	case .Bounce, .Render_Mix, .Render_File, .Bounce_Tracks, .Bounce_To_Track, .Delete_Track:
 		return "render"

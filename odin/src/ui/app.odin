@@ -42,6 +42,7 @@ Render_Format :: enum u8 { Wav_F32, Wav_PCM24, Wav_PCM16 }
 Render_Handle :: enum u8 { None, From, To }
 Scrub_Wheel :: enum u8 { Shuttle, Jog }
 Scrub_Speed :: enum u8 { Normal, Slow, Micro }
+Tempo_Sensitivity :: enum u8 { Low, Med, High }
 
 RENDER_FORMAT_COUNT :: int(Render_Format.Wav_PCM16) + 1
 RENDER_STEP_SECONDS :: f32(0.5)
@@ -130,6 +131,14 @@ Command_Kind :: enum {
 	Metronome,
 	Bpm_Up,
 	Bpm_Down,
+	Tempo_Listen,
+	Tempo_Tap,
+	Tempo_Apply,
+	Tempo_Cancel,
+	Tempo_Reset,
+	Tempo_Half,
+	Tempo_Double,
+	Tempo_Sens_Next,
 	Arm_All,
 	Clear_Arms,
 	Panic,
@@ -430,6 +439,22 @@ App :: struct {
 	metronome:     bool,
 	timing_mode:   Timing_Mode,
 	time_sig_idx:  int,
+	tempo_listen:                bool,
+	tempo_listen_prev_bpm:       int,
+	tempo_listen_prev_metronome: bool,
+	tempo_listen_bpm:            int,
+	tempo_listen_hits:           int,
+	tempo_listen_mult:           f32,
+	tempo_listen_sens:           Tempo_Sensitivity,
+	tempo_listen_level:          f32,
+	tempo_listen_thresh:         f32,
+	tempo_listen_flash:          f32,
+	tempo_listen_silence:        f32,
+	tempo_listen_audio_live:     bool,
+	tempo_listen_audio_seq:      u32,
+	tempo_listen_reset_gen:      u32,
+	tempo_tap_times:             [9]f32,
+	tempo_tap_count:             int,
 	monitor:       bool,
 	latency_ms:    f32,
 	jack_backend:  bool,
@@ -638,6 +663,8 @@ app_init :: proc(a: ^App, width, height: int) {
 	a.bpm = 120
 	a.timing_mode = .Grid
 	a.time_sig_idx = TIME_SIG_DEFAULT_IDX
+	a.tempo_listen_sens = .Med
+	a.tempo_listen_mult = 1.0
 	a.selected = 0
 	a.mode = .Normal
 	a.transport = .Stopped
@@ -748,6 +775,7 @@ app_reset_project :: proc(a: ^App, name: string) {
 	a.loop_enabled = false
 	a.punch_out_enabled = false
 	a.audition_end = 0
+	app_tempo_listen_clear(a)
 	a.record_punch = 0
 	a.record_pre = 0
 	a.record_punch_out = 0
@@ -1677,6 +1705,9 @@ app_describe :: proc(a: ^App) -> string {
 			"on" if app_loop_active(a) else "off",
 			"on" if app_punch_out_active(a) else "off")
 	}
+	if a.tempo_listen {
+		describe_append(out[:], &n, "tempo listen on (%d hits, %d bpm). ", a.tempo_listen_hits, app_tempo_listen_effective_bpm(a))
+	}
 	describe_append(out[:], &n, "google drive %s. cloud projects %d. ", "connected" if a.cloud_connected else "disconnected", a.cloud_project_count)
 	for i in 0 ..< a.track_count {
 		t := a.tracks[i]
@@ -2431,6 +2462,26 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		a.bpm = clamp(a.bpm - 1, 40, 240)
 		app_history_note(a, "tempo")
 		app_touch(a)
+	case .Tempo_Listen:
+		if a.tempo_listen {
+			app_tempo_listen_apply(a)
+		} else {
+			_ = app_tempo_listen_start(a)
+		}
+	case .Tempo_Tap:
+		app_tempo_listen_tap(a)
+	case .Tempo_Apply:
+		app_tempo_listen_apply(a)
+	case .Tempo_Cancel:
+		app_tempo_listen_cancel(a)
+	case .Tempo_Reset:
+		app_tempo_listen_reset(a)
+	case .Tempo_Half:
+		_ = app_tempo_listen_scale(a, 0.5)
+	case .Tempo_Double:
+		_ = app_tempo_listen_scale(a, 2.0)
+	case .Tempo_Sens_Next:
+		app_tempo_listen_sens_cycle(a)
 	case .Arm_All:
 		if a.transport == .Recording {
 			toast(a, "stop recording to change arms")
@@ -2456,6 +2507,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 	case .Panic:
 		a.take_del_track = -1
 		project_edit_clear(a)
+		app_tempo_listen_clear(a)
 		a.audition_end = 0
 		a.record_punch_out = 0
 		a.transport = .Stopped
@@ -2873,6 +2925,7 @@ app_tick :: proc(a: ^App, dt: f32) {
 		}
 	}
 	app_audition_tick(a)
+	app_tempo_listen_tick(a, dt)
 	if a.toast_time > 0 {
 		a.toast_time -= dt
 		if a.toast_time <= 0 {

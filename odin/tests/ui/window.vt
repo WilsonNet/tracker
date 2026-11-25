@@ -528,3 +528,41 @@ test "section end marker, loop, punch-out and pre-roll audio"
   type E
   expect-no-text "SECTION"
   expect-no-text "LOOP ON"
+
+test "tempo listen clap and tap bar"
+  type f
+  expect-text "TEMPO LISTEN"
+  expect-text "TAP BEAT"
+  expect-text "clap or hit guitar"
+  click-text "SENS MED"
+  expect-text "SENS HIGH"
+  click-text "SENS HIGH"
+  expect-text "SENS LOW"
+  click-text "SENS LOW"
+  expect-text "SENS MED"
+  click-text "TAP BEAT"
+  wait 22
+  click-text "TAP BEAT"
+  wait 22
+  click-text "TAP BEAT"
+  expect-text "3 hits"
+  screenshot tempo-listen
+  click RESET
+  expect-text "clap or hit guitar"
+  click-text "TAP BEAT"
+  wait 22
+  click-text "TAP BEAT"
+  expect-text "2 hits"
+  click DONE
+  expect-no-text "TEMPO LISTEN"
+  expect-text "RHYTHM"
+  expect-text "ON"
+  type f
+  expect-text "TEMPO LISTEN"
+  resize 900 620
+  expect-text "TEMPO LISTEN"
+  expect-text "DONE"
+  key escape
+  expect-no-text "TEMPO LISTEN"
+  expect-text "tempo cancelled"
+  resize 1180 760

@@ -19,6 +19,9 @@ app_help_context :: proc(a: ^App) -> string {
 	   (a.mode == .Settings && (a.new_project_edit || a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None)) {
 		return "Editing text"
 	}
+	if a.mode == .Normal && a.tempo_listen {
+		return "Tempo listen"
+	}
 	if a.transport == .Recording && a.mode == .Normal {
 		return "Recording"
 	}
@@ -72,6 +75,17 @@ app_help_entries :: proc(a: ^App) -> []Help_Entry {
 		help_text_edit(&out, "save name (empty = default)", "cancel")
 	case a.mode == .Normal && a.project_name_edit:
 		help_text_edit(&out, "save name", "cancel")
+	case a.mode == .Normal && a.tempo_listen:
+		head(&out, "Tempo listen")
+		row(&out, "clap / hit", "detect interval BPM")
+		row(&out, "Enter / f", "apply & turn click on")
+		row(&out, "Esc", "cancel & restore BPM")
+		row(&out, "Space / r", "apply & play / record")
+		head(&out, "Bar controls")
+		row(&out, "TAP BEAT", "tap tempo manually")
+		row(&out, "÷2 / ×2", "halve / double tempo")
+		row(&out, "SENS", "sensitivity threshold")
+		row(&out, "RESET", "clear detected hits")
 	case a.mode == .Settings && a.new_project_edit:
 		help_text_edit(&out, "create clean project", "cancel")
 	case a.mode == .Settings && a.project_name_edit:
@@ -228,6 +242,7 @@ help_normal :: proc(out: ^[dynamic]Help_Entry, a: ^App) {
 
 	head(out, "Session")
 	row(out, "c", "metronome")
+	row(out, "f", "listen tempo")
 	row(out, "C", "time signature")
 	row(out, "P", "cycle pre-roll")
 	row(out, "A", "pre-roll song / click")

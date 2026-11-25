@@ -85,7 +85,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 318 unit tests (Linux) / 312 (macOS)
+make test         # 336 unit tests (Linux) / 330 (macOS)
 make check        # unit + headless UI tour + offline end-to-end
 
 # 4. Run the app
@@ -114,9 +114,9 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | unit tests: 74 DSP, 155 core (Linux) / 149 core (macOS), 89 UI = 318 (Linux) / 312 (macOS) |
+| `test` | unit tests: 82 DSP, 161 core (Linux) / 155 core (macOS), 93 UI = 336 (Linux) / 330 (macOS) |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
-| `e2e` | 31 headless vinland-ui window cases (`tests/ui/window.vt`) |
+| `e2e` | 33 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
 | `ui-test` | run a harness script; `SCRIPT=... UI_OUT=...` |
@@ -195,7 +195,15 @@ directory is in `XDG_DATA_DIRS`.
   transport bar plus a beat LED strip when `RHYTHM` or count-in is active, and
   snaps the **Tape Scrubber** magnetically (`SHUTTLE`: `1 BAR` / `1 BEAT` Shift /
   `1/4 BEAT` Ctrl|Alt; `JOG`: `1 BEAT` / `1/4 BEAT` Shift / `10 ms` micro-nudge
-  Ctrl|Alt; loaded length `/ N BAR`). For live, no-click, or organic tape
+  Ctrl|Alt; loaded length `/ N BAR`). Press `f` (or click `TAP` beside BPM, or
+  run `: listen tempo`) to open **Tempo Listen**: the engine's miniaudio capture
+  preview analyzes armed inputs (or all inputs when none are armed) with a 420 Hz
+  high-pass filter and dual-envelope adaptive transient detector so clapping
+  hands or hitting/strumming a guitar in an interval detects BPM (40–240), with
+  live level/threshold meter, 4 beat pips, manual `TAP BEAT` fallback, `÷2`/`×2`
+  octave correction, `SENS` (`LOW`/`MED`/`HIGH`), `RESET`, and 2.2 s silence
+  auto-lock (`Enter`/`DONE`/`f` confirms and turns the metronome on; `Esc`
+  restores the previous tempo and click state). For live, no-click, or organic tape
   sessions, switch to **Free tape mode** in **Settings → TIMING**, `: timing
   mode`, or `G`: the clicktrack runs relative to the play/record start point,
   the readout switches to `00:00:00.000`, scrubbing steps in seconds (`5.0 s` /

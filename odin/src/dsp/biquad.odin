@@ -30,6 +30,21 @@ biquad_peaking :: proc "contextless" (fs, freq, q, gain_db: f32) -> Biquad {
 	}
 }
 
+// Second-order high-pass filter (RBJ Audio EQ Cookbook).
+biquad_high_pass :: proc "contextless" (fs, freq, q: f32) -> Biquad {
+	w0 := math.TAU * clamp(freq / fs, 1e-5, 0.49)
+	cos_w0 := math.cos(w0)
+	alpha := math.sin(w0) / (2.0 * max(q, 0.05))
+	a0 := 1.0 + alpha
+	return Biquad {
+		b0 = ((1.0 + cos_w0) * 0.5) / a0,
+		b1 = -(1.0 + cos_w0) / a0,
+		b2 = ((1.0 + cos_w0) * 0.5) / a0,
+		a1 = (-2.0 * cos_w0) / a0,
+		a2 = (1.0 - alpha) / a0,
+	}
+}
+
 // Low shelf. `slope` of 1.0 is the RBJ default (Q ~= 0.707).
 biquad_low_shelf :: proc "contextless" (fs, freq, gain_db, slope: f32) -> Biquad {
 	a := math.pow(10.0, gain_db / 40.0)

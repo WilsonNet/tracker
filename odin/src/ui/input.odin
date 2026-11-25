@@ -60,6 +60,7 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"metronome", .Metronome},
 	{"tempo up", .Bpm_Up},
 	{"tempo down", .Bpm_Down},
+	{"listen tempo (clap / guitar)", .Tempo_Listen},
 	{"undo", .Undo},
 	{"redo", .Redo},
 	{"new project", .New_Project},
@@ -1754,6 +1755,31 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 		app_take_delete_cancel(a, false)
 	}
 
+	if a.mode == .Normal && a.tempo_listen {
+		#partial switch key {
+		case .Escape:
+			app_tempo_listen_cancel(a)
+			return
+		case .Enter:
+			app_tempo_listen_apply(a)
+			return
+		case .Space:
+			if a.tempo_listen_hits >= 2 {
+				app_tempo_listen_apply(a)
+			} else {
+				app_tempo_listen_cancel(a)
+			}
+		case .Char:
+			if ch == 'r' {
+				if a.tempo_listen_hits >= 2 {
+					app_tempo_listen_apply(a)
+				} else {
+					app_tempo_listen_cancel(a)
+				}
+			}
+		}
+	}
+
 	#partial switch key {
 	case .Escape:
 		a.fx_focus = -1
@@ -1876,6 +1902,9 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 			return
 		case 'c':
 			app_execute(a, .Metronome)
+			return
+		case 'f':
+			app_execute(a, .Tempo_Listen)
 			return
 		case 'o':
 			app_execute(a, .Monitor)
@@ -2321,6 +2350,22 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Bpm_Up"
 	case .Bpm_Down:
 		return "Bpm_Down"
+	case .Tempo_Listen:
+		return "Tempo_Listen"
+	case .Tempo_Tap:
+		return "Tempo_Tap"
+	case .Tempo_Apply:
+		return "Tempo_Apply"
+	case .Tempo_Cancel:
+		return "Tempo_Cancel"
+	case .Tempo_Reset:
+		return "Tempo_Reset"
+	case .Tempo_Half:
+		return "Tempo_Half"
+	case .Tempo_Double:
+		return "Tempo_Double"
+	case .Tempo_Sens_Next:
+		return "Tempo_Sens_Next"
 	case .Arm_All:
 		return "Arm_All"
 	case .Clear_Arms:
@@ -2606,6 +2651,14 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 		return fmt.tprintf("%d", MAX_TRACKS), true
 	case "bpm":
 		return fmt.tprintf("%d", a.bpm), true
+	case "tempo.listen":
+		return "true" if a.tempo_listen else "false", true
+	case "tempo.hits":
+		return fmt.tprintf("%d", a.tempo_listen_hits), true
+	case "tempo.bpm":
+		return fmt.tprintf("%d", app_tempo_listen_effective_bpm(a)), true
+	case "tempo.sens":
+		return app_tempo_listen_sens_label(a.tempo_listen_sens), true
 	case "metronome":
 		return "true" if a.metronome else "false", true
 	case "timing_mode":

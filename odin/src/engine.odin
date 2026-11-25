@@ -125,19 +125,31 @@ Playback :: struct {
 // It opens a capture-only device and publishes per-channel peaks, so the
 // input history graph is live before REC. No ring, writer or take file.
 Preview :: struct {
-	active:        bool,
-	device_open:   bool,
-	ctx_open:      bool,
-	ctx:           ma.context_type,
-	device:        ma.device,
-	channels:      int,
-	rate:          u32,
-	peak:          [32]f32,
-	interrupt:     u64,
-	stop_expected: u64,
-	device_index:  int,
-	failed:        bool,
-	signature:     u64,
+	active:               bool,
+	device_open:          bool,
+	ctx_open:             bool,
+	ctx:                  ma.context_type,
+	device:               ma.device,
+	channels:             int,
+	rate:                 u32,
+	peak:                 [32]f32,
+	interrupt:            u64,
+	stop_expected:        u64,
+	device_index:         int,
+	failed:               bool,
+	signature:            u64,
+	tempo_enabled:        u32,
+	tempo_reset_gen:      u32,
+	tempo_seen_reset_gen: u32,
+	tempo_sensitivity:    u32,
+	tempo_chan_mask:      u32,
+	tempo_detector:       dsp.Tempo_Detector,
+	tempo_hit_seq:        u32,
+	tempo_hit_count:      u32,
+	tempo_bpm:            u32,
+	tempo_level:          f32,
+	tempo_thresh:         f32,
+	tempo_silence_ms:     u32,
 }
 
 Capture_Backend :: enum u8 {
@@ -177,6 +189,7 @@ Engine :: struct {
 	backend:           Capture_Backend,
 	jack:              Jack_Session,
 	takes:             [MAX_ENGINE_TRACKS]Take_List,
+	headless_window:   bool,
 }
 
 // ---------------------------------------------------------------- helpers
@@ -594,6 +607,24 @@ preview_push :: proc "contextless" (p: ^Preview, src: []f32, frames: int) {
 		// sample, so the 20 Hz UI graph sees a usable envelope.
 		sync.atomic_store(&p.peak[c], peaks[c] * 0.94)
 	}
+	if sync.atomic_load(&p.tempo_enabled) != 0 {
+		reset_gen := sync.atomic_load(&p.tempo_reset_gen)
+		if reset_gen != p.tempo_seen_reset_gen {
+			dsp.tempo_detector_reset(&p.tempo_detector)
+			p.tempo_seen_reset_gen = reset_gen
+		}
+		sens_raw := sync.atomic_load(&p.tempo_sensitivity)
+		sens := dsp.Tempo_Sensitivity(clamp(int(sens_raw), 0, 2))
+		dsp.tempo_detector_set_sensitivity(&p.tempo_detector, sens)
+		mask := sync.atomic_load(&p.tempo_chan_mask)
+		_ = dsp.tempo_detector_process(&p.tempo_detector, src, frames, p.channels, mask)
+		sync.atomic_store(&p.tempo_hit_seq, p.tempo_detector.hit_seq)
+		sync.atomic_store(&p.tempo_hit_count, u32(max(p.tempo_detector.hit_count, 0)))
+		sync.atomic_store(&p.tempo_bpm, u32(max(p.tempo_detector.bpm, 0)))
+		sync.atomic_store(&p.tempo_level, p.tempo_detector.env_fast)
+		sync.atomic_store(&p.tempo_thresh, p.tempo_detector.last_thresh)
+		sync.atomic_store(&p.tempo_silence_ms, dsp.tempo_detector_silence_ms(&p.tempo_detector))
+	}
 }
 
 @(private)
@@ -647,9 +678,41 @@ preview_release :: proc(p: ^Preview) {
 	p.interrupt = 0
 	p.stop_expected = 0
 	p.device_index = -1
+	p.tempo_seen_reset_gen = 0
+	p.tempo_detector = {}
+	sync.atomic_store(&p.tempo_enabled, 0)
+	sync.atomic_store(&p.tempo_reset_gen, 0)
+	sync.atomic_store(&p.tempo_sensitivity, 0)
+	sync.atomic_store(&p.tempo_chan_mask, 0)
+	sync.atomic_store(&p.tempo_hit_seq, 0)
+	sync.atomic_store(&p.tempo_hit_count, 0)
+	sync.atomic_store(&p.tempo_bpm, 0)
+	sync.atomic_store(&p.tempo_level, 0)
+	sync.atomic_store(&p.tempo_thresh, 0)
+	sync.atomic_store(&p.tempo_silence_ms, 0)
 	for i in 0 ..< len(p.peak) {
 		sync.atomic_store(&p.peak[i], 0)
 	}
+}
+
+@(private)
+preview_tempo_channel_mask :: proc(a: ^ui.App, channels: int) -> u32 {
+	if a == nil || channels <= 0 {
+		return 0
+	}
+	mask: u32 = 0
+	any_armed := false
+	for i in 0 ..< a.track_count {
+		if !a.tracks[i].armed {
+			continue
+		}
+		any_armed = true
+		ch := recorder_input_channel(a.tracks[i].input, channels)
+		if ch >= 0 && ch < 32 {
+			mask |= u32(1) << u32(ch)
+		}
+	}
+	return mask if any_armed else 0
 }
 
 engine_preview_stop :: proc(e: ^Engine) {
@@ -658,8 +721,9 @@ engine_preview_stop :: proc(e: ^Engine) {
 	}
 }
 
-// True when a stopped transport has at least one armed track on a backend we
-// can preview. JACK keeps its own session; its meters start with the take.
+// True when a stopped transport has at least one armed track (or Tempo Listen
+// is active on a live window) on a backend we can preview. JACK keeps its own
+// session; its meters start with the take.
 @(private)
 preview_wanted :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	if a == nil || a.demo || e.backend != .Miniaudio {
@@ -667,6 +731,9 @@ preview_wanted :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	}
 	if e.rec.active || e.play.active || a.transport != .Stopped {
 		return false
+	}
+	if a.tempo_listen && !e.headless_window {
+		return true
 	}
 	for t in a.tracks {
 		if t.armed {
@@ -677,12 +744,13 @@ preview_wanted :: proc(e: ^Engine, a: ^ui.App) -> bool {
 }
 
 // Cheap identity of the preview inputs, used to retry a failed open only when
-// the arm state, channel mapping or selected device changes.
+// the arm state, channel mapping, tempo listen state or selected device changes.
 @(private)
 preview_signature :: proc(e: ^Engine, a: ^ui.App) -> u64 {
 	sig := u64(0xcbf29ce484222325)
 	sig = (sig ~ u64(e.device_index + 1)) * 0x100000001b3
 	sig = (sig ~ u64(a.jack_backend)) * 0x100000001b3
+	sig = (sig ~ u64(a.tempo_listen)) * 0x100000001b3
 	for t in a.tracks {
 		sig = (sig ~ u64(t.armed)) * 0x100000001b3
 		sig = (sig ~ u64(t.input)) * 0x100000001b3
@@ -730,10 +798,15 @@ engine_preview_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	engine_sync_ui_device(a, names[idx], matched)
 
 	requested := 1
+	any_armed := false
 	for t in a.tracks {
 		if t.armed {
+			any_armed = true
 			requested = max(requested, t.input)
 		}
+	}
+	if !any_armed && a.tempo_listen {
+		requested = max(a.input_count, 2)
 	}
 	requested = clamp(requested, 1, 8)
 	attempts_buf, attempt_count := capture_open_attempts(requested)
@@ -768,6 +841,19 @@ engine_preview_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	}
 	p.stop_expected = 0
 	p.interrupt = 0
+	sens := dsp.Tempo_Sensitivity(clamp(int(a.tempo_listen_sens), 0, 2))
+	dsp.tempo_detector_init(&p.tempo_detector, p.rate, sens)
+	p.tempo_seen_reset_gen = a.tempo_listen_reset_gen
+	sync.atomic_store(&p.tempo_reset_gen, a.tempo_listen_reset_gen)
+	sync.atomic_store(&p.tempo_sensitivity, u32(sens))
+	sync.atomic_store(&p.tempo_chan_mask, preview_tempo_channel_mask(a, p.channels))
+	sync.atomic_store(&p.tempo_enabled, u32(1 if (a.tempo_listen && !e.headless_window) else 0))
+	sync.atomic_store(&p.tempo_hit_seq, 0)
+	sync.atomic_store(&p.tempo_hit_count, 0)
+	sync.atomic_store(&p.tempo_bpm, 0)
+	sync.atomic_store(&p.tempo_level, 0)
+	sync.atomic_store(&p.tempo_thresh, 0)
+	sync.atomic_store(&p.tempo_silence_ms, 0)
 	for i in 0 ..< len(p.peak) {
 		sync.atomic_store(&p.peak[i], 0)
 	}
@@ -2294,6 +2380,28 @@ engine_update :: proc(e: ^Engine, a: ^ui.App) {
 		playback_release_device(e)
 	}
 	engine_preview_sync(e, a)
+	if a != nil {
+		tempo_on := a.tempo_listen && !e.headless_window
+		sync.atomic_store(&e.preview.tempo_enabled, u32(1 if tempo_on else 0))
+		sync.atomic_store(&e.preview.tempo_sensitivity, u32(clamp(int(a.tempo_listen_sens), 0, 2)))
+		sync.atomic_store(&e.preview.tempo_reset_gen, a.tempo_listen_reset_gen)
+		sync.atomic_store(&e.preview.tempo_chan_mask, preview_tempo_channel_mask(a, e.preview.channels))
+		if a.tempo_listen {
+			if e.preview.active && !e.headless_window {
+				seq := sync.atomic_load(&e.preview.tempo_hit_seq)
+				hits := int(sync.atomic_load(&e.preview.tempo_hit_count))
+				raw_bpm := int(sync.atomic_load(&e.preview.tempo_bpm))
+				lvl := sync.atomic_load(&e.preview.tempo_level)
+				thr := sync.atomic_load(&e.preview.tempo_thresh)
+				sil_s := f32(sync.atomic_load(&e.preview.tempo_silence_ms)) / 1000.0
+				new_hit := seq != a.tempo_listen_audio_seq && hits > 0
+				a.tempo_listen_audio_seq = seq
+				ui.app_tempo_listen_audio_update(a, lvl, thr, hits, raw_bpm, sil_s, new_hit, true)
+			} else {
+				ui.app_tempo_listen_audio_update(a, 0, 0, 0, 0, 0, false, false)
+			}
+		}
+	}
 	if e.rec.active {
 		if e.play.active && a != nil {
 			sig := ui.app_time_sig(a)

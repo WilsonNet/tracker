@@ -642,6 +642,13 @@ app_record_start :: proc(a: ^App, skip_preroll: bool) {
 		toast(a, "arm a track first")
 		return
 	}
+	if a.tempo_listen {
+		if a.tempo_listen_hits >= 2 {
+			app_tempo_listen_apply(a)
+		} else {
+			app_tempo_listen_cancel(a)
+		}
+	}
 	a.audition_end = 0
 	punch := max(a.frames, 0)
 	if a.tape_frames > 0 {
@@ -731,5 +738,330 @@ app_audition_tick :: proc(a: ^App) {
 		emit(a, .Stop)
 		emit(a, .Seek)
 		bump_revision(a)
+	}
+}
+
+// ---------------------------------------------------------------- tempo listen
+
+TEMPO_AUTOLOCK_SECONDS :: f32(2.2)
+TEMPO_STRAY_RESET_SECONDS :: f32(2.0)
+TEMPO_TAP_MIN_SECONDS :: f32(0.21)
+TEMPO_TAP_MAX_SECONDS :: f32(1.85)
+
+app_tempo_listen_sens_label :: proc(s: Tempo_Sensitivity) -> string {
+	switch s {
+	case .Low:  return "LOW"
+	case .Med:  return "MED"
+	case .High: return "HIGH"
+	}
+	return "MED"
+}
+
+app_tempo_listen_effective_bpm :: proc(a: ^App) -> int {
+	if a == nil || a.tempo_listen_bpm <= 0 {
+		return 0
+	}
+	mult := a.tempo_listen_mult if a.tempo_listen_mult > 0 else 1.0
+	return clamp(int(math.round(f32(a.tempo_listen_bpm) * mult)), 40, 240)
+}
+
+app_tempo_listen_clear :: proc(a: ^App) {
+	if a == nil {
+		return
+	}
+	a.tempo_listen = false
+	a.tempo_listen_bpm = 0
+	a.tempo_listen_hits = 0
+	a.tempo_listen_mult = 1.0
+	a.tempo_listen_level = 0
+	a.tempo_listen_thresh = 0
+	a.tempo_listen_flash = 0
+	a.tempo_listen_silence = 0
+	a.tempo_listen_audio_live = false
+	a.tempo_tap_count = 0
+}
+
+@(private = "file")
+tempo_listen_idle_status :: proc(a: ^App) -> string {
+	for i in 0 ..< a.track_count {
+		if a.tracks[i].armed {
+			return "listening on armed inputs · clap or hit guitar"
+		}
+	}
+	return "listening on all inputs · clap or hit guitar"
+}
+
+app_tempo_listen_start :: proc(a: ^App) -> bool {
+	if a == nil {
+		return false
+	}
+	if a.transport == .Recording {
+		toast(a, "stop recording to detect tempo")
+		status_buf_set(a, "stop recording to detect tempo")
+		return false
+	}
+	if a.transport == .Playing {
+		a.audition_end = 0
+		a.transport = .Stopped
+		emit(a, .Stop)
+	}
+	a.tempo_listen_prev_bpm = a.bpm
+	a.tempo_listen_prev_metronome = a.metronome
+	a.tempo_listen = true
+	a.tempo_listen_bpm = 0
+	a.tempo_listen_hits = 0
+	a.tempo_listen_mult = 1.0
+	a.tempo_listen_level = 0
+	a.tempo_listen_thresh = 0
+	a.tempo_listen_flash = 0
+	a.tempo_listen_silence = 0
+	a.tempo_tap_count = 0
+	a.tempo_listen_reset_gen += 1
+	status_buf_set(a, tempo_listen_idle_status(a))
+	bump_revision(a)
+	return true
+}
+
+app_tempo_listen_apply :: proc(a: ^App, auto_locked := false) {
+	if a == nil || !a.tempo_listen {
+		return
+	}
+	eff := app_tempo_listen_effective_bpm(a)
+	hits := a.tempo_listen_hits
+	prev_bpm := a.tempo_listen_prev_bpm
+	prev_metro := a.tempo_listen_prev_metronome
+	app_tempo_listen_clear(a)
+	if hits >= 2 && eff > 0 {
+		a.bpm = eff
+		a.metronome = true
+		app_history_note(a, "tempo")
+		app_history_commit(a)
+		app_touch(a)
+		msg := fmt.tprintf("tempo %d BPM · metronome on", eff)
+		if auto_locked {
+			toast(a, fmt.tprintf("tempo %d BPM · click on", eff))
+		} else {
+			toast(a, fmt.tprintf("tempo %d BPM · click on", eff))
+		}
+		status_buf_set(a, msg)
+	} else {
+		a.bpm = prev_bpm
+		a.metronome = prev_metro
+		status_buf_set(a, "tempo closed")
+		bump_revision(a)
+	}
+}
+
+app_tempo_listen_cancel :: proc(a: ^App) {
+	if a == nil || !a.tempo_listen {
+		return
+	}
+	a.bpm = a.tempo_listen_prev_bpm
+	a.metronome = a.tempo_listen_prev_metronome
+	app_tempo_listen_clear(a)
+	status_buf_set(a, "tempo cancelled")
+	bump_revision(a)
+}
+
+app_tempo_listen_reset :: proc(a: ^App) {
+	if a == nil || !a.tempo_listen {
+		return
+	}
+	a.bpm = a.tempo_listen_prev_bpm
+	a.tempo_listen_bpm = 0
+	a.tempo_listen_hits = 0
+	a.tempo_listen_mult = 1.0
+	a.tempo_listen_flash = 0
+	a.tempo_listen_silence = 0
+	a.tempo_tap_count = 0
+	a.tempo_listen_reset_gen += 1
+	status_buf_set(a, tempo_listen_idle_status(a))
+	bump_revision(a)
+}
+
+app_tempo_listen_scale :: proc(a: ^App, factor: f32) -> bool {
+	if a == nil || !a.tempo_listen || a.tempo_listen_bpm <= 0 {
+		return false
+	}
+	next_mult := a.tempo_listen_mult * factor
+	candidate := int(math.round(f32(a.tempo_listen_bpm) * next_mult))
+	if candidate < 40 || candidate > 240 {
+		return false
+	}
+	a.tempo_listen_mult = next_mult
+	a.bpm = candidate
+	a.tempo_listen_silence = 0
+	status_buf_set(a, "pause 2s to auto-lock")
+	bump_revision(a)
+	return true
+}
+
+app_tempo_listen_sens_cycle :: proc(a: ^App) {
+	if a == nil {
+		return
+	}
+	a.tempo_listen_sens = Tempo_Sensitivity((int(a.tempo_listen_sens) + 1) % 3)
+	a.tempo_listen_silence = 0
+	status_buf_set(a, fmt.tprintf("tempo sensitivity: %s", app_tempo_listen_sens_label(a.tempo_listen_sens)))
+	bump_revision(a)
+}
+
+@(private = "file")
+tap_median_bpm :: proc(times: []f32) -> int {
+	n := len(times)
+	if n < 2 {
+		return 0
+	}
+	iv: [8]f32
+	sorted: [8]f32
+	m := min(n - 1, len(iv))
+	for i in 0 ..< m {
+		d := times[i + 1] - times[i]
+		iv[i] = d
+		sorted[i] = d
+	}
+	for i in 1 ..< m {
+		v := sorted[i]
+		j := i - 1
+		for j >= 0 && sorted[j] > v {
+			sorted[j + 1] = sorted[j]
+			j -= 1
+		}
+		sorted[j + 1] = v
+	}
+	med := sorted[m / 2] if m % 2 == 1 else 0.5 * (sorted[m / 2 - 1] + sorted[m / 2])
+	if med <= 0 {
+		return 0
+	}
+	sum: f32 = 0
+	kept := 0
+	for i in 0 ..< m {
+		if abs(iv[i] - med) <= med * 0.25 {
+			sum += iv[i]
+			kept += 1
+		}
+	}
+	mean_iv := sum / f32(kept) if kept > 0 else med
+	if mean_iv <= 0 {
+		return 0
+	}
+	return clamp(int(math.round(60.0 / mean_iv)), 40, 240)
+}
+
+app_tempo_listen_tap :: proc(a: ^App) {
+	if a == nil {
+		return
+	}
+	if !a.tempo_listen {
+		if !app_tempo_listen_start(a) {
+			return
+		}
+	}
+	now := a.time
+	if a.tempo_tap_count > 0 {
+		dt := now - a.tempo_tap_times[a.tempo_tap_count - 1]
+		if dt < TEMPO_TAP_MIN_SECONDS {
+			return
+		}
+		if dt > TEMPO_TAP_MAX_SECONDS {
+			a.tempo_tap_times[0] = now
+			a.tempo_tap_count = 1
+			a.tempo_listen_hits = 1
+			a.tempo_listen_bpm = 0
+			a.tempo_listen_mult = 1.0
+			a.tempo_listen_flash = 1.0
+			a.tempo_listen_silence = 0
+			a.tempo_listen_reset_gen += 1
+			status_buf_set(a, "1 hit · clap or hit next beat")
+			bump_revision(a)
+			return
+		}
+	}
+	if a.tempo_tap_count < len(a.tempo_tap_times) {
+		a.tempo_tap_times[a.tempo_tap_count] = now
+		a.tempo_tap_count += 1
+	} else {
+		for i in 1 ..< len(a.tempo_tap_times) {
+			a.tempo_tap_times[i - 1] = a.tempo_tap_times[i]
+		}
+		a.tempo_tap_times[len(a.tempo_tap_times) - 1] = now
+	}
+	if a.tempo_tap_count == 1 {
+		a.tempo_listen_hits = 1
+		a.tempo_listen_bpm = 0
+		status_buf_set(a, "1 hit · clap or hit next beat")
+	} else {
+		a.tempo_listen_hits += 1
+		a.tempo_listen_bpm = tap_median_bpm(a.tempo_tap_times[:a.tempo_tap_count])
+		if eff := app_tempo_listen_effective_bpm(a); eff > 0 {
+			a.bpm = eff
+			status_buf_set(a, "pause 2s to auto-lock")
+		}
+	}
+	a.tempo_listen_flash = 1.0
+	a.tempo_listen_silence = 0
+	bump_revision(a)
+}
+
+// Publishes audio-callback tempo detector readings into UI state. Only hit-driven
+// transitions update `tempo_listen_hits`/`tempo_listen_bpm` so manual taps and
+// ÷2/×2 scaling are preserved between audio hits.
+app_tempo_listen_audio_update :: proc(
+	a: ^App,
+	level, thresh: f32,
+	hits, raw_bpm: int,
+	silence_s: f32,
+	new_hit, audio_live: bool,
+) {
+	if a == nil || !a.tempo_listen {
+		return
+	}
+	a.tempo_listen_audio_live = audio_live
+	a.tempo_listen_level = clamp(level, 0, 1)
+	a.tempo_listen_thresh = clamp(thresh, 0, 1)
+	_ = silence_s
+	if !new_hit {
+		return
+	}
+	a.tempo_listen_hits = hits
+	a.tempo_listen_bpm = raw_bpm
+	a.tempo_listen_flash = 1.0
+	a.tempo_listen_silence = 0
+	a.tempo_tap_count = 0
+	if eff := app_tempo_listen_effective_bpm(a); eff > 0 {
+		a.bpm = eff
+		status_buf_set(a, "pause 2s to auto-lock")
+	} else if hits == 1 {
+		status_buf_set(a, "1 hit · clap or hit next beat")
+	}
+	bump_revision(a)
+}
+
+app_tempo_listen_tick :: proc(a: ^App, dt: f32) {
+	if a == nil {
+		return
+	}
+	if a.tempo_listen_flash > 0 {
+		a.tempo_listen_flash = max(0, a.tempo_listen_flash - dt / 0.18)
+	}
+	if !a.tempo_listen {
+		return
+	}
+	if a.tempo_listen_hits <= 0 {
+		return
+	}
+	a.tempo_listen_silence += dt
+	if a.tempo_listen_hits == 1 && a.tempo_listen_silence >= TEMPO_STRAY_RESET_SECONDS {
+		a.tempo_listen_hits = 0
+		a.tempo_listen_bpm = 0
+		a.tempo_tap_count = 0
+		a.tempo_listen_silence = 0
+		a.tempo_listen_reset_gen += 1
+		status_buf_set(a, tempo_listen_idle_status(a))
+		bump_revision(a)
+		return
+	}
+	if a.tempo_listen_hits >= 2 && a.tempo_listen_silence >= TEMPO_AUTOLOCK_SECONDS {
+		app_tempo_listen_apply(a, true)
 	}
 }

@@ -437,3 +437,11 @@ message state:
 - During Song pre-roll (`preroll_active && preroll_audio`), pass `effective_mute_armed = false` to `live_mix_params_from_app` so the armed track's lead-in plays before `rec_punch`, then ramp down over the final 64 samples and zero `samples_in[i]` inside `playback_callback` right at `pos == preroll_until` for sample-accurate muting without cutting reverb/delay tails.
 - Loop playback wraps `pos` inside `playback_callback` (`pos >= loop_end` → `loop_start`, resetting `has_last_beat` and triggering `fade_in_len` de-click) while recording intentionally ignores `loop_enabled`; auto punch-out waits for `rec_pre + (rec_punch_out - rec_punch) + latency_frames` written frames before stopping and trims `engine_split_take`/`engine_split_capture_result` to exact `rec_punch_out - rec_punch`.
 - Counts now: 326 Linux / 320 macOS unit tests, 32 e2e cases.
+
+### Audio-triggered Tempo Listen (2026-11-25)
+
+- Reuse the existing `Preview` capture device (`preview_wanted` returns true when `a.tempo_listen && !e.headless_window`) instead of opening a second miniaudio capture stream, and gate `e.headless_window` off `window_should_warm_audio` so `VUI_HIDDEN=1` tests never stall opening hardware audio.
+- Inside `preview_push` (`proc "contextless"`), run `dsp.tempo_detector_process` (420 Hz HPF + 30 ms warmup so an already-ringing guitar chord settles `env_slow` before arming + dual-envelope adaptive threshold + 210 ms refractory lockout + median-trimmed IOI estimator) and communicate purely via atomics; in `engine_update`, only treat `new_hit` as true when `seq != a.tempo_listen_audio_seq && hits > 0` so no-hit idle frames never overwrite manual `TAP BEAT` hits or `÷2`/`×2` scaling.
+- Adding a `"tempo ..."` entry to `PALETTE_COMMANDS` breaks `ui_palette_query_case_backspace_and_rows` (which asserts `"TEMPO"` matches exactly 2 commands); name the palette command `"listen tempo (clap / guitar)"` so `"TEMPO"` stays 2 and `: listen` discovers it.
+- Keep `app_history_reset` in mind when writing unit tests that mutate `a.bpm` before testing undo (`u`), and keep status-bar copy free of contextual-bar labels (`"tempo cancelled"`, not `"tempo listen cancelled"`) so `expect-no-text "TEMPO LISTEN"` tests don't match status text.
+- Counts now: 336 Linux / 330 macOS unit tests, 33 e2e cases.

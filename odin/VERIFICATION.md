@@ -461,3 +461,16 @@ RF64/EBU, JACK, XDG, Odin core/vendor).
 | `make check` & `make e2e` | **PASS** (unit tests, `selftest`, 220-action UI tour, offline bounce, `ffprobe`; **32/32** `window.vt` cases on Metal including `section end marker, loop, punch-out and pre-roll audio` and refreshed `help-mixer.png` / `section-loop.png`) |
 | Live `vui-ctl` & XDG persistence (`VUI_HIDDEN=1`) | Verified `SONG`/`CLK` pill + Settings `Pre-roll audio` toggle (`"prerollAudio": false` persisted to `settings.json` and reloaded as `CLK` on restart), contextual Section bar (`SECTION IN 2.1 x -> OUT 4.1 x 2 BAR`, `LOOP ON` teal, `PUNCH OUT ON` red) at `1180×760` and `900×620` with zero clipping, clean collapse on `E`, `unknown_classes: []`, `frame_ms: 0.66–3.45` |
 | not verified | Live CoreAudio audible loop/pre-roll playback & Linux `326/326` + `window.vt` `32/32` run — tracked in `../PLATFORMS.md` |
+
+## Audio-triggered Tempo Listen (2026-11-25)
+
+Sources consulted (research rule): RBJ Audio EQ Cookbook second-order high-pass filter (`biquad_high_pass`), dual-envelope adaptive onset detection functions (fast peak vs slow local floor with hysteresis re-arm), refractory lockout debouncing for room slapback echoes, and median-trimmed inter-onset interval (IOI) tempo estimation.
+
+| check | result |
+|---|---|
+| `make build` & `-vet` (macOS) | clean (`darwin_arm64`) |
+| `make test` (macOS) | **330/330** passed (**82** DSP + **155** core + **93** UI; +`biquad_high_pass_rejects_dc_and_passes_highs`, +7 `dsp/tempo_test.odin` tests covering 60/120/180 BPM claps at 44.1/48 kHz, guitar pick attacks over ringing 110+220 Hz sustain, 45 ms room slapback + 60 Hz hum rejection, skipped-beat outlier rejection, mid-stream 90→140 BPM shift, channel mask + Low/Med/High sensitivity + 1.85 s gap reset, +`preview_runs_tempo_listen_and_respects_headless_and_masks`, +`ui_tempo_listen_tap_autolock_cancel_and_undo`) |
+| `make check` & `make e2e` | **PASS** (unit tests, `selftest`, 220-action UI tour, offline bounce, `ffprobe`; **33/33** `window.vt` cases on Metal including `tempo listen clap and tap bar` and refreshed `main`/`toggles`/`help-mixer`/`tracks-24-min`/`transport-marker`/`min-size`/`tempo-listen` baselines) |
+| Live `vui-ctl` offscreen (`VUI_HIDDEN=1`) | Verified `f` / `TAP` toggling contextual `TEMPO LISTEN` bar at `1180×760` and `900×620`, `TAP BEAT` updating live BPM (`109 BPM · 2 hits`) + 2 px auto-lock countdown hairline + transient gauge & threshold marker, zero-truncation `F1` `Tempo listen` help sheet, `Esc` clean cancel/idle (`nodes 354 → 333`), `unknown_classes: []`, `frame_ms: 0.74–1.36` |
+| Design detector | `impeccable detect --json --changed` returned `[]` (0 findings) |
+| not verified | Live CoreAudio / PipeWire microphone clap & guitar detection on real hardware (DSP + `Preview` callback pipeline verified deterministically via `preview_push` + `dsp/tempo_test.odin`) & Linux `336/336` + `33/33` `window.vt` run — tracked in `../PLATFORMS.md` |
