@@ -144,7 +144,7 @@ cover it.
 All from `odin/`:
 
 - `make build` — compile `bin/tracker-odin`
-- `make test` — unit tests (306 on Linux / 300 on macOS: DSP + core/engine/project/cloud + UI)
+- `make test` — unit tests (313 on Linux / 307 on macOS: DSP + core/engine/project/cloud + UI)
 - `make e2e` — headless vinland-ui window suite (`tests/ui/window.vt`)
 - `make check` — unit tests + 220-action UI tour + offline bounce + format checks
 - `make ui` (`make run`) — build and open the native window
