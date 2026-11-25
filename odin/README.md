@@ -161,16 +161,33 @@ directory is in `XDG_DATA_DIRS`.
   Free mode: `OFF`/1/2/3/5/10 s, default `3 s`; the `PRE-ROLL` chip or
   Settings → TIMING changes it and it is saved in `settings.json`), the take
   begins at the punch point, and the REC button counts the pre-roll down
-  (`PRE 4` beats in Grid / `PRE 3` s in Free). `Ctrl+r` / `Alt+r`, or
-  shift+click on REC, records immediately. Recording is **tape-first**: overdubs
+  (`PRE 4` beats in Grid / `PRE 3` s in Free). Toggle **pre-roll audio** (`A`,
+  the `SONG` / `CLK` pill beside `PRE-ROLL`, or Settings → TIMING, persisted as
+  `prerollAudio` in `settings.json`): `SONG` (default) plays existing backing
+  tracks plus the armed track's own lead-in before `rec_punch` (smoothly
+  ramping the armed track out right at punch-in), while `CLK` mutes all song
+  audio during pre-roll and counts in with click only until punch-in. `Ctrl+r` /
+  `Alt+r`, or shift+click on REC, records immediately. Recording is **tape-first**: overdubs
   and punch-ins write back into the track's active take WAV in place (with short
   crossfades where existing audio overlaps), preserving audio before the punch
   and any un-overwritten tail after punch-out without spawning extra takes.
   Creating multiple takes is explicitly **opt-in**: click `+ TAKE` (or press
   `Ctrl+t` / `Cmd+t`, or run `: new take`) to archive the current take WAV and
   open an empty new take slot; when a track holds 2+ takes, `‹`/`›` (`t`/`T`)
-  and `COMP` switch or audition takes. In Free mode, with nothing to listen to
-  (no audio, no click) there is no pre-roll, and it never reaches before 00:00.
+  and `COMP` switch or audition takes. In Free mode with `SONG` pre-roll audio
+  and nothing to listen to (no audio, no click), pre-roll is skipped, and it
+  never reaches before 00:00.
+- **Section end marker, loop playback & auto punch-out:** Press `E` (or click
+  `OUT` beside `MARK`) to drop an **end marker** (`E` again on `OUT` clears it).
+  Setting `OUT` reveals a contextual **Section bar** (`IN → OUT`, section
+  length, `LOOP`, and `PUNCH OUT`; `001.1` / `00:00.0` is used when no `IN`
+  marker is set). Press `w` (or `LOOP`) to loop playback from `IN` to `OUT` for
+  composing/improvising over a section (wraps sample-accurately with a short
+  de-click fade while preserving FX tails). Recording never loops: pressing `r`
+  always captures one intentional pass. Enable opt-in `PUNCH OUT` (`O`) when you
+  also want recording to stop and splice cleanly right at `OUT` (preserving any
+  audio after `OUT`). Saved in `project.json` (`endMarkerFrame`, `loopEnabled`,
+  `punchOutEnabled`).
 - **Timing mode, Clicktrack & Tape Scrubber:** **Grid mode** (default) runs an
   **absolute clicktrack** anchored to Bar 1 Beat 1 (frame 0) with accented
   downbeats (`4/4`, `3/4`, `6/8`, `5/4`, `7/8`, `2/4`; cycle with `C`, the
@@ -609,11 +626,13 @@ high-DPI guidance, and the JetBrains Mono/Inter/Noto font licences.
 - HiDPI density is sampled from the compositor's window/pixel ratio; densities
   outside 1–3× are clamped. `--ui-scale` is limited to the tested
   1/1.25/1.5/2/3 set.
-- Punch-in works from the playhead on the tape that exists; there is one marker (no
-  loop/cycle, no automatic punch-out point: you punch out with `Space`/`r`/STOP).
-  Pre-roll cannot start before 00:00, and recording from a punch point in JACK
-  mode relies on the same latency trim as a normal take (hardware-verified only
-  with miniaudio/PipeWire).
+- Punch-in works from the playhead on the tape that exists; loop playback
+  (`IN → OUT` via `M` / `E` / `w`) is intentionally playback-only for
+  composing and improvising (no loop recording: press `r` for each pass, with
+  optional opt-in auto punch-out `O` at `OUT`). Pre-roll cannot start before
+  00:00 in Free mode, and recording from a punch point in JACK mode relies on
+  the same latency trim as a normal take (hardware-verified only with
+  miniaudio/PipeWire).
 - A project has at most 24 tracks. Tracks holding audio cannot be removed, and a track bounce has no undo step (the target keeps its previous take). Track bounce targets are mono.
 - Google Drive transfer is explicit backup/restore, not live sync; a live Google
   account round-trip still needs the user's own OAuth client.

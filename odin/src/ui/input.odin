@@ -19,9 +19,15 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"set marker here", .Set_Marker},
 	{"go to marker", .Goto_Marker},
 	{"clear marker", .Clear_Marker},
+	{"set end marker here", .Set_End_Marker},
+	{"go to end marker", .Goto_End_Marker},
+	{"clear end marker", .Clear_End_Marker},
+	{"loop playback", .Loop_Toggle},
+	{"auto punch-out", .Punch_Out_Toggle},
 	{"audition lead-in", .Audition},
 	{"record without pre-roll", .Record_Now},
 	{"cycle pre-roll", .Preroll_Next},
+	{"pre-roll audio (song / click)", .Preroll_Audio},
 	{"timing mode (grid / free tape)", .Timing_Mode},
 	{"cycle time signature", .Time_Sig_Next},
 	{"rewind to start", .Seek_Zero},
@@ -798,6 +804,8 @@ app_settings_activate :: proc(a: ^App) {
 		app_execute(a, .Time_Sig_Next)
 	case .Preroll:
 		app_execute(a, .Preroll_Next)
+	case .Preroll_Audio:
+		app_execute(a, .Preroll_Audio)
 	case .High_Contrast:
 		app_execute(a, .High_Contrast)
 	case .Reduced_Motion:
@@ -997,7 +1005,7 @@ settings_text_index :: proc(a: ^App) -> int {
 	case .Cloud_Client_Secret, .Cloud_Connect, .Cloud_Backup, .Cloud_Restore:
 		return 4
 	case .Path, .Browse, .Apply, .Default, .Inputs, .Backend,
-	     .Latency_Down, .Latency_Up, .Monitor, .Timing_Mode, .Time_Sig, .Preroll, .High_Contrast, .Reduced_Motion:
+	     .Latency_Down, .Latency_Up, .Monitor, .Timing_Mode, .Time_Sig, .Preroll, .Preroll_Audio, .High_Contrast, .Reduced_Motion:
 		return 1
 	}
 	return 0
@@ -1019,7 +1027,7 @@ settings_focus_text :: proc(a: ^App, index: int) {
 	case .Cloud_Client_Secret:
 		app_cloud_begin_edit(a, .Client_Secret)
 	case .New_Project, .Open_Project, .Recent_Projects, .Browse, .Apply, .Default, .Inputs, .Backend,
-	     .Latency_Down, .Latency_Up, .Monitor, .Timing_Mode, .Time_Sig, .Preroll, .High_Contrast, .Reduced_Motion,
+	     .Latency_Down, .Latency_Up, .Monitor, .Timing_Mode, .Time_Sig, .Preroll, .Preroll_Audio, .High_Contrast, .Reduced_Motion,
 	     .Cloud_Connect, .Cloud_Backup, .Cloud_Restore:
 	}
 	bump_revision(a)
@@ -1823,11 +1831,23 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 		case 'M':
 			app_execute(a, .Set_Marker)
 			return
+		case 'E':
+			app_execute(a, .Set_End_Marker)
+			return
+		case 'w':
+			app_execute(a, .Loop_Toggle)
+			return
+		case 'O':
+			app_execute(a, .Punch_Out_Toggle)
+			return
 		case 'p':
 			app_execute(a, .Audition)
 			return
 		case 'P':
 			app_execute(a, .Preroll_Next)
+			return
+		case 'A':
+			app_execute(a, .Preroll_Audio)
 			return
 		case 'G':
 			app_execute(a, .Timing_Mode)
@@ -2417,12 +2437,24 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Clear_Marker"
 	case .Goto_Marker:
 		return "Goto_Marker"
+	case .Set_End_Marker:
+		return "Set_End_Marker"
+	case .Clear_End_Marker:
+		return "Clear_End_Marker"
+	case .Goto_End_Marker:
+		return "Goto_End_Marker"
+	case .Loop_Toggle:
+		return "Loop_Toggle"
+	case .Punch_Out_Toggle:
+		return "Punch_Out_Toggle"
 	case .Audition:
 		return "Audition"
 	case .Record_Now:
 		return "Record_Now"
 	case .Preroll_Next:
 		return "Preroll_Next"
+	case .Preroll_Audio:
+		return "Preroll_Audio"
 	case .Timing_Mode:
 		return "Timing_Mode"
 	case .Time_Sig_Next:
@@ -2584,6 +2616,14 @@ app_value :: proc(a: ^App, path: string) -> (string, bool) {
 		return app_position_text(a, a.frames), true
 	case "preroll":
 		return app_preroll_label(a), true
+	case "preroll.audio":
+		return "song" if a.preroll_audio else "click", true
+	case "end_marker":
+		return fmt.tprintf("%d", a.end_marker) if a.end_marker_set else "-1", true
+	case "loop":
+		return "true" if app_loop_active(a) else "false", true
+	case "punch_out":
+		return "true" if app_punch_out_active(a) else "false", true
 	case "monitor":
 		return "true" if a.monitor else "false", true
 	case "latency":

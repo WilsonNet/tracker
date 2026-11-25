@@ -3122,3 +3122,122 @@ ui_take_new_guards_shortcut_and_palette :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, found_help, "F1 help lists new take shortcut")
 }
+
+@(test)
+ui_preroll_audio_toggle_and_record_rules :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+
+	testing.expect(t, a.preroll_audio, "pre-roll audio defaults to song")
+	v, ok := app_value(&a, "preroll.audio")
+	testing.expect(t, ok && v == "song", "app_value exposes preroll.audio=song")
+
+	// A toggles SONG <-> CLICK ONLY and marks settings dirty.
+	a.settings_dirty = false
+	app_key(&a, .Char, 'A', true)
+	testing.expect(t, !a.preroll_audio && a.settings_dirty, "A toggles click-only and dirties settings")
+	v, ok = app_value(&a, "preroll.audio")
+	testing.expect(t, ok && v == "click", "app_value exposes preroll.audio=click")
+
+	// In Free mode with no guide audio, Click-only pre-roll still runs count-in up to punch.
+	app_key(&a, .Char, 'G', true)
+	app_key(&a, .Char, '1')
+	a.frames = 48_000 * 10
+	app_key(&a, .Char, 'r')
+	testing.expect(t, a.transport == .Recording && a.record_pre == 48_000 * 3, "click-only free pre-roll runs without guide audio")
+	app_key(&a, .Space)
+
+	// Toggle back to Song: with no guide audio in Free mode, pre-roll is skipped as before.
+	app_key(&a, .Char, 'A', true)
+	testing.expect(t, a.preroll_audio, "A toggles back to song")
+	a.frames = 48_000 * 10
+	app_key(&a, .Char, 'r')
+	testing.expect(t, a.transport == .Recording && a.record_pre == 0, "song mode with no guide audio in Free skips empty pre-roll")
+	app_key(&a, .Space)
+}
+
+@(test)
+ui_end_marker_loop_playback_and_auto_punch_out :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	a.sample_rate = 48_000
+	a.bpm = 120 // 1 bar = 96_000 frames = 2.0 s
+	a.tracks[0].has_audio = true
+	a.tape_frames = 48_000 * 30
+
+	// E at 001.1 refuses (end must be past start).
+	app_key(&a, .Char, 'E', true)
+	testing.expect(t, !a.end_marker_set && !app_range_valid(&a), "cannot drop OUT at 0")
+
+	// Jog to Bar 5 (4 bars = 8 s), drop OUT -> section 1.1 -> 5.1 (4 BAR).
+	_ = app_scrub_wheel(&a, .Shuttle, 4, .Normal)
+	testing.expect(t, a.frames == 96_000 * 4, "jogged to bar 5")
+	app_key(&a, .Char, 'E', true)
+	testing.expect(t, a.end_marker_set && a.end_marker == 96_000 * 4 && app_range_valid(&a), "E sets OUT marker")
+	testing.expect(t, app_range_length_text(&a) == "4 BAR", app_range_length_text(&a))
+	testing.expect(t, !a.loop_enabled && !a.punch_out_enabled, "loop and punch-out default OFF")
+
+	// Drop IN at Bar 2 -> section 2.1 -> 5.1 (3 BAR).
+	_ = app_seek_zero(&a)
+	_ = app_scrub_wheel(&a, .Shuttle, 1, .Normal)
+	app_key(&a, .Char, 'M', true)
+	testing.expect(t, a.marker_set && a.marker == 96_000 && app_range_length_text(&a) == "3 BAR", "IN marker trims section to 3 BAR")
+
+	// Toggle LOOP (w) and play: wraps at OUT back to IN; starting past OUT cues to IN.
+	app_key(&a, .Char, 'w')
+	testing.expect(t, app_loop_active(&a), "w enables loop playback")
+	a.frames = a.end_marker + 48_000
+	a.tape_cued = true
+	app_key(&a, .Space)
+	testing.expect(t, a.transport == .Playing && a.frames == a.marker, "Play past OUT cues to IN")
+	app_tick(&a, 6.2) // 6.2s > 6.0s (3 bars) -> wraps to ~0.2s past IN
+	testing.expect(t, a.transport == .Playing && a.frames >= a.marker && a.frames < a.end_marker, "loop wraps playhead inside IN..OUT")
+	app_key(&a, .Space) // pause
+
+	// Recording with LOOP ON and PUNCH OUT OFF does NOT loop or auto-stop (intentional pass).
+	app_key(&a, .Char, '1')
+	a.frames = a.marker
+	app_key(&a, .Char, 'r', false, true) // Ctrl+r: immediate record at Bar 2
+	testing.expect(t, a.transport == .Recording && a.record_punch_out == 0, "loop alone does not enable auto punch-out")
+	app_tick(&a, 7.0) // runs past OUT (6.0s)
+	testing.expect(t, a.transport == .Recording && a.frames > a.end_marker, "recording continues past OUT when auto punch-out is OFF")
+	app_key(&a, .Space)
+
+	// Opt-in Auto Punch-Out (O): recording stops right at OUT and emits Record_Stop.
+	app_key(&a, .Char, 'O', true)
+	testing.expect(t, app_punch_out_active(&a), "O enables auto punch-out")
+	clear(&a.commands)
+	a.frames = a.marker
+	app_key(&a, .Char, 'r', false, true)
+	testing.expect(t, a.transport == .Recording && a.record_punch_out == a.end_marker, "record_punch_out armed at OUT")
+	app_tick(&a, 6.5) // crosses 3 bars
+	testing.expect(t, a.transport == .Stopped && a.frames == a.end_marker && a.record_punch_out == 0, "auto punch-out stops cleanly at OUT")
+	saw_rec_stop := false
+	for {
+		c, has := app_take_command(&a)
+		if !has {
+			break
+		}
+		if c.kind == .Record_Stop {
+			saw_rec_stop = true
+		}
+	}
+	testing.expect(t, saw_rec_stop, "auto punch-out emits Record_Stop")
+
+	// Moving IN past OUT clears OUT, LOOP, and PUNCH OUT cleanly.
+	a.frames = a.end_marker + 96_000
+	app_key(&a, .Char, 'M', true)
+	testing.expect(t, a.marker_set && !a.end_marker_set && !a.loop_enabled && !a.punch_out_enabled, "IN >= OUT clears OUT and section toggles")
+
+	// Set OUT again, verify app_reset_project clears section state while keeping preroll_audio.
+	a.preroll_audio = false
+	_ = app_scrub_wheel(&a, .Shuttle, 2, .Normal)
+	app_key(&a, .Char, 'E', true)
+	app_key(&a, .Char, 'w')
+	app_key(&a, .Char, 'O', true)
+	app_reset_project(&a, "Reset Test")
+	testing.expect(t, !a.end_marker_set && !a.loop_enabled && !a.punch_out_enabled, "project reset clears section")
+	testing.expect(t, !a.preroll_audio, "project reset preserves preroll_audio machine preference")
+}

@@ -26,6 +26,7 @@ Settings_Doc :: struct {
 	reduced_motion: bool   `json:"reducedMotion"`,
 	preroll_s:      f32    `json:"prerollS"`,
 	preroll_grid:   int    `json:"prerollGrid"`,
+	preroll_audio:  bool   `json:"prerollAudio"`,
 	timing_mode:    string `json:"timingMode,omitempty"`,
 }
 
@@ -102,7 +103,7 @@ normalize_save_dir :: proc(path: string) -> (string, bool) {
 }
 
 settings_load :: proc(path: string) -> (Settings_Doc, bool) {
-	doc := Settings_Doc{version = SETTINGS_VERSION, preroll_s = 3, preroll_grid = 2}
+	doc := Settings_Doc{version = SETTINGS_VERSION, preroll_s = 3, preroll_grid = 2, preroll_audio = true}
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
 		return doc, false
@@ -110,16 +111,16 @@ settings_load :: proc(path: string) -> (Settings_Doc, bool) {
 	defer delete(data)
 	if uerr := json.unmarshal(data, &doc); uerr != nil {
 		settings_destroy(&doc)
-		return Settings_Doc{version = SETTINGS_VERSION}, false
+		return Settings_Doc{version = SETTINGS_VERSION, preroll_s = 3, preroll_grid = 2, preroll_audio = true}, false
 	}
 	if doc.version != SETTINGS_VERSION || len(doc.save_dir) > SETTINGS_PATH_MAX {
 		settings_destroy(&doc)
-		return Settings_Doc{version = SETTINGS_VERSION}, false
+		return Settings_Doc{version = SETTINGS_VERSION, preroll_s = 3, preroll_grid = 2, preroll_audio = true}, false
 	}
 	for b in doc.save_dir {
 		if b == 0 {
 			settings_destroy(&doc)
-			return Settings_Doc{version = SETTINGS_VERSION}, false
+			return Settings_Doc{version = SETTINGS_VERSION, preroll_s = 3, preroll_grid = 2, preroll_audio = true}, false
 		}
 	}
 	return doc, true
@@ -131,6 +132,7 @@ settings_save :: proc(
 	preroll_s: f32 = 3,
 	preroll_grid: int = 2,
 	timing_mode: string = "grid",
+	preroll_audio: bool = true,
 ) -> bool {
 	if len(save_dir) > SETTINGS_PATH_MAX {
 		return false
@@ -142,6 +144,7 @@ settings_save :: proc(
 		reduced_motion = reduced_motion,
 		preroll_s      = clamp(preroll_s, 0, 30),
 		preroll_grid   = clamp(preroll_grid, 0, 4),
+		preroll_audio  = preroll_audio,
 		timing_mode    = "free" if timing_mode == "free" else "grid",
 	}
 	data, err := json.marshal(doc, json.Marshal_Options{pretty = true, use_spaces = true, spaces = 2})

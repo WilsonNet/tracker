@@ -440,6 +440,9 @@ engine_rescale_punch :: proc(e: ^Engine, a: ^ui.App, new_rate: u32) {
 	ratio := f64(new_rate) / f64(old_rate)
 	e.rec_punch = int(f64(e.rec_punch) * ratio)
 	e.rec_pre = int(f64(e.rec_pre) * ratio)
+	if e.rec_punch_out > 0 {
+		e.rec_punch_out = int(f64(e.rec_punch_out) * ratio)
+	}
 }
 
 // Overwrites `existing[punch : punch + len(recorded)]` in place with short linear

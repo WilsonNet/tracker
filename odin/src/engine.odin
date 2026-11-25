@@ -71,6 +71,13 @@ Playback :: struct {
 	unbounded:            bool,
 	use_live_mixer:       bool,
 	mute_armed:           bool,
+	preroll_active:       bool,
+	preroll_audio:        bool,
+	preroll_until:        i64,
+	armed_mask:           [MAX_ENGINE_TRACKS]bool,
+	loop_enabled:         u32,
+	loop_start:           i64,
+	loop_end:             i64,
 	tracks:               [MAX_ENGINE_TRACKS][]f32,
 	track_count:          int,
 	mixer:                dsp.Live_Mixer,
@@ -154,8 +161,10 @@ Engine :: struct {
 	// Punch-in: the take starts at `rec_punch` (timeline frames at the engine
 	// rate); the guide plays from `rec_punch - rec_pre`, and those `rec_pre`
 	// frames of pre-roll are dropped from the capture when it is split.
-	rec_punch:    int,
-	rec_pre:      int,
+	// If `rec_punch_out > rec_punch`, the take stops and trims at `rec_punch_out`.
+	rec_punch:     int,
+	rec_pre:       int,
+	rec_punch_out: int,
 	loaded:            [MAX_ENGINE_TRACKS][]f32,
 	loaded_rate:       [MAX_ENGINE_TRACKS]u32,
 	play_tracks:       [MAX_ENGINE_TRACKS][]f32,
@@ -853,6 +862,7 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	// Punch-in position chosen in the UI (project-rate frames).
 	e.rec_punch = int(max(a.record_punch, 0))
 	e.rec_pre = int(max(a.record_pre, 0))
+	e.rec_punch_out = int(max(a.record_punch_out, 0))
 
 	// The previous preview (if any) must not keep playing under a new take.
 	engine_stop_playback(e)
@@ -891,9 +901,9 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 			}
 		}
 		start_pos := i64(e.rec_punch - e.rec_pre)
-		countin_only := e.rec_pre > 0 && !a.metronome && start_pos < 0
-		if overdub || a.metronome || countin_only {
-			_ = engine_play(e, a, true, start_pos, true, 0, countin_only, true)
+		countin_active, countin_until := engine_preroll_click_window(e.rec_punch, e.rec_pre, a.preroll_audio, overdub)
+		if overdub || a.metronome || countin_active {
+			_ = engine_play(e, a, true, start_pos, true, countin_until, countin_active, true, e.rec_pre > 0, a.preroll_audio, i64(e.rec_punch))
 		}
 		ui.status_buf_set(a, fmt.tprintf("recording %d ch via JACK @ %d Hz%s", requested, e.jack.rate, " · overdub" if overdub else ""))
 		return true
@@ -1043,14 +1053,14 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		}
 	}
 	start_pos := i64(e.rec_punch - e.rec_pre)
-	countin_only := e.rec_pre > 0 && !a.metronome && start_pos < 0
-	want_playback := overdub || a.metronome || countin_only
+	countin_active, countin_until := engine_preroll_click_window(e.rec_punch, e.rec_pre, a.preroll_audio, overdub)
+	want_playback := overdub || a.metronome || countin_active
 
 	// Prepare the guide mix before the capture device starts. Rendering is the
 	// slow part of an overdub and must not become recorded pre-roll that
 	// shifts the new performance out of alignment with the existing tracks.
 	if want_playback {
-		if !playback_prepare(e, a, true, start_pos, true, 0, countin_only, true) {
+		if !playback_prepare(e, a, true, start_pos, true, countin_until, countin_active, true, e.rec_pre > 0, a.preroll_audio, i64(e.rec_punch)) {
 			recorder_release(e, true, true)
 			_ = os.remove(e.take_path)
 			ui.status_buf_set(a, "cannot start playback")
@@ -1118,6 +1128,7 @@ engine_record_stop :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		}
 		e.sample_rate = result.rate
 		ok_split := engine_split_capture_result(e, a, &result, e.rec.armed, e.rec.inputs)
+		e.rec_punch_out = 0
 		if a != nil {
 			if ok_split {
 				ui.status_buf_set(a, fmt.tprintf("JACK take captured · %d frames", result.frames))
@@ -1154,7 +1165,9 @@ engine_record_stop :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	write_error := e.rec.error
 	recorder_release(e, true, true)
 
+	punched_out := e.rec_punch_out > e.rec_punch
 	ok := engine_split_take(e, a)
+	e.rec_punch_out = 0
 	if a != nil {
 		switch {
 		case !ok && interrupted:
@@ -1167,6 +1180,8 @@ engine_record_stop :: proc(e: ^Engine, a: ^ui.App) -> bool {
 			ui.status_buf_set(a, "take captured · disk write error, tail may be missing")
 		case overflow > 0:
 			ui.status_buf_set(a, fmt.tprintf("take captured · %d frames dropped (disk too slow)", overflow))
+		case punched_out:
+			ui.status_buf_set(a, "punched out · take captured")
 		case:
 			ui.status_buf_set(a, "take captured")
 		}
@@ -1185,6 +1200,9 @@ engine_split_capture_result :: proc(e: ^Engine, a: ^ui.App, result: ^Capture_Res
 	trim := engine_latency_frames(e.latency_ms, result.rate) + e.rec_pre
 	start := min(trim, result.frames)
 	frames := result.frames - start
+	if e.rec_punch_out > e.rec_punch {
+		frames = min(frames, e.rec_punch_out - e.rec_punch)
+	}
 	if frames <= 0 {
 		return false
 	}
@@ -1240,6 +1258,13 @@ engine_split_take :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		return false
 	}
 	out_frames := frames - drop
+	if e.rec_punch_out > e.rec_punch {
+		out_frames = min(out_frames, e.rec_punch_out - e.rec_punch)
+	}
+	if out_frames <= 0 {
+		_ = os.remove(e.take_path)
+		return false
+	}
 
 	any := false
 	for i in 0 ..< MAX_ENGINE_TRACKS {
@@ -1404,25 +1429,60 @@ playback_callback :: proc "c" (device: ^ma.device, output, input: rawptr, frame_
 	}
 
 	cursor := sync.atomic_load(&p.cursor)
+	loop_on := sync.atomic_load(&p.loop_enabled) != 0
+	loop_s := sync.atomic_load(&p.loop_start)
+	loop_e := sync.atomic_load(&p.loop_end)
+	if loop_e <= loop_s {
+		loop_on = false
+	}
+
+	pos := cursor
 	master_peak: f32 = 0
 	for f in 0 ..< frames {
-		pos := cursor + i64(f)
+		if loop_on && pos >= loop_e {
+			pos = loop_s
+			p.has_last_beat = false
+			p.fade_in_left = p.fade_in_len
+		}
+		in_preroll := p.preroll_active && pos < p.preroll_until
+		allow_song := !in_preroll || p.preroll_audio
+		if p.preroll_active && !p.preroll_audio && pos == p.preroll_until {
+			p.fade_in_left = p.fade_in_len
+		}
 		l: f32 = 0
 		r: f32 = 0
-		if !p.silent && pos >= 0 && pos < i64(p.frames) {
+		if !p.silent && allow_song && pos >= 0 && pos < i64(p.frames) {
 			idx := int(pos)
 			if p.use_live_mixer {
 				for i in 0 ..< track_count {
+					s: f32 = 0
 					if idx < len(p.tracks[i]) {
-						samples_in[i] = p.tracks[i][idx]
-					} else {
-						samples_in[i] = 0
+						s = p.tracks[i][idx]
 					}
+					if p.mute_armed && p.armed_mask[i] {
+						if in_preroll && p.preroll_audio {
+							rem := p.preroll_until - pos
+							if rem < 64 {
+								s *= f32(rem) / 64.0
+							}
+						} else {
+							s = 0
+						}
+					}
+					samples_in[i] = s
 				}
 				l, r = dsp.live_mixer_step(&p.mixer, &samples_in, &has_audio, &track_peaks)
 			} else if idx >= 0 && idx * 2 + 1 < len(p.samples) {
 				l = p.samples[idx * 2 + 0]
 				r = p.samples[idx * 2 + 1]
+			}
+		}
+		if loop_on && p.fade_in_len > 0 && pos < loop_e {
+			rem := loop_e - pos
+			if rem <= i64(p.fade_in_len) {
+				gain := f32(rem - 1) / f32(p.fade_in_len)
+				l *= gain
+				r *= gain
 			}
 		}
 		if p.fade_in_left > 0 {
@@ -1442,22 +1502,18 @@ playback_callback :: proc "c" (device: ^ma.device, output, input: rawptr, frame_
 		for c in 0 ..< channels {
 			out[f * channels + c] = (l + r) * 0.5 if channels == 1 else (l if c % 2 == 0 else r)
 		}
-	}
-	// Saturate at `p.frames` for finite preview playback so a late callback
-	// after the end does not wrap; during unbounded playback (recording
-	// overdub/click or standalone metronome) keep advancing so the clicktrack
-	// stays locked to the grid past the length of existing takes.
-	next := cursor
-	if p.unbounded {
-		next = cursor + i64(frames)
-	} else {
-		end := i64(p.frames)
-		if next < end {
-			remaining := end - next
-			next = end if i64(frames) >= remaining else next + i64(frames)
+		if p.unbounded || loop_on {
+			pos += 1
+		} else if pos < i64(p.frames) {
+			pos += 1
 		}
 	}
-	sync.atomic_store(&p.cursor, next)
+	if loop_on && pos >= loop_e {
+		pos = loop_s
+		p.has_last_beat = false
+		p.fade_in_left = p.fade_in_len
+	}
+	sync.atomic_store(&p.cursor, pos)
 
 	if p.use_live_mixer {
 		for i in 0 ..< track_count {
@@ -1571,10 +1627,11 @@ engine_seek :: proc(e: ^Engine, a: ^ui.App) {
 		return
 	}
 	if e.play.active {
-		if !e.play.unbounded && e.play.frames <= 0 {
+		loop_on := sync.atomic_load(&e.play.loop_enabled) != 0
+		if !e.play.unbounded && !loop_on && e.play.frames <= 0 {
 			return
 		}
-		target := max(a.frames, 0) if e.play.unbounded else clamp(a.frames, 0, i64(e.play.frames) - 1)
+		target := max(a.frames, 0) if (e.play.unbounded || loop_on) else clamp(a.frames, 0, i64(e.play.frames) - 1)
 		a.frames = target
 		sync.atomic_store(&e.play.cursor, target)
 		if !e.play.click_absolute {
@@ -1955,6 +2012,24 @@ engine_playback_warm :: proc(e: ^Engine) {
 	_ = playback_ensure_device(e, rate)
 }
 
+// Determines whether the count-in click must override an OFF metronome during
+// pre-roll. In Song mode with existing audio, click overrides only for negative
+// count-in frames before Bar 1 Beat 1; in Click-only mode (or with no track
+// audio), click runs across the entire pre-roll up to `rec_punch`.
+@(private)
+engine_preroll_click_window :: proc(rec_punch, rec_pre: int, preroll_audio, overdub: bool) -> (active: bool, until: i64) {
+	if rec_pre <= 0 {
+		return false, 0
+	}
+	if !preroll_audio || !overdub {
+		return true, i64(rec_punch)
+	}
+	if rec_punch - rec_pre < 0 {
+		return true, 0
+	}
+	return false, 0
+}
+
 // Prepares the live mixer, track pointers and warm output device without
 // starting transport. Splitting preparation from `playback_start` lets record
 // start open capture first, then flip `playing = 1` back-to-back.
@@ -1968,6 +2043,9 @@ playback_prepare :: proc(
 	countin_click_until: i64 = 0,
 	countin_click_active: bool = false,
 	unbounded: bool = false,
+	preroll_active: bool = false,
+	preroll_audio: bool = true,
+	preroll_until: i64 = 0,
 ) -> bool {
 	engine_stop_playback(e)
 	engine_sync_play_tracks(e)
@@ -1985,7 +2063,8 @@ playback_prepare :: proc(
 	}
 
 	rate := e.sample_rate if e.sample_rate != 0 else 48_000
-	params := live_mix_params_from_app(a, mute_armed)
+	effective_mute_armed := mute_armed && !(preroll_active && preroll_audio)
+	params := live_mix_params_from_app(a, effective_mute_armed)
 	tail_frames := int(dsp.live_mix_tail_seconds(&params) * f32(rate))
 	total_frames := max_len + tail_frames if have_audio else max(int(rate), 1) * 3_600
 
@@ -1999,6 +2078,12 @@ playback_prepare :: proc(
 	p.track_count = params.track_count
 	p.use_live_mixer = true
 	p.mute_armed = mute_armed
+	p.preroll_active = preroll_active
+	p.preroll_audio = preroll_audio
+	p.preroll_until = preroll_until
+	for i in 0 ..< MAX_ENGINE_TRACKS {
+		p.armed_mask[i] = a != nil && a.tracks[i].armed
+	}
 	p.frames = total_frames
 	p.silent = !have_audio
 	p.unbounded = unbounded || !have_audio
@@ -2025,15 +2110,25 @@ playback_prepare :: proc(
 	sync.atomic_store(&p.master_peak, 0)
 	sync.atomic_store(&p.master_gr, 0)
 
+	loop_on := !mute_armed && a != nil && ui.app_loop_active(a) && a.audition_end <= 0
+	loop_s := ui.app_range_start(a) if a != nil else 0
+	loop_e := a.end_marker if a != nil else 0
+	sync.atomic_store(&p.loop_start, loop_s)
+	sync.atomic_store(&p.loop_end, loop_e)
+	sync.atomic_store(&p.loop_enabled, u32(1 if loop_on else 0))
+
 	cursor: i64 = 0
 	if has_start {
 		// recording from the playhead: the guide starts at the pre-roll point (can be < 0)
 		cursor = start_frame
-	} else if !mute_armed && a.tape_cued && a.frames > 0 && a.frames < i64(p.frames) {
+	} else if !mute_armed && a.tape_cued && a.frames > 0 && (loop_on || a.frames < i64(p.frames)) {
 		cursor = a.frames
 	}
+	if loop_on && (cursor < loop_s || cursor >= loop_e) {
+		cursor = loop_s
+	}
 	sync.atomic_store(&p.cursor, cursor)
-	p.click_origin = cursor
+	p.click_origin = loop_s if loop_on else cursor
 	p.click_left = 0
 	p.click_len = 0
 	p.click_phase = 0
@@ -2069,8 +2164,11 @@ engine_play :: proc(
 	countin_click_until: i64 = 0,
 	countin_click_active: bool = false,
 	unbounded: bool = false,
+	preroll_active: bool = false,
+	preroll_audio: bool = true,
+	preroll_until: i64 = 0,
 ) -> bool {
-	if !playback_prepare(e, a, mute_armed, start_frame, has_start, countin_click_until, countin_click_active, unbounded) {
+	if !playback_prepare(e, a, mute_armed, start_frame, has_start, countin_click_until, countin_click_active, unbounded, preroll_active, preroll_audio, preroll_until) {
 		return false
 	}
 	return playback_start(e)
@@ -2090,6 +2188,8 @@ engine_stop_playback :: proc(e: ^Engine) {
 	e.play.frames = 0
 	e.play.unbounded = false
 	e.play.use_live_mixer = false
+	e.play.preroll_active = false
+	sync.atomic_store(&e.play.loop_enabled, 0)
 	if sync.atomic_load(&e.play.interrupt) != 0 {
 		playback_release_device(e)
 	}
@@ -2203,13 +2303,24 @@ engine_update :: proc(e: ^Engine, a: ^ui.App) {
 			e.play.sig_num = int(sig.num)
 			e.play.sig_den = int(sig.den)
 			if e.play.use_live_mixer {
-				params := live_mix_params_from_app(a, e.play.mute_armed)
+				in_preroll_now := e.play.preroll_active && a.frames < e.play.preroll_until
+				effective_mute_armed := e.play.mute_armed && !(in_preroll_now && e.play.preroll_audio)
+				params := live_mix_params_from_app(a, effective_mute_armed)
 				if !e.play.has_published_params || params != e.play.last_published_params {
 					playback_params_publish(&e.play, params)
 				}
 			}
 		}
-		a.frames = i64(e.rec_punch - e.rec_pre) + i64(sync.atomic_load(&e.rec.write_frame))
+		written := sync.atomic_load(&e.rec.write_frame)
+		a.frames = i64(e.rec_punch - e.rec_pre) + i64(written)
+		if a != nil && e.rec_punch_out > e.rec_punch {
+			need := i64(e.rec_pre) + i64(e.rec_punch_out - e.rec_punch) + i64(engine_latency_frames(e.latency_ms, e.rec.rate))
+			if i64(written) >= need {
+				a.record_punch_out = i64(e.rec_punch_out)
+				ui.app_auto_punch_out(a)
+				return
+			}
+		}
 		for i in 0 ..< MAX_ENGINE_TRACKS {
 			if !e.rec.armed[i] {
 				continue
@@ -2241,8 +2352,12 @@ engine_update :: proc(e: ^Engine, a: ^ui.App) {
 				playback_params_publish(&e.play, params)
 			}
 		}
+		loop_on := a != nil && ui.app_loop_active(a) && a.audition_end <= 0
+		sync.atomic_store(&e.play.loop_start, ui.app_range_start(a) if a != nil else 0)
+		sync.atomic_store(&e.play.loop_end, a.end_marker if a != nil else 0)
+		sync.atomic_store(&e.play.loop_enabled, u32(1 if loop_on else 0))
 		cursor := sync.atomic_load(&e.play.cursor)
-		if !e.play.unbounded && cursor >= i64(e.play.frames) {
+		if !e.play.unbounded && !loop_on && cursor >= i64(e.play.frames) {
 			engine_stop_playback(e)
 			ui.app_force_stopped(a, "preview finished")
 			return

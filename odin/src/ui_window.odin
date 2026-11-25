@@ -138,6 +138,7 @@ run_ui_window :: proc(args: []string) -> bool {
 	e.device_index = default_idx
 	e.default_device_index = default_idx
 	a.demo = has_flag(args, "--demo")
+	a.engine_clock = !a.demo
 	a.latency_ms = clamp(flag_f32(args, "--latency-ms", a.latency_ms), 0, 10_000)
 	if has_flag(args, "--jack") {
 		e.backend = .Jack
@@ -199,6 +200,7 @@ run_ui_window :: proc(args: []string) -> bool {
 		a.reduced_motion = settings.reduced_motion
 		ui.app_set_preroll_seconds(&a, settings.preroll_s)
 		ui.app_set_preroll_grid_idx(&a, settings.preroll_grid)
+		a.preroll_audio = settings.preroll_audio
 		if !project_loaded && settings.timing_mode != "" {
 			a.timing_mode = .Free if settings.timing_mode == "free" else .Grid
 		}

@@ -184,7 +184,10 @@ help_normal :: proc(out: ^[dynamic]Help_Entry, a: ^App) {
 		row(out, "p", "audition the lead-in")
 	}
 	row(out, "0", "stop → marker → start")
-	row(out, "M", "marker here (again = clear)")
+	row(out, "M", "marker here (M clears)")
+	row(out, "E", "end marker (E clears)")
+	row(out, "w", "loop IN → OUT")
+	row(out, "O", "auto punch-out at OUT")
 	if a.timing_mode == .Grid {
 		row(out, "h l", "jog ±1 beat")
 		row(out, "H L", "jog ±1/4 beat")
@@ -227,6 +230,7 @@ help_normal :: proc(out: ^[dynamic]Help_Entry, a: ^App) {
 	row(out, "c", "metronome")
 	row(out, "C", "time signature")
 	row(out, "P", "cycle pre-roll")
+	row(out, "A", "pre-roll song / click")
 	row(out, "G", "grid / free tape")
 	row(out, "o", "live monitor")
 	row(out, "+ -", "BPM up / down")

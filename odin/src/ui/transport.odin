@@ -126,14 +126,14 @@ app_short_pos_text :: proc(a: ^App, frame: i64) -> string {
 	return render_time_text(f32(max(frame, 0)) / f32(app_rate(a)))
 }
 
-app_tape_length_text :: proc(a: ^App) -> string {
-	if a == nil || a.tape_frames <= 0 {
+app_duration_text :: proc(a: ^App, frames: i64) -> string {
+	if a == nil || frames <= 0 {
 		return ""
 	}
 	if a.timing_mode == .Grid {
 		sig := app_time_sig(a)
 		num := max(int(sig.num), 1)
-		total_beats := f64(a.tape_frames) / app_beat_frames_f64(a)
+		total_beats := f64(frames) / app_beat_frames_f64(a)
 		bars := int(math.floor(total_beats / f64(num) + 1e-4))
 		rem_beats := int(math.round(total_beats - f64(bars * num)))
 		if rem_beats >= num {
@@ -148,7 +148,40 @@ app_tape_length_text :: proc(a: ^App) -> string {
 		}
 		return fmt.tprintf("%d.%d BAR", bars, rem_beats)
 	}
-	return render_time_text(f32(a.tape_frames) / f32(app_rate(a)))
+	return render_time_text(f32(frames) / f32(app_rate(a)))
+}
+
+app_tape_length_text :: proc(a: ^App) -> string {
+	if a == nil || a.tape_frames <= 0 {
+		return ""
+	}
+	return app_duration_text(a, a.tape_frames)
+}
+
+app_range_start :: proc(a: ^App) -> i64 {
+	if a == nil || !a.marker_set {
+		return 0
+	}
+	return max(a.marker, 0)
+}
+
+app_range_valid :: proc(a: ^App) -> bool {
+	return a != nil && a.end_marker_set && a.end_marker > app_range_start(a)
+}
+
+app_loop_active :: proc(a: ^App) -> bool {
+	return app_range_valid(a) && a.loop_enabled
+}
+
+app_punch_out_active :: proc(a: ^App) -> bool {
+	return app_range_valid(a) && a.punch_out_enabled
+}
+
+app_range_length_text :: proc(a: ^App) -> string {
+	if !app_range_valid(a) {
+		return ""
+	}
+	return app_duration_text(a, a.end_marker - app_range_start(a))
 }
 
 app_clock_short :: proc(frame: i64, rate: u32) -> string {
@@ -291,6 +324,14 @@ app_preroll_cycle :: proc(a: ^App) {
 	bump_revision(a)
 }
 
+app_preroll_audio_toggle :: proc(a: ^App) {
+	a.preroll_audio = !a.preroll_audio
+	a.settings_dirty = true
+	status_buf_set(a, "pre-roll: song audio" if a.preroll_audio else "pre-roll: click only")
+	toast(a, "PRE-ROLL: SONG" if a.preroll_audio else "PRE-ROLL: CLICK")
+	bump_revision(a)
+}
+
 // Frames of silence-free guide playback the engine runs before the punch.
 app_rate :: proc(a: ^App) -> i64 {
 	return max(i64(a.sample_rate), 1)
@@ -368,9 +409,19 @@ app_marker_set :: proc(a: ^App) {
 	a.marker = max(a.frames, 0)
 	a.marker_set = true
 	a.dirty = true
-	msg := fmt.tprintf("marker %s · STOP returns here", app_position_text(a, a.marker))
-	status_buf_set(a, msg)
-	toast(a, fmt.tprintf("marker %s", app_position_text(a, a.marker)))
+	if a.end_marker_set && a.marker >= a.end_marker {
+		a.end_marker_set = false
+		a.end_marker = 0
+		a.loop_enabled = false
+		a.punch_out_enabled = false
+		msg := fmt.tprintf("in %s · out cleared", app_position_text(a, a.marker))
+		status_buf_set(a, msg)
+		toast(a, fmt.tprintf("in %s · out cleared", app_short_pos_text(a, a.marker)))
+	} else {
+		msg := fmt.tprintf("marker %s · STOP returns here", app_position_text(a, a.marker))
+		status_buf_set(a, msg)
+		toast(a, fmt.tprintf("marker %s", app_position_text(a, a.marker)))
+	}
 	bump_revision(a)
 }
 
@@ -408,6 +459,134 @@ app_marker_goto :: proc(a: ^App) {
 app_set_marker :: proc(a: ^App, frame: i64) {
 	a.marker_set = frame >= 0
 	a.marker = max(frame, 0)
+	bump_revision(a)
+}
+
+// ---------------------------------------------------------------- end marker & section loop
+
+app_end_marker_set :: proc(a: ^App) {
+	if a.end_marker_set && a.end_marker == a.frames {
+		app_end_marker_clear(a)
+		return
+	}
+	pos := max(a.frames, 0)
+	start := app_range_start(a)
+	if pos <= start {
+		if a.marker_set {
+			msg := fmt.tprintf("end marker must be after IN (%s)", app_short_pos_text(a, start))
+			status_buf_set(a, msg)
+			toast(a, msg)
+		} else {
+			status_buf_set(a, "jog past start to set OUT marker")
+			toast(a, "jog past start to set OUT marker")
+		}
+		return
+	}
+	a.end_marker = pos
+	a.end_marker_set = true
+	a.dirty = true
+	msg := fmt.tprintf("out %s · section %s → %s (%s)", app_short_pos_text(a, pos), app_short_pos_text(a, start), app_short_pos_text(a, pos), app_range_length_text(a))
+	status_buf_set(a, msg)
+	toast(a, fmt.tprintf("OUT %s", app_short_pos_text(a, pos)))
+	bump_revision(a)
+}
+
+app_end_marker_clear :: proc(a: ^App) {
+	if !a.end_marker_set {
+		return
+	}
+	a.end_marker_set = false
+	a.end_marker = 0
+	a.loop_enabled = false
+	a.punch_out_enabled = false
+	a.dirty = true
+	status_buf_set(a, "end marker cleared")
+	bump_revision(a)
+}
+
+app_end_marker_goto :: proc(a: ^App) {
+	if !a.end_marker_set {
+		toast(a, "no end marker · E drops one at the playhead")
+		return
+	}
+	if a.transport == .Recording {
+		toast(a, "punch out first, then jump to OUT")
+		return
+	}
+	a.audition_end = 0
+	a.frames = a.end_marker
+	a.tape_cued = a.frames > 0
+	status_buf_set(a, fmt.tprintf("cue %s (out)", app_position_text(a, a.frames)))
+	a.last_command = .Seek
+	a.last_command_index = 0
+	emit(a, .Seek)
+	bump_revision(a)
+}
+
+app_set_end_marker :: proc(a: ^App, frame: i64) {
+	if frame > app_range_start(a) {
+		a.end_marker_set = true
+		a.end_marker = frame
+	} else {
+		a.end_marker_set = false
+		a.end_marker = 0
+		a.loop_enabled = false
+		a.punch_out_enabled = false
+	}
+	bump_revision(a)
+}
+
+app_loop_toggle :: proc(a: ^App) {
+	if !app_range_valid(a) {
+		status_buf_set(a, "set an OUT marker (E) to loop a section")
+		toast(a, "set an OUT marker (E) to loop")
+		return
+	}
+	a.loop_enabled = !a.loop_enabled
+	a.dirty = true
+	if a.loop_enabled {
+		status_buf_set(a, fmt.tprintf("loop %s → %s (%s)", app_short_pos_text(a, app_range_start(a)), app_short_pos_text(a, a.end_marker), app_range_length_text(a)))
+		toast(a, "LOOP ON")
+	} else {
+		status_buf_set(a, "loop off")
+		toast(a, "LOOP OFF")
+	}
+	bump_revision(a)
+}
+
+app_punch_out_toggle :: proc(a: ^App) {
+	if a.transport == .Recording {
+		status_buf_set(a, "stop recording to change punch-out")
+		toast(a, "stop recording to change punch-out")
+		return
+	}
+	if !app_range_valid(a) {
+		status_buf_set(a, "set an OUT marker (E) for auto punch-out")
+		toast(a, "set an OUT marker (E) for punch-out")
+		return
+	}
+	a.punch_out_enabled = !a.punch_out_enabled
+	a.dirty = true
+	if a.punch_out_enabled {
+		status_buf_set(a, fmt.tprintf("auto punch-out at %s", app_short_pos_text(a, a.end_marker)))
+		toast(a, "PUNCH OUT ON")
+	} else {
+		status_buf_set(a, "auto punch-out off")
+		toast(a, "PUNCH OUT OFF")
+	}
+	bump_revision(a)
+}
+
+app_auto_punch_out :: proc(a: ^App) {
+	out_pos := a.record_punch_out
+	a.audition_end = 0
+	a.record_punch_out = 0
+	a.transport = .Stopped
+	a.frames = max(out_pos, 0)
+	a.tape_cued = a.frames > 0
+	status_buf_set(a, fmt.tprintf("punched out at %s · STOP returns to the marker", app_position_text(a, a.frames)))
+	toast(a, "punched out")
+	emit(a, .Record_Stop)
 	bump_revision(a)
 }
 
@@ -472,29 +651,31 @@ app_record_start :: proc(a: ^App, skip_preroll: bool) {
 	if !skip_preroll {
 		want := app_preroll_frames(a)
 		if a.timing_mode == .Grid {
-			if want > 0 && (a.metronome || punch == 0 || app_has_guide(a)) {
+			if want > 0 && (a.metronome || punch == 0 || app_has_guide(a) || !a.preroll_audio) {
 				pre = want
 			}
-		} else if punch > 0 && app_has_guide(a) {
+		} else if punch > 0 && (app_has_guide(a) || !a.preroll_audio) {
 			pre = min(want, punch)
 		}
 	}
 	a.record_punch = punch
 	a.record_pre = pre
+	a.record_punch_out = a.end_marker if (app_punch_out_active(a) && a.end_marker > punch) else 0
 	a.frames = punch - pre
 	a.tape_cued = false
 	a.transport = .Recording
+	pout_suffix := fmt.tprintf(" → %s", app_short_pos_text(a, a.record_punch_out)) if a.record_punch_out > 0 else ""
 	switch {
 	case pre > 0 && a.timing_mode == .Grid && punch == 0:
-		status_buf_set(a, fmt.tprintf("count-in %s · recording from %s", app_preroll_label(a), app_position_text(a, punch)))
+		status_buf_set(a, fmt.tprintf("count-in %s · recording from %s%s", app_preroll_label(a), app_position_text(a, punch), pout_suffix))
 	case pre > 0 && a.timing_mode == .Grid:
-		status_buf_set(a, fmt.tprintf("pre-roll %s · recording from %s", app_preroll_label(a), app_position_text(a, punch)))
+		status_buf_set(a, fmt.tprintf("pre-roll %s · recording from %s%s", app_preroll_label(a), app_position_text(a, punch), pout_suffix))
 	case pre > 0:
-		status_buf_set(a, fmt.tprintf("pre-roll %.0f s · recording from %s", f32(pre) / f32(app_rate(a)), app_position_text(a, punch)))
+		status_buf_set(a, fmt.tprintf("pre-roll %.0f s · recording from %s%s", f32(pre) / f32(app_rate(a)), app_position_text(a, punch), pout_suffix))
 	case punch > 0:
-		status_buf_set(a, fmt.tprintf("punch in at %s (undo is paused; takes are kept)", app_position_text(a, punch)))
+		status_buf_set(a, fmt.tprintf("punch in at %s%s (undo is paused; takes are kept)", app_position_text(a, punch), pout_suffix))
 	case:
-		status_buf_set(a, "recording (undo is paused; takes are kept)")
+		status_buf_set(a, fmt.tprintf("recording%s (undo is paused; takes are kept)", pout_suffix))
 	}
 	emit(a, .Record_Start)
 	bump_revision(a)

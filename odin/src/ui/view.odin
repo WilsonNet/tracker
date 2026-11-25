@@ -172,6 +172,7 @@ view_frame :: proc(a: ^App, v: ^View) {
 			view_fx(a, v)
 		}
 		view_bounce_row(a, v)
+		view_section_bar(a)
 		view_status(a)
 		view_rhythm(a, v)
 
@@ -1413,14 +1414,87 @@ view_bounce_row :: proc(a: ^App, v: ^View) {
 			vui.text(fmt.tprintf("%5.1f", a.master.peak_db), "w-10 text-right text-[10px] tabular-nums text-ink-muted")
 		}
 		status := "Ready"
+		status_cls := "ml-4 w-28 text-right text-[11px] text-ink-muted"
 		if a.bounce_active {
 			status = fmt.tprintf("Bouncing… %.0f%%", a.bounce_progress * 100)
 		} else if playing {
-			status = "Playing"
+			if app_loop_active(a) {
+				status = "Looping"
+				status_cls = "ml-4 w-28 text-right text-[11px] font-medium text-cue"
+			} else {
+				status = "Playing"
+			}
 		} else if a.transport == .Recording {
 			status = "Recording"
 		}
-		vui.text(status, "ml-4 w-28 text-right text-[11px] text-ink-muted")
+		vui.text(status, status_cls)
+	}
+}
+
+@(private = "file")
+view_section_bar :: proc(a: ^App) {
+	if !a.end_marker_set {
+		return
+	}
+	rec := a.transport == .Recording
+	active_sec := a.loop_enabled || a.punch_out_enabled
+	if vui.div("flex shrink-0 items-center gap-2 border-t border-line bg-panel px-4 py-1.5") {
+		if vui.div("flex min-w-0 items-center gap-1.5") {
+			vui.text("SECTION", vui.cx("text-[10px] font-semibold tracking-[0.08em]", active_sec ? "text-sig" : "text-ink-muted"))
+			vui.text("IN", "ml-1.5 text-[10px] font-semibold tracking-[0.04em] text-ink-muted")
+			if a.marker_set {
+				if vui.button(app_short_pos_text(a, a.marker), "rounded-[2px] border border-line-sig bg-sig-bg px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-sig hover:bg-panel-hover") {
+					app_execute(a, .Goto_Marker)
+				}
+				vui.push_id(101)
+				if vui.button("x", "rounded-[2px] px-1 py-0.5 text-[10px] text-ink-muted hover:text-ink") {
+					app_execute(a, .Clear_Marker)
+				}
+				vui.pop_id()
+			} else {
+				if vui.button(app_short_pos_text(a, 0), "rounded-[2px] border border-line px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-ink-dim hover:border-sig-dim hover:text-ink") {
+					app_execute(a, .Seek_Zero)
+				}
+			}
+			vui.text("→", "px-0.5 text-[11px] text-ink-muted")
+			vui.text("OUT", "text-[10px] font-semibold tracking-[0.04em] text-ink-muted")
+			if vui.button(app_short_pos_text(a, a.end_marker), "rounded-[2px] border border-line-sig bg-sig-bg px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-sig hover:bg-panel-hover") {
+				app_execute(a, .Goto_End_Marker)
+			}
+			vui.push_id(102)
+			if vui.button("x", "rounded-[2px] px-1 py-0.5 text-[10px] text-ink-muted hover:text-ink") {
+				app_execute(a, .Clear_End_Marker)
+			}
+			vui.pop_id()
+			if dur := app_range_length_text(a); dur != "" {
+				vui.text(dur, "ml-1.5 whitespace-nowrap text-[10px] tabular-nums text-ink-muted")
+			}
+		}
+
+		if vui.div("ml-auto flex shrink-0 items-center gap-2") {
+			loop_cls := "border-cue bg-cue-bg text-cue" if a.loop_enabled else "border-line text-ink-dim hover:border-cue hover:bg-cue-bg hover:text-cue"
+			if rec {
+				loop_cls = vui.cx(loop_cls, "opacity-40")
+			}
+			if vui.button_box(vui.cx("flex shrink-0 items-center gap-1.5 rounded-[2px] border px-2 py-0.5 text-[10px] font-semibold tracking-[0.06em] transition-colors duration-150", loop_cls), {.Disabled} if rec else {}) {
+				vui.el(vui.cx("size-1.5 rounded-full", "bg-cue" if a.loop_enabled else "bg-ink-muted"))
+				vui.text("LOOP ON" if a.loop_enabled else "LOOP OFF")
+				if vui.clicked() && !rec {
+					app_execute(a, .Loop_Toggle)
+				}
+			}
+			pout_cls := "border-rec bg-rec-bg text-rec-hi" if a.punch_out_enabled else "border-line text-ink-dim hover:border-rec hover:bg-rec-bg hover:text-rec-hi"
+			if rec {
+				pout_cls = vui.cx(pout_cls, "opacity-40")
+			}
+			if vui.button_box(vui.cx("flex shrink-0 items-center gap-1.5 rounded-[2px] border px-2 py-0.5 text-[10px] font-semibold tracking-[0.06em] transition-colors duration-150", pout_cls), {.Disabled} if rec else {}) {
+				vui.el(vui.cx("size-1.5 rounded-full", "bg-rec" if a.punch_out_enabled else "bg-ink-muted"))
+				vui.text("PUNCH OUT ON" if a.punch_out_enabled else "PUNCH OUT OFF")
+				if vui.clicked() && !rec {
+					app_execute(a, .Punch_Out_Toggle)
+				}
+			}
+		}
 	}
 }
 
@@ -1439,6 +1513,9 @@ view_status :: proc(a: ^App) {
 		}
 		if a.transport == .Recording {
 			vui.text(fmt.tprintf("● REC %d", arm_count(a)), "rounded-[2px] bg-rec px-2 py-px text-[10px] font-semibold tracking-[0.05em] text-ink")
+			if a.record_punch_out > 0 {
+				vui.text(fmt.tprintf("→ %s", app_short_pos_text(a, a.record_punch_out)), "rounded-[2px] border border-rec bg-rec-bg px-1.5 py-px text-[10px] font-semibold tabular-nums text-rec-hi")
+			}
 		}
 		if a.mode == .Normal && a.project_name_edit {
 			if vui.div("flex w-[200px] shrink-0 cursor-text items-center gap-1.5 rounded-[2px] border border-sig bg-canvas px-2 py-px") {
@@ -1691,6 +1768,11 @@ view_rhythm :: proc(a: ^App, v: ^View) {
 				app_execute(a, .Preroll_Next)
 			}
 		}
+		if pr {
+			if vui.button("SONG" if a.preroll_audio else "CLK", vui.cx("shrink-0 rounded-[2px] border px-1.5 py-1 text-[10px] font-semibold tracking-[0.06em] transition-colors duration-150", a.preroll_audio ? "border-line-sig bg-sig-bg text-sig hover:bg-panel-hover" : "border-line text-ink-muted hover:border-sig-dim hover:text-ink")) {
+				app_execute(a, .Preroll_Audio)
+			}
+		}
 		if a.timing_mode == .Grid && (on || app_in_preroll(a)) {
 			sig := app_time_sig(a)
 			active_beat := app_current_beat_in_bar(a)
@@ -1717,18 +1799,21 @@ view_rhythm :: proc(a: ^App, v: ^View) {
 			if a.tape_frames > 0 {
 				vui.text(fmt.tprintf("/ %s", app_tape_length_text(a)), "ml-1 whitespace-nowrap text-[10px] tabular-nums text-ink-muted")
 			}
-			// the single return marker: MARK drops it at the playhead (M), the
-			// position chip cues there, x clears it
+			// the return marker (M) and section end marker (E): when OUT is set,
+			// the contextual section bar displays IN -> OUT above to keep this row spacious.
 			if vui.button("MARK", vui.cx("ml-1.5 rounded-[2px] border px-1.5 py-1 text-[10px] font-semibold tracking-[0.04em] transition-colors duration-150", a.marker_set ? "border-line-sig text-sig hover:bg-sig-bg" : "border-line text-ink-muted hover:text-ink")) {
 				app_execute(a, .Set_Marker)
 			}
-			if a.marker_set {
+			if a.marker_set && !a.end_marker_set {
 				if vui.button(app_short_pos_text(a, a.marker), "rounded-[2px] border border-line-sig bg-sig-bg px-1.5 py-1 text-[10px] font-semibold tabular-nums text-sig hover:bg-panel-hover") {
 					app_execute(a, .Goto_Marker)
 				}
 				if vui.button("x", "rounded-[2px] px-1 py-1 text-[10px] text-ink-muted hover:text-ink") {
 					app_execute(a, .Clear_Marker)
 				}
+			}
+			if vui.button("OUT", vui.cx("ml-1 rounded-[2px] border px-1.5 py-1 text-[10px] font-semibold tracking-[0.04em] transition-colors duration-150", a.end_marker_set ? "border-line-sig bg-sig-bg text-sig hover:bg-panel-hover" : "border-line text-ink-muted hover:border-sig-dim hover:text-ink")) {
+				app_execute(a, .Set_End_Marker)
 			}
 		}
 		if vui.div("flex shrink-0 items-center gap-1") {
@@ -2163,34 +2248,58 @@ view_settings :: proc(a: ^App, v: ^View) {
 
 			// ── timing ────────────────────────────────────────────────
 			vui.text("TIMING", SETTINGS_HEAD)
+			sel_rect: vui.Rect
 			if vui.div("flex items-center gap-2") {
 				vui.text("Timing mode", "flex-1 text-[12px] text-ink")
 				settings_toggle(a, .Timing_Mode, "FREE · TAPE" if a.timing_mode == .Free else "GRID · CLICKTRACK", a.timing_mode == .Grid, .Timing_Mode)
+				if a.settings_sel == .Timing_Mode {
+					sel_rect = vui.prev_rect()
+				}
 			}
 			vui.text("Grid anchors the clicktrack, bar/beat scrubbing, and count-in. Free records without a grid (seconds).", "text-[10px] text-ink-muted")
 			if vui.div("flex items-center gap-2") {
 				vui.text("Time signature", "flex-1 text-[12px] text-ink")
 				settings_toggle(a, .Time_Sig, app_time_sig(a).label, a.timing_mode == .Grid, .Time_Sig_Next)
+				if a.settings_sel == .Time_Sig {
+					sel_rect = vui.prev_rect()
+				}
 			}
 			if vui.div("flex items-center gap-2") {
 				vui.text("Pre-roll before a take (Ctrl+r skips it)", "flex-1 text-[12px] text-ink")
 				settings_toggle(a, .Preroll, app_preroll_label(a), app_preroll_active(a), .Preroll_Next)
+				if a.settings_sel == .Preroll {
+					sel_rect = vui.prev_rect()
+				}
 			}
+			if vui.div("flex items-center gap-2") {
+				vui.text("Pre-roll audio", "flex-1 text-[12px] text-ink")
+				settings_toggle(a, .Preroll_Audio, "SONG" if a.preroll_audio else "CLICK ONLY", a.preroll_audio, .Preroll_Audio)
+				if a.settings_sel == .Preroll_Audio {
+					sel_rect = vui.prev_rect()
+				}
+			}
+			vui.text("Play existing tracks and armed lead-in before punch-in, or mute until punch-in.", "text-[10px] text-ink-muted")
 
 			// ── appearance ───────────────────────────────────────────
 			vui.text("APPEARANCE", SETTINGS_HEAD)
 			if vui.div("flex items-center gap-2") {
 				vui.text("High contrast", "flex-1 text-[12px] text-ink")
 				settings_toggle(a, .High_Contrast, "ON" if a.high_contrast else "OFF", a.high_contrast, .High_Contrast)
+				if a.settings_sel == .High_Contrast {
+					sel_rect = vui.prev_rect()
+				}
 			}
 			if vui.div("flex items-center gap-2") {
 				vui.text("Reduced motion", "flex-1 text-[12px] text-ink")
 				settings_toggle(a, .Reduced_Motion, "ON" if a.reduced_motion else "OFF", a.reduced_motion, .Reduced_Motion)
+				if a.settings_sel == .Reduced_Motion {
+					sel_rect = vui.prev_rect()
+				}
 			}
 
 			// ── cloud ─────────────────────────────────────────────────
 			vui.text("CLOUD", SETTINGS_HEAD)
-			cloud_sel_rect: vui.Rect
+			cloud_sel_rect := sel_rect
 			folder_editing := a.cloud_edit == .Folder
 			folder_selected := a.settings_sel == .Cloud_Folder
 			if vui.div(vui.cx("flex cursor-text items-center gap-2 rounded-[2px] border px-2 py-1", folder_editing || folder_selected ? "border-sig" : "border-line")) {
@@ -2314,7 +2423,7 @@ view_settings :: proc(a: ^App, v: ^View) {
 			if v.settings_sel_last != a.settings_sel || resized {
 				v.settings_sel_last = a.settings_sel
 				v.settings_panel_h = panel_rect.h
-				if int(a.settings_sel) >= int(Settings_Item.Cloud_Folder) && cloud_sel_rect.h > 0 {
+				if int(a.settings_sel) >= int(Settings_Item.Timing_Mode) && cloud_sel_rect.h > 0 {
 					// Scroll only as far as needed to reveal the selected row.
 					// Clicking a visible field must not jump the panel.
 					scroll := vui.scroll_of(panel_id).y

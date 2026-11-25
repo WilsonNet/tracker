@@ -429,3 +429,11 @@ message state:
 - `window_synthetic_keys` clears `ctx.input.keys_pressed = {}` and `ctx.input.text = ""` right after routing synthetic `vui-ctl` / `vui-test` keys so a previously clicked `vui.button` cannot also fire `Enter`/`Space` inside `vinland` on the same frame. Always use `whitespace-nowrap` on strip counters (`2/2`) and hide secondary badges (`TAKE` word, `COMP` when `!t.has_audio`) in `multi` rows so 4 strips at `900×620` never clip `DEL`.
 - `vui.Key` upstream in `vinland-ui` exposes `.A, .C, .V, .X, .Z, .Y, .K, .Slash, .F1, .F5, .F12` (not `.T`), so `window.vt` tests Ctrl+t via `: new take` while `ui_test.odin` and `window_on_event` cover the real SDL `Ctrl+t` / `Cmd+t` chord.
 - Counts now: 321 Linux / 315 macOS unit tests, 31 e2e cases.
+
+### Pre-roll song/click audio, section loop & auto punch-out (2026-11-25)
+
+- `Settings_Item.Preroll_Audio` before `High_Contrast` shifts `key down` walks in `tests/ui/window.vt` by +1 (20 for Client ID, 18 for Drive folder); extend `view_settings` scroll-into-view to `.Timing_Mode`..`.Cloud_Restore` so keyboard navigation in Settings reaches `TIMING` toggles cleanly without scrolling off-screen.
+- Keep `view_settings` helper copy free of button-label substrings (`"SONG"`, `"CLICK ONLY"`) because `vui-test`'s `expect-text` / `click-text` matches case-insensitive substrings; use `expect-exact` for short toggle labels and avoid asserting cross-OS shortcut prefixes directly (`"+Del"` / `"+t"` match both `Ctrl+` and `Cmd+`).
+- During Song pre-roll (`preroll_active && preroll_audio`), pass `effective_mute_armed = false` to `live_mix_params_from_app` so the armed track's lead-in plays before `rec_punch`, then ramp down over the final 64 samples and zero `samples_in[i]` inside `playback_callback` right at `pos == preroll_until` for sample-accurate muting without cutting reverb/delay tails.
+- Loop playback wraps `pos` inside `playback_callback` (`pos >= loop_end` → `loop_start`, resetting `has_last_beat` and triggering `fade_in_len` de-click) while recording intentionally ignores `loop_enabled`; auto punch-out waits for `rec_pre + (rec_punch_out - rec_punch) + latency_frames` written frames before stopping and trims `engine_split_take`/`engine_split_capture_result` to exact `rec_punch_out - rec_punch`.
+- Counts now: 326 Linux / 320 macOS unit tests, 32 e2e cases.

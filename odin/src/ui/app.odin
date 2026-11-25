@@ -66,6 +66,7 @@ Settings_Item :: enum u8 {
 	Timing_Mode,
 	Time_Sig,
 	Preroll,
+	Preroll_Audio,
 	High_Contrast,
 	Reduced_Motion,
 	Cloud_Folder,
@@ -189,11 +190,17 @@ Command_Kind :: enum {
 	Set_Marker,    // drop / move the return marker at the playhead
 	Clear_Marker,
 	Goto_Marker,
-	Audition,      // play the lead-in up to the playhead, then pause there
-	Record_Now,    // record at the playhead without pre-roll
-	Preroll_Next,  // cycle the pre-roll length
-	Timing_Mode,   // toggle Grid (clicktrack + magnetic scrub) / Free tape (seconds)
-	Time_Sig_Next, // cycle time signature (4/4, 3/4, 6/8, 5/4, 7/8, 2/4)
+	Audition,         // play the lead-in up to the playhead, then pause there
+	Record_Now,       // record at the playhead without pre-roll
+	Preroll_Next,     // cycle the pre-roll length
+	Preroll_Audio,    // toggle pre-roll audio (song + armed lead-in vs click only)
+	Timing_Mode,      // toggle Grid (clicktrack + magnetic scrub) / Free tape (seconds)
+	Time_Sig_Next,    // cycle time signature (4/4, 3/4, 6/8, 5/4, 7/8, 2/4)
+	Set_End_Marker,   // drop / move the section end marker at the playhead
+	Clear_End_Marker,
+	Goto_End_Marker,
+	Loop_Toggle,      // toggle section loop playback (IN -> OUT)
+	Punch_Out_Toggle, // toggle opt-in auto punch-out at OUT marker
 }
 
 Command :: struct {
@@ -432,13 +439,20 @@ App :: struct {
 	tape_frames:   i64,
 	tape_cued:     bool,
 	// Single return marker: STOP and the RTZ button go back to it (then to 0).
-	marker:        i64,
-	marker_set:    bool,
-	preroll_idx:      int, // index into PREROLL_STEPS (Free mode)
-	preroll_grid_idx: int, // index into PREROLL_GRID_STEPS (Grid mode)
-	record_punch:  i64, // frame where the take starts (read by the engine)
-	record_pre:    i64, // pre-roll frames before the punch (guide only, not recorded)
-	audition_end:  i64, // >0 while auditioning the lead-in
+	marker:            i64,
+	marker_set:        bool,
+	end_marker:        i64,
+	end_marker_set:    bool,
+	loop_enabled:      bool,
+	punch_out_enabled: bool,
+	preroll_idx:       int, // index into PREROLL_STEPS (Free mode)
+	preroll_grid_idx:  int, // index into PREROLL_GRID_STEPS (Grid mode)
+	preroll_audio:     bool, // true = play song (incl. armed lead-in) during pre-roll
+	record_punch:      i64, // frame where the take starts (read by the engine)
+	record_pre:        i64, // pre-roll frames before the punch (guide only, not recorded)
+	record_punch_out:  i64, // >0 while recording with auto punch-out active
+	engine_clock:      bool, // true when live audio engine drives a.frames & auto punch-out
+	audition_end:      i64, // >0 while auditioning the lead-in
 	time:          f32,
 	peak_history:  [MAX_TRACKS][HISTORY_LEN]f32,
 	peak_history_pos: int,
@@ -633,6 +647,7 @@ app_init :: proc(a: ^App, width, height: int) {
 	a.track_count = MIN_TRACKS
 	a.preroll_idx = PREROLL_DEFAULT_IDX
 	a.preroll_grid_idx = PREROLL_GRID_DEFAULT_IDX
+	a.preroll_audio = true
 	a.view_want = MIN_TRACKS
 	a.fx_focus = -1
 	a.take_del_track = -1
@@ -728,9 +743,14 @@ app_reset_project :: proc(a: ^App, name: string) {
 	a.tape_cued = false
 	a.marker = 0
 	a.marker_set = false
+	a.end_marker = 0
+	a.end_marker_set = false
+	a.loop_enabled = false
+	a.punch_out_enabled = false
 	a.audition_end = 0
 	a.record_punch = 0
 	a.record_pre = 0
+	a.record_punch_out = 0
 	a.take_del_track = -1
 	a.track_edit = false
 	a.project_name_edit = false
@@ -1643,12 +1663,20 @@ app_describe :: proc(a: ^App) -> string {
 	} else {
 		describe_append(out[:], &n, "selected track %d. ", a.selected + 1)
 	}
-	describe_append(out[:], &n, "tempo %d bpm. time signature %s. timing %s. metronome %s. monitor %s. latency %.0f ms. capture %s. high contrast %s. reduced motion %s. project folder %s. ",
+	describe_append(out[:], &n, "tempo %d bpm. time signature %s. timing %s. metronome %s. pre-roll audio %s. monitor %s. latency %.0f ms. capture %s. high contrast %s. reduced motion %s. project folder %s. ",
 		a.bpm, app_time_sig(a).label, "free" if a.timing_mode == .Free else "grid", "on" if a.metronome else "off",
+		"song" if a.preroll_audio else "click",
 		"on" if a.monitor else "off", a.latency_ms,
 		"Jack" if a.jack_backend else platform_audio_backend_name(),
 		"on" if a.high_contrast else "off",
 		"on" if a.reduced_motion else "off", app_save_dir(a))
+	if a.end_marker_set {
+		describe_append(out[:], &n, "section %s to %s, loop %s, punch out %s. ",
+			app_short_pos_text(a, app_range_start(a)),
+			app_short_pos_text(a, a.end_marker),
+			"on" if app_loop_active(a) else "off",
+			"on" if app_punch_out_active(a) else "off")
+	}
 	describe_append(out[:], &n, "google drive %s. cloud projects %d. ", "connected" if a.cloud_connected else "disconnected", a.cloud_project_count)
 	for i in 0 ..< a.track_count {
 		t := a.tracks[i]
@@ -2002,13 +2030,20 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		}
 		a.audition_end = 0
 		a.transport = .Playing
-		if !a.tape_cued {
-			a.frames = 0
-		} else if a.tape_frames > 0 && a.frames >= a.tape_frames {
-			a.frames = 0
-			a.tape_cued = false
+		if app_loop_active(a) {
+			if !a.tape_cued || a.frames >= a.end_marker || a.frames < app_range_start(a) {
+				a.frames = app_range_start(a)
+				a.tape_cued = a.frames > 0
+			}
+		} else {
+			if !a.tape_cued {
+				a.frames = 0
+			} else if a.tape_frames > 0 && a.frames >= a.tape_frames {
+				a.frames = 0
+				a.tape_cued = false
+			}
 		}
-		status_buf_set(a, "playing preview")
+		status_buf_set(a, "looping section" if app_loop_active(a) else "playing preview")
 		emit(a, .Play)
 		bump_revision(a)
 	case .Stop:
@@ -2021,6 +2056,16 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		app_marker_clear(a)
 	case .Goto_Marker:
 		app_marker_goto(a)
+	case .Set_End_Marker:
+		app_end_marker_set(a)
+	case .Clear_End_Marker:
+		app_end_marker_clear(a)
+	case .Goto_End_Marker:
+		app_end_marker_goto(a)
+	case .Loop_Toggle:
+		app_loop_toggle(a)
+	case .Punch_Out_Toggle:
+		app_punch_out_toggle(a)
 	case .Audition:
 		app_audition(a)
 	case .Record_Now:
@@ -2028,6 +2073,8 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		app_record_start(a, true)
 	case .Preroll_Next:
 		app_preroll_cycle(a)
+	case .Preroll_Audio:
+		app_preroll_audio_toggle(a)
 	case .Timing_Mode:
 		app_timing_mode_toggle(a)
 	case .Time_Sig_Next:
@@ -2037,6 +2084,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		app_record_start(a, a.shift_down)
 	case .Record_Stop:
 		a.audition_end = 0
+		a.record_punch_out = 0
 		a.transport = .Stopped
 		a.frames = max(a.frames, 0)
 		a.tape_cued = a.frames > 0
@@ -2409,6 +2457,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		a.take_del_track = -1
 		project_edit_clear(a)
 		a.audition_end = 0
+		a.record_punch_out = 0
 		a.transport = .Stopped
 		a.frames = 0
 		a.tape_cued = false
@@ -2438,6 +2487,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 }
 
 app_force_stopped :: proc(a: ^App, msg: string) {
+	a.record_punch_out = 0
 	a.transport = .Stopped
 	status_buf_set(a, msg)
 }
@@ -2812,6 +2862,15 @@ app_tick :: proc(a: ^App, dt: f32) {
 	a.frame_no += 1
 	if a.transport != .Stopped {
 		a.frames += i64(dt * f32(a.sample_rate))
+		if a.transport == .Playing && a.audition_end <= 0 && app_loop_active(a) && a.frames >= a.end_marker {
+			span := a.end_marker - app_range_start(a)
+			if span > 0 {
+				a.frames = app_range_start(a) + ((a.frames - app_range_start(a)) % span)
+			}
+		}
+		if !a.engine_clock && a.transport == .Recording && a.record_punch_out > 0 && a.frames >= a.record_punch_out {
+			app_auto_punch_out(a)
+		}
 	}
 	app_audition_tick(a)
 	if a.toast_time > 0 {

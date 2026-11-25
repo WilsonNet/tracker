@@ -310,29 +310,91 @@ project_and_settings_persist_marker_and_preroll :: proc(t: ^testing.T) {
 	defer ui.app_destroy(&a)
 	a.frames = 48_000 * 12
 	ui.app_execute(&a, .Set_Marker)
+	a.frames = 48_000 * 18
+	ui.app_execute(&a, .Set_End_Marker)
+	ui.app_execute(&a, .Loop_Toggle)
+	ui.app_execute(&a, .Punch_Out_Toggle)
 	testing.expect(t, project_save(&a, path), "save")
 	b: ui.App
 	ui.app_init(&b, 1180, 760)
 	defer ui.app_destroy(&b)
 	testing.expect(t, project_load(&b, dir, path), "load")
 	testing.expect(t, b.marker_set && b.marker == 48_000 * 12, "marker survives save/load")
+	testing.expect(t, b.end_marker_set && b.end_marker == 48_000 * 18, "end marker survives save/load")
+	testing.expect(t, b.loop_enabled && b.punch_out_enabled, "loop and punch-out survive save/load")
 
-	// a project without a marker loads without one
+	// a project without markers loads without them
+	ui.app_execute(&a, .Clear_End_Marker)
 	ui.app_execute(&a, .Clear_Marker)
 	testing.expect(t, project_save(&a, path), "save without marker")
 	testing.expect(t, project_load(&b, dir, path), "load without marker")
-	testing.expect(t, !b.marker_set, "no marker")
+	testing.expect(t, !b.marker_set && !b.end_marker_set && !b.loop_enabled && !b.punch_out_enabled, "no markers")
 
 	spath := fmt.tprintf("%s/settings.json", dir)
-	testing.expect(t, settings_save(spath, "/tmp/x", false, false, 5, 3, "free"), "settings save")
+	testing.expect(t, settings_save(spath, "/tmp/x", false, false, 5, 3, "free", false), "settings save")
 	doc, ok := settings_load(spath)
 	defer settings_destroy(&doc)
-	testing.expect(t, ok && doc.preroll_s == 5 && doc.preroll_grid == 3 && doc.timing_mode == "free", "pre-roll and timing persist in settings.json")
-	// an old settings file without the key keeps the 3 s / 1 BAR defaults
+	testing.expect(t, ok && doc.preroll_s == 5 && doc.preroll_grid == 3 && doc.timing_mode == "free" && !doc.preroll_audio, "pre-roll, prerollAudio, and timing persist in settings.json")
+	// an old settings file without the keys keeps the 3 s / 1 BAR / song defaults
 	testing.expect(t, os.write_entire_file(spath, `{"version":1,"highContrast":true}`) == nil, "old file")
 	old, old_ok := settings_load(spath)
 	defer settings_destroy(&old)
-	testing.expect(t, old_ok && old.preroll_s == 3 && old.preroll_grid == 2 && old.timing_mode == "", "defaults for older settings files")
+	testing.expect(t, old_ok && old.preroll_s == 3 && old.preroll_grid == 2 && old.timing_mode == "" && old.preroll_audio, "defaults for older settings files")
+}
+
+@(test)
+engine_auto_punch_out_trims_to_exact_end_marker_and_preserves_tail :: proc(t: ^testing.T) {
+	base := "/tmp/tracker-engine-punch-out"
+	os.remove_all(base)
+	defer os.remove_all(base)
+	_ = os.make_directory_all(base)
+
+	e: Engine
+	testing.expect(t, engine_init(&e, []string{"--session", base}), "engine")
+	defer engine_destroy(&e)
+
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+
+	// Existing 4800-frame track filled with 0.25.
+	orig := make([]f32, 4800)
+	for i in 0 ..< len(orig) {
+		orig[i] = 0.25
+	}
+	testing.expect(t, wav_write(fmt.tprintf("%s/track1.wav", base), 48_000, 1, orig), "seed wav")
+	delete(orig)
+	testing.expect(t, engine_load_tracks(&e, &a), "load")
+
+	// Simulate raw capture running 600 frames past rec_punch_out (400 pre-roll + 1800 captured).
+	e.rec.channels = 1
+	e.rec.rate = 48_000
+	e.rec.armed[0] = true
+	e.rec.inputs[0] = 1
+	e.rec_punch = 1200
+	e.rec_pre = 400
+	e.rec_punch_out = 2400
+	e.latency_ms = 0
+
+	raw_frames := 400 + 1800
+	raw_bytes := make([]byte, raw_frames * 4)
+	defer delete(raw_bytes)
+	for f in 0 ..< raw_frames {
+		val: f32 = -0.5
+		bits := transmute(u32)val
+		raw_bytes[f * 4 + 0] = u8(bits)
+		raw_bytes[f * 4 + 1] = u8(bits >> 8)
+		raw_bytes[f * 4 + 2] = u8(bits >> 16)
+		raw_bytes[f * 4 + 3] = u8(bits >> 24)
+	}
+	testing.expect(t, os.write_entire_file(e.take_path, raw_bytes) == nil, "write raw")
+	testing.expect(t, engine_split_take(&e, &a), "split with auto punch-out")
+
+	testing.expectf(t, len(e.loaded[0]) == 4800, "total length stays 4800, got %d", len(e.loaded[0]))
+	testing.expectf(t, abs(e.loaded[0][600] - 0.25) < 1e-4, "before punch-in preserved: %v", e.loaded[0][600])
+	testing.expectf(t, abs(e.loaded[0][1800] + 0.5) < 1e-4, "inside [1200..2400) replaced: %v", e.loaded[0][1800])
+	testing.expectf(t, abs(e.loaded[0][2600] - 0.25) < 1e-4, "past auto punch-out (2400) preserved: %v", e.loaded[0][2600])
+	testing.expectf(t, abs(e.loaded[0][3600] - 0.25) < 1e-4, "tail preserved: %v", e.loaded[0][3600])
 }
 
 @(test)

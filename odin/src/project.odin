@@ -67,8 +67,11 @@ Project_Doc :: struct {
 	high_contrast: bool            `json:"highContrast"`,
 	reduced_motion: bool           `json:"reducedMotion"`,
 	// Return marker in frames at `sampleRate`; -1 = none.
-	marker_frame:  int             `json:"markerFrame"`,
-	device:        string          `json:"device"`,
+	marker_frame:      int             `json:"markerFrame"`,
+	end_marker_frame:  int             `json:"endMarkerFrame"`,
+	loop_enabled:      bool            `json:"loopEnabled"`,
+	punch_out_enabled: bool            `json:"punchOutEnabled"`,
+	device:            string          `json:"device"`,
 	tracks:        []Project_Track `json:"tracks"`,
 	master:        Project_Master  `json:"master"`,
 }
@@ -118,6 +121,7 @@ project_default :: proc(count: int = ui.MIN_TRACKS) -> Project_Doc {
 		timing_mode = "grid",
 		device = "",
 		marker_frame = -1,
+		end_marker_frame = -1,
 		tracks = tracks,
 		master = project_master_default(),
 	}
@@ -283,6 +287,9 @@ project_from_app_with_takes :: proc(a: ^ui.App, takes: []Take_List) -> Project_D
 	doc.high_contrast = a.high_contrast
 	doc.reduced_motion = a.reduced_motion
 	doc.marker_frame = int(a.marker) if a.marker_set else -1
+	doc.end_marker_frame = int(a.end_marker) if a.end_marker_set else -1
+	doc.loop_enabled = ui.app_loop_active(a)
+	doc.punch_out_enabled = ui.app_punch_out_active(a)
 	doc.device = ui.app_device(a)
 	for i in 0 ..< len(doc.tracks) {
 		t := a.tracks[i]
@@ -353,8 +360,11 @@ Project_Load_Doc :: struct {
 	latency_ms:    f32                     `json:"latencyMs"`,
 	high_contrast: bool                    `json:"highContrast"`,
 	reduced_motion: bool                   `json:"reducedMotion"`,
-	marker_frame:  int                     `json:"markerFrame"`,
-	device:        string                  `json:"device"`,
+	marker_frame:      int                     `json:"markerFrame"`,
+	end_marker_frame:  int                     `json:"endMarkerFrame"`,
+	loop_enabled:      bool                    `json:"loopEnabled"`,
+	punch_out_enabled: bool                    `json:"punchOutEnabled"`,
+	device:            string                  `json:"device"`,
 	tracks:        [PROJECT_MAX_LOAD_TRACKS]Project_Track `json:"tracks"`,
 	master:        Project_Master          `json:"master"`,
 }
@@ -567,6 +577,7 @@ project_load_with_takes :: proc(a: ^ui.App, dir, path: string, takes: []Take_Lis
 		time_sig_num = 4,
 		time_sig_den = 4,
 		marker_frame = -1,
+		end_marker_frame = -1,
 		master = project_master_default(),
 	}
 	for i in 0 ..< PROJECT_MAX_LOAD_TRACKS {
@@ -617,6 +628,9 @@ project_load_with_takes :: proc(a: ^ui.App, dir, path: string, takes: []Take_Lis
 	a.high_contrast = doc.high_contrast
 	a.reduced_motion = doc.reduced_motion
 	ui.app_set_marker(a, i64(doc.marker_frame) if doc.marker_frame >= 0 else -1)
+	ui.app_set_end_marker(a, i64(doc.end_marker_frame) if doc.end_marker_frame >= 0 else -1)
+	a.loop_enabled = doc.loop_enabled && ui.app_range_valid(a)
+	a.punch_out_enabled = doc.punch_out_enabled && ui.app_range_valid(a)
 	ui.app_set_project(a, truncate_utf8(doc.name, PROJECT_NAME_MAX) if doc.name != "" else "untitled")
 	if len(doc.device) > 0 {
 		ui.app_set_device(a, truncate_utf8(doc.device, PROJECT_DEVICE_NAME_MAX))

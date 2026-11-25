@@ -451,3 +451,13 @@ RF64/EBU, JACK, XDG, Odin core/vendor).
 | `make check` & `make e2e` | **PASS** (selftest, 220-action UI tour, offline bounce, `ffprobe`, `sox`; **31/31** `window.vt` cases with refreshed `help-mixer.png` showing `Ctrl+t   new take (opt-in)` and `Ctrl+Del   delete active take`) |
 | Live `vui-ctl` offscreen verification (`VUI_HIDDEN=1`, temp 1-take `track1.wav` session) | Verified 1-take strip (`1/1` + `+ TAKE` + `DEL`, no `COMP`); clicking `+ TAKE` archives `track1-take1.wav`, clears canonical `track1.wav`, opens `‹ 2/2 › EMPTY` (`+` disabled); `: new take` on empty Take 2 refuses (`"current take is already empty"`); `T` / `t` switches `1/2` ↔ `2/2`; `900×620` (`‹ 2/2 › EMPTY [+] [DEL]`) and 6-track compact (`‹ 2/2 › [+] [DEL]`) render on one line with zero clipping; `Ctrl+Delete` + `Enter` deletes empty Take 2 back to `1/1`; `unknown_classes: []`, `frame_ms: 3.79` |
 | not verified | macOS build/tests (`315` unit tests, `make e2e` Metal) — tracked in `../PLATFORMS.md` |
+
+## Pre-roll audio, section loop & auto punch-out (2026-11-25)
+
+| check | result |
+|---|---|
+| `make build` & `-vet` (macOS) | clean (`darwin_arm64`) |
+| `make test` (macOS) | **320/320** passed (**74** DSP + **154** core + **92** UI; +`playback_callback_preroll_song_and_click_only`, +`playback_callback_loops_section_sample_accurately`, +`engine_auto_punch_out_trims_to_exact_end_marker_and_preserves_tail`, extended `project_and_settings_persist_marker_and_preroll`, +`ui_preroll_audio_toggle_and_record_rules`, +`ui_end_marker_loop_playback_and_auto_punch_out`) |
+| `make check` & `make e2e` | **PASS** (unit tests, `selftest`, 220-action UI tour, offline bounce, `ffprobe`; **32/32** `window.vt` cases on Metal including `section end marker, loop, punch-out and pre-roll audio` and refreshed `help-mixer.png` / `section-loop.png`) |
+| Live `vui-ctl` & XDG persistence (`VUI_HIDDEN=1`) | Verified `SONG`/`CLK` pill + Settings `Pre-roll audio` toggle (`"prerollAudio": false` persisted to `settings.json` and reloaded as `CLK` on restart), contextual Section bar (`SECTION IN 2.1 x -> OUT 4.1 x 2 BAR`, `LOOP ON` teal, `PUNCH OUT ON` red) at `1180×760` and `900×620` with zero clipping, clean collapse on `E`, `unknown_classes: []`, `frame_ms: 0.66–3.45` |
+| not verified | Live CoreAudio audible loop/pre-roll playback & Linux `326/326` + `window.vt` `32/32` run — tracked in `../PLATFORMS.md` |

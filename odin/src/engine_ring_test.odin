@@ -590,6 +590,150 @@ playback_live_prepare_60s_4tracks_is_instant :: proc(t: ^testing.T) {
 	testing.expectf(t, ms < 5.0, "live start took too long: %.3f ms", ms)
 }
 
+@(test)
+playback_callback_preroll_song_and_click_only :: proc(t: ^testing.T) {
+	rate: u32 = 48_000
+	p: Playback
+	dsp.live_mixer_init(&p.mixer, f32(rate))
+	defer dsp.live_mixer_destroy(&p.mixer)
+	p.mixer_rate = rate
+
+	tr0 := make([]f32, 1024) // armed track
+	tr1 := make([]f32, 1024) // backing track
+	defer delete(tr0)
+	defer delete(tr1)
+	for i in 0 ..< 1024 {
+		tr0[i] = 0.5
+		tr1[i] = 0.25
+	}
+	p.tracks[0] = tr0
+	p.tracks[1] = tr1
+	p.track_count = 2
+	p.use_live_mixer = true
+	p.mute_armed = true
+	p.armed_mask[0] = true
+	p.preroll_active = true
+	p.preroll_audio = true
+	p.preroll_until = 256
+	p.frames = 1024
+	p.rate = rate
+	p.device_open = true
+
+	params := dsp.Live_Mix_Params{track_count = 2}
+	for i in 0 ..< 2 {
+		params.tracks[i] = dsp.track_mix_default()
+		params.tracks[i].level = 1.0
+		params.tracks[i].eq.enabled = false
+		params.tracks[i].comp.enabled = false
+		params.tracks[i].muted = false // effective_mute_armed = false during Song pre-roll
+	}
+	params.master_comp = dsp.fx_settings_default().master_comp
+	params.master_comp.enabled = false
+	params.reverb = dsp.reverb_params_default()
+	params.reverb.enabled = false
+	params.delay = dsp.delay_params_default()
+	params.delay.enabled = false
+	params.width = dsp.width_params_default()
+	params.width.enabled = false
+	params.limiter = dsp.limiter_params_default()
+	params.limiter.enabled = false
+
+	dsp.live_mixer_apply_params(&p.mixer, &params, true)
+	dsp.live_mixer_reset(&p.mixer)
+	playback_params_reset(&p, params)
+	sync.atomic_store(&p.playing, 1)
+
+	dev: ma.device
+	dev.pUserData = &p
+	dev.playback.channels = 2
+
+	// Song mode during pre-roll [0..256): both armed track 0 and backing track 1 play.
+	out: [512]f32 // 256 stereo frames
+	sync.atomic_store(&p.cursor, 0)
+	playback_callback(&dev, raw_data(out[:]), nil, 256)
+	testing.expectf(t, sync.atomic_load(&p.track_peak[0]) > 0.2, "armed track lead-in audible during Song pre-roll, peak=%v", sync.atomic_load(&p.track_peak[0]))
+	testing.expectf(t, sync.atomic_load(&p.track_peak[1]) > 0.1, "backing track audible during Song pre-roll, peak=%v", sync.atomic_load(&p.track_peak[1]))
+
+	// Past punch-in [256..512): armed track 0 mutes cleanly while backing track 1 continues.
+	sync.atomic_store(&p.track_peak[0], 0)
+	sync.atomic_store(&p.track_peak[1], 0)
+	playback_callback(&dev, raw_data(out[:]), nil, 256)
+	testing.expectf(t, sync.atomic_load(&p.track_peak[0]) == 0, "armed track muted at punch-in, peak=%v", sync.atomic_load(&p.track_peak[0]))
+	testing.expectf(t, sync.atomic_load(&p.track_peak[1]) > 0.1, "backing track continues past punch-in, peak=%v", sync.atomic_load(&p.track_peak[1]))
+
+	// Click-only mode during pre-roll [0..256): song muted, count-in click audible; after 256 song enters & count-in click stops.
+	p.preroll_audio = false
+	p.countin_click_active = true
+	p.countin_click_until = 256
+	p.click_enabled = false
+	p.click_absolute = true
+	p.has_last_beat = false
+	p.click_left = 0
+	p.bpm = 120
+	p.sig_num = 4
+	p.sig_den = 4
+	p.fade_in_len = 32
+	p.fade_in_left = 0
+	dsp.live_mixer_reset(&p.mixer)
+	sync.atomic_store(&p.track_peak[0], 0)
+	sync.atomic_store(&p.track_peak[1], 0)
+	sync.atomic_store(&p.cursor, 0)
+	out = {}
+	playback_callback(&dev, raw_data(out[:]), nil, 256)
+	testing.expectf(t, sync.atomic_load(&p.track_peak[0]) == 0 && sync.atomic_load(&p.track_peak[1]) == 0, "click-only pre-roll mutes song tracks")
+	testing.expectf(t, abs(out[2]) > 0.01, "click-only pre-roll plays count-in click: %v", out[2])
+
+	p.click_left = 0
+	sync.atomic_store(&p.track_peak[0], 0)
+	sync.atomic_store(&p.track_peak[1], 0)
+	out = {}
+	playback_callback(&dev, raw_data(out[:]), nil, 256)
+	testing.expectf(t, sync.atomic_load(&p.track_peak[0]) == 0, "armed track stays muted after click-only punch-in")
+	testing.expectf(t, sync.atomic_load(&p.track_peak[1]) > 0.1, "backing track enters after click-only punch-in")
+}
+
+@(test)
+playback_callback_loops_section_sample_accurately :: proc(t: ^testing.T) {
+	p: Playback
+	p.samples = make([]f32, 400) // 200 stereo frames: frame i -> sample i/200.0
+	defer delete(p.samples)
+	for i in 0 ..< 200 {
+		v := f32(i) / 200.0
+		p.samples[i * 2 + 0] = v
+		p.samples[i * 2 + 1] = v
+	}
+	p.frames = 200
+	p.rate = 48_000
+	p.silent = false
+	p.click_enabled = false
+	sync.atomic_store(&p.loop_start, 100)
+	sync.atomic_store(&p.loop_end, 180)
+	sync.atomic_store(&p.loop_enabled, 1)
+
+	dev: ma.device
+	dev.pUserData = &p
+	dev.playback.channels = 2
+
+	// 120 frames starting at 100: [100..180) (80 frames) then wraps to [100..140) (40 frames).
+	sync.atomic_store(&p.cursor, 100)
+	out: [240]f32
+	playback_callback(&dev, raw_data(out[:]), nil, 120)
+	testing.expectf(t, sync.atomic_load(&p.cursor) == 140, "loop wrapped to 140, got %d", sync.atomic_load(&p.cursor))
+	testing.expectf(t, abs(out[0] - 100.0 / 200.0) < 1e-5, "frame 0 is 100, got %v", out[0])
+	testing.expectf(t, abs(out[79 * 2] - 179.0 / 200.0) < 1e-5, "frame 79 is 179, got %v", out[79 * 2])
+	testing.expectf(t, abs(out[80 * 2] - 100.0 / 200.0) < 1e-5, "frame 80 wrapped to 100, got %v", out[80 * 2])
+
+	// Looping past p.frames (empty tail between p.frames and loop_end) still wraps cleanly without OOB.
+	sync.atomic_store(&p.loop_start, 180)
+	sync.atomic_store(&p.loop_end, 260)
+	sync.atomic_store(&p.cursor, 198)
+	out2: [140]f32 // 70 frames: 198..259 (62 frames) -> wraps to 180..187 (8 frames)
+	playback_callback(&dev, raw_data(out2[:]), nil, 70)
+	testing.expectf(t, sync.atomic_load(&p.cursor) == 188, "loop past p.frames wrapped to 188, got %d", sync.atomic_load(&p.cursor))
+	testing.expectf(t, abs(out2[0] - 198.0 / 200.0) < 1e-5 && out2[4] == 0, "zero-pads past p.frames before wrap")
+	testing.expectf(t, abs(out2[62 * 2] - 180.0 / 200.0) < 1e-5, "wrapped back to 180 after silent tail")
+}
+
 // ---------------------------------------------------------------- helper
 
 @(private)

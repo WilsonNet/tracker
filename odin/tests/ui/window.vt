@@ -197,9 +197,9 @@ test "delete take guards and palette"
   expect-text "delete take"
   key escape
   key f1
-  expect-text "Ctrl+Del"
+  expect-text "+Del"
   expect-text "delete active take"
-  expect-text "Ctrl+t"
+  expect-text "+t"
   expect-text "new take (opt-in)"
   key escape
 
@@ -300,6 +300,7 @@ test "settings text field selection and secret mask"
   key down
   key down
   key down
+  key down
   wait 15
   click-text "Client ID"
   expect-class "Client ID" cursor-text
@@ -335,6 +336,7 @@ test "settings text field selection and secret mask"
 
 test "cloud settings and overlay are reachable"
   click-text SET
+  key down
   key down
   key down
   key down
@@ -478,3 +480,51 @@ test "timing mode switches between grid and free tape"
   click-text FREE
   expect-text "1 BAR"
   expect-text "001.1"
+
+test "section end marker, loop, punch-out and pre-roll audio"
+  expect-exact "SONG"
+  click-text "SONG"
+  expect-exact "CLK"
+  click-text SET
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  key down
+  wait 15
+  expect-text "Pre-roll audio"
+  expect-exact "CLICK ONLY"
+  click-text "CLICK ONLY"
+  expect-exact "SONG"
+  key escape
+  expect-exact "SONG"
+  type ">>"
+  expect-text "003.1"
+  type E
+  expect-text "SECTION"
+  expect-text "2 BAR"
+  expect-text "LOOP OFF"
+  expect-text "PUNCH OUT OFF"
+  click-text "LOOP OFF"
+  expect-text "LOOP ON"
+  click-text "PUNCH OUT OFF"
+  expect-text "PUNCH OUT ON"
+  screenshot section-loop
+  resize 900 620
+  expect-text "PUNCH OUT ON"
+  expect-exact "SONG"
+  resize 1180 760
+  type E
+  expect-no-text "SECTION"
+  expect-no-text "LOOP ON"

@@ -49,7 +49,7 @@ ui_add_recent :: proc(a: ^ui.App, path, store: string) {
 // failure is reported once per change, not retried every frame.
 ui_persist_settings :: proc(a: ^ui.App, store: string) {
 	mode := "free" if a.timing_mode == .Free else "grid"
-	if !settings_save(store, ui.app_save_dir(a), a.high_contrast, a.reduced_motion, ui.app_preroll_seconds(a), a.preroll_grid_idx, mode) {
+	if !settings_save(store, ui.app_save_dir(a), a.high_contrast, a.reduced_motion, ui.app_preroll_seconds(a), a.preroll_grid_idx, mode, a.preroll_audio) {
 		ui.status_buf_set(a, "cannot save settings")
 	}
 	a.settings_dirty = false
