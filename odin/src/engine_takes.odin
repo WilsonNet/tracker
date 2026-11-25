@@ -119,9 +119,28 @@ engine_load_track_from_takes :: proc(e: ^Engine, a: ^ui.App, track: int) -> (han
 		return true, false
 	}
 	path := fmt.tprintf("%s/%s", e.session_dir, take.file)
+	if !os.exists(path) {
+		delete(e.loaded[track])
+		e.loaded[track] = nil
+		e.loaded_rate[track] = 0
+		if a != nil {
+			a.tracks[track].has_audio = false
+			a.tracks[track].peak_db = -60
+			a.tracks[track].rms_db = -60
+		}
+		return true, false
+	}
 	wav, ok_read := wav_read(path)
 	if !ok_read || wav.frames == 0 {
 		wav_destroy(&wav)
+		delete(e.loaded[track])
+		e.loaded[track] = nil
+		e.loaded_rate[track] = 0
+		if a != nil {
+			a.tracks[track].has_audio = false
+			a.tracks[track].peak_db = -60
+			a.tracks[track].rms_db = -60
+		}
 		return true, false
 	}
 	mono := make([]f32, wav.frames)
@@ -157,6 +176,24 @@ engine_take_active :: proc(e: ^Engine, track: int) -> int {
 	return e.takes[track].active
 }
 
+// 1-based ordinal of the active take in `e.takes[track].takes`, or 0 when
+// comp mode / no active take is selected. Used by the UI readout (`1/2`).
+engine_take_active_ordinal :: proc(e: ^Engine, track: int) -> int {
+	if track < 0 || track >= MAX_ENGINE_TRACKS {
+		return 0
+	}
+	list := &e.takes[track]
+	if list.active == TAKE_ID_NONE {
+		return 0
+	}
+	for take, i in list.takes {
+		if take.id == list.active {
+			return i + 1
+		}
+	}
+	return 0
+}
+
 // Selects a take by id (0 = comp/none) and reloads that track immediately.
 engine_take_select :: proc(e: ^Engine, a: ^ui.App, track, id: int) -> bool {
 	if track < 0 || track >= MAX_ENGINE_TRACKS {
@@ -168,8 +205,16 @@ engine_take_select :: proc(e: ^Engine, a: ^ui.App, track, id: int) -> bool {
 	was_playing := engine_tracks_begin_edit(e)
 	handled, ok := engine_load_track_from_takes(e, a, track)
 	engine_tracks_end_edit(e, was_playing)
+	engine_sync_tape_length(e, a)
 	if !handled {
 		return false
+	}
+	if !ok {
+		if take, has := take_list_active(&e.takes[track]); has && take.file != "" {
+			if !os.exists(fmt.tprintf("%s/%s", e.session_dir, take.file)) {
+				return true
+			}
+		}
 	}
 	return ok
 }
@@ -228,6 +273,162 @@ engine_take_cycle :: proc(e: ^Engine, a: ^ui.App, track, delta: int) -> bool {
 	return engine_take_select(e, a, track, list.takes[idx].id)
 }
 
+// Deletes the active take on `track`. The take's WAV moves into
+// `<session_dir>/deleted/` (unless another take shares the file), comp regions
+// referencing it are removed, and the engine reloads a neighboring take or
+// clears the slot when the last take goes.
+engine_take_delete :: proc(e: ^Engine, a: ^ui.App, track: int) -> (ok: bool, message: string) {
+	if e.rec.active || e.play.active {
+		return false, "stop the tape to delete a take"
+	}
+	if track < 0 || track >= MAX_ENGINE_TRACKS || (a != nil && track >= a.track_count) {
+		return false, "select a track first"
+	}
+	if e.session_dir == "" {
+		return false, "no project folder"
+	}
+	engine_takes_ensure(e)
+	list := &e.takes[track]
+	if len(list.takes) == 0 {
+		return false, "no takes on this track"
+	}
+	if list.active == TAKE_ID_NONE {
+		return false, "select a take first (t/T) — comp active"
+	}
+	del_idx := -1
+	for take, i in list.takes {
+		if take.id == list.active {
+			del_idx = i
+			break
+		}
+	}
+	if del_idx < 0 {
+		return false, "no active take to delete"
+	}
+
+	take_id := list.takes[del_idx].id
+	raw_name := list.takes[del_idx].name
+	take_name := strings.clone(raw_name if raw_name != "" else fmt.tprintf("Take %d", take_id), context.temp_allocator)
+	take_file := strings.clone(list.takes[del_idx].file, context.temp_allocator)
+
+	next_active := TAKE_ID_NONE
+	if len(list.takes) > 1 {
+		if del_idx + 1 < len(list.takes) {
+			next_active = list.takes[del_idx + 1].id
+		} else {
+			next_active = list.takes[del_idx - 1].id
+		}
+	}
+	shared_file := false
+	for take, i in list.takes {
+		if i != del_idx && take.file == take_file {
+			shared_file = true
+			break
+		}
+	}
+
+	was_playing := engine_tracks_begin_edit(e)
+	_ = take_list_remove(list, take_id)
+	if next_active != TAKE_ID_NONE {
+		_ = take_list_select(list, next_active)
+	}
+	if !shared_file && take_file != "" {
+		trash_file(e, take_file)
+	}
+	if len(list.takes) == 0 {
+		delete(e.loaded[track])
+		e.loaded[track] = nil
+		e.loaded_rate[track] = 0
+		if a != nil {
+			a.tracks[track].has_audio = false
+			a.tracks[track].peak_db = -60
+			a.tracks[track].rms_db = -60
+			for h in 0 ..< ui.HISTORY_LEN {
+				a.peak_history[track][h] = -60
+			}
+		}
+	} else {
+		_, loaded_ok := engine_load_track_from_takes(e, a, track)
+		if !loaded_ok {
+			delete(e.loaded[track])
+			e.loaded[track] = nil
+			e.loaded_rate[track] = 0
+			if a != nil {
+				a.tracks[track].has_audio = false
+			}
+		}
+	}
+	engine_tracks_end_edit(e, was_playing)
+	engine_sync_tape_length(e, a)
+	if a != nil {
+		a.dirty = true
+	}
+	return true, fmt.tprintf("%s deleted · audio kept in deleted/", take_name)
+}
+
+// Opt-in multi-take creation: stabilizes the current take into a dedicated
+// archived WAV (`track{N}-take{ID}.wav`) and opens an empty new take slot so the
+// next recording starts fresh without overwriting prior takes.
+engine_take_new :: proc(e: ^Engine, a: ^ui.App, track: int) -> (ok: bool, message: string) {
+	if e.rec.active || e.play.active {
+		return false, "stop the tape to create a new take"
+	}
+	if track < 0 || track >= MAX_ENGINE_TRACKS || (a != nil && track >= a.track_count) {
+		return false, "select a track first"
+	}
+	if e.session_dir == "" {
+		return false, "no project folder"
+	}
+	engine_takes_ensure(e)
+	list := &e.takes[track]
+	if len(list.takes) == 0 {
+		return false, "record on this track first"
+	}
+	if e.loaded[track] == nil {
+		return false, "current take is already empty"
+	}
+	if len(list.takes) >= TAKE_MAX {
+		return false, "track already has max takes"
+	}
+
+	engine_take_stabilize_canonical(e, track)
+	canonical := fmt.tprintf("track%d.wav", track + 1)
+	for take in list.takes {
+		if take.file == canonical {
+			return false, "could not archive current take"
+		}
+	}
+	canonical_path := fmt.tprintf("%s/%s", e.session_dir, canonical)
+	if os.exists(canonical_path) {
+		_ = os.remove(canonical_path)
+	}
+
+	comp_clear(list)
+	engine_take_register_new(e, track, e.sample_rate)
+
+	was_playing := engine_tracks_begin_edit(e)
+	delete(e.loaded[track])
+	e.loaded[track] = nil
+	e.loaded_rate[track] = 0
+	engine_tracks_end_edit(e, was_playing)
+	if a != nil {
+		a.tracks[track].has_audio = false
+		a.tracks[track].peak_db = -60
+		a.tracks[track].rms_db = -60
+		for h in 0 ..< ui.HISTORY_LEN {
+			a.peak_history[track][h] = -60
+		}
+		a.dirty = true
+	}
+	engine_sync_tape_length(e, a)
+
+	track_name := fmt.tprintf("Track %d", track + 1)
+	if a != nil && track < a.track_count && a.tracks[track].name != "" {
+		track_name = a.tracks[track].name
+	}
+	return true, fmt.tprintf("Take %d ready on %s · press r to record", list.active, track_name)
+}
+
 // Rescales the UI's punch point when the opened device runs at another rate
 // than the project (frames are counted at the project rate until then).
 @(private)
@@ -241,56 +442,139 @@ engine_rescale_punch :: proc(e: ^Engine, a: ^ui.App, new_rate: u32) {
 	e.rec_pre = int(f64(e.rec_pre) * ratio)
 }
 
-// Writes one finished capture as the track's new take. At punch 0 this is the
-// classic behaviour (the new take becomes the active take). From a punch point
-// the take carries its timeline offset and is comped over the old audio only
-// between punch-in and punch-out, so the rest of the track keeps sounding.
+// Overwrites `existing[punch : punch + len(recorded)]` in place with short linear
+// crossfades at punch-in and punch-out boundaries where existing audio overlaps.
+@(private)
+tape_splice_overwrite :: proc(existing: []f32, punch: int, recorded: []f32, rate: u32) -> []f32 {
+	start := max(punch, 0)
+	old_len := len(existing)
+	rec_len := len(recorded)
+	out_len := max(old_len, start + rec_len)
+	out := make([]f32, out_len)
+	if old_len > 0 {
+		copy(out[:old_len], existing)
+	}
+	if rec_len > 0 {
+		copy(out[start:start + rec_len], recorded)
+	}
+	if old_len > 0 && rec_len > 0 {
+		xfade := min(max(int(rate) / 250, 16), 192)
+		xf_in := 0
+		if start > 0 && start < old_len {
+			xf_in = min(xfade, rec_len / 2, old_len - start)
+			for k in 0 ..< xf_in {
+				t := f32(k) / f32(xf_in)
+				out[start + k] = existing[start + k] * (1.0 - t) + recorded[k] * t
+			}
+		}
+		end := start + rec_len
+		if end < old_len && rec_len > xf_in {
+			xf_out := min(xfade, rec_len - xf_in, old_len - end)
+			for k in 0 ..< xf_out {
+				t := f32(k) / f32(xf_out)
+				out[end - xf_out + k] = recorded[rec_len - xf_out + k] * (1.0 - t) + existing[end - xf_out + k] * t
+			}
+		}
+	}
+	return out
+}
+
+// Writes one finished capture onto the track's active take WAV in tape style:
+// overwriting only `[punch, punch + len(mono))` in place while preserving
+// audio before and after the punch. Multiple takes are opt-in via `engine_take_new`.
 // Takes ownership of `mono`.
 @(private)
 engine_commit_recorded_take :: proc(e: ^Engine, a: ^ui.App, track: int, rate: u32, mono: []f32) -> bool {
-	punch := e.rec_punch
+	defer delete(mono)
+	punch := max(e.rec_punch, 0)
 	list := &e.takes[track]
-	old_active := list.active
 	if len(list.takes) == 0 {
 		_ = takes_load_from_dir(list, e.session_dir, track)
-		old_active = list.active
 	}
-	old_len := len(e.loaded[track])
-	if e.loaded_rate[track] != 0 && e.loaded_rate[track] != e.sample_rate && e.sample_rate != 0 {
-		old_len = int(f64(old_len) * f64(e.sample_rate) / f64(e.loaded_rate[track]))
+	if len(list.takes) == 0 {
+		engine_take_register_new(e, track, rate)
+	} else if list.active == TAKE_ID_NONE {
+		_ = take_list_select(list, list.takes[len(list.takes) - 1].id)
 	}
-
-	path := fmt.tprintf("%s/track%d.wav", e.session_dir, track + 1)
-	engine_take_stabilize_canonical(e, track)
-	if !wav_write(path, rate, 1, mono) {
-		delete(mono)
+	take, has_take := take_list_active(list)
+	if !has_take || take.file == "" {
 		return false
 	}
-	if punch <= 0 {
-		engine_take_register_new(e, track, rate)
-		was_playing := engine_tracks_begin_edit(e)
-		delete(e.loaded[track])
-		e.loaded[track] = mono
-		e.loaded_rate[track] = rate
-		engine_tracks_end_edit(e, was_playing)
-		if a != nil {
-			a.tracks[track].has_audio = true
-		}
-		return true
+
+	existing: []f32
+	existing_rate: u32 = 0
+	existing_owned := false
+	defer if existing_owned {
+		delete(existing)
 	}
 
-	label := fmt.tprintf("Punch @%s", ui.app_short_pos_text(a, i64(punch))) if a != nil && a.timing_mode == .Grid else fmt.tprintf("Punch @%.1fs", f32(punch) / f32(max(e.sample_rate, 1)))
-	engine_take_register_new(e, track, rate, label, punch)
-	new_id := take_list_next_id(list) - 1
-	end := punch + len(mono)
-	if rate != e.sample_rate && rate != 0 && e.sample_rate != 0 {
-		end = punch + int(f64(len(mono)) * f64(e.sample_rate) / f64(rate))
+	if len(list.comp) == 0 && e.loaded[track] != nil {
+		existing = e.loaded[track]
+		existing_rate = e.loaded_rate[track]
+	} else {
+		existing_path := fmt.tprintf("%s/%s", e.session_dir, take.file)
+		if os.exists(existing_path) {
+			wav, ok_read := wav_read(existing_path)
+			if ok_read && wav.frames > 0 {
+				buf := make([]f32, wav.frames)
+				ch := int(wav.channels)
+				for f in 0 ..< wav.frames {
+					sum: f32 = 0
+					for c in 0 ..< ch {
+						sum += wav.samples[f * ch + c]
+					}
+					buf[f] = sum / f32(max(ch, 1))
+				}
+				existing = buf
+				existing_rate = wav.sample_rate
+				existing_owned = true
+			}
+			wav_destroy(&wav)
+		}
 	}
-	// If no comp can be built the new take simply stays the active take.
-	_ = comp_punch(list, old_active, new_id, punch, end, old_len)
-	delete(mono)
+
+	// Legacy offset takes stored unpadded WAVs starting at `take.offset`; pad to timeline 0 before overwriting.
+	if take.offset > 0 && len(existing) > 0 {
+		padded := make([]f32, take.offset + len(existing))
+		copy(padded[take.offset:], existing)
+		if existing_owned {
+			delete(existing)
+		}
+		existing = padded
+		existing_owned = true
+	}
+
+	if len(existing) > 0 && existing_rate != 0 && existing_rate != rate {
+		resampled := dsp.resample(existing, existing_rate, rate)
+		if existing_owned {
+			delete(existing)
+		}
+		existing = resampled
+		existing_owned = true
+	}
+
+	merged := tape_splice_overwrite(existing, punch, mono, rate)
+	path := fmt.tprintf("%s/%s", e.session_dir, take.file)
+	tmp := fmt.tprintf("%s.tmp", path)
+	if !wav_write(tmp, rate, 1, merged) {
+		_ = os.remove(tmp)
+		delete(merged)
+		return false
+	}
+	if os.rename(tmp, path) != nil {
+		_ = os.remove(tmp)
+		delete(merged)
+		return false
+	}
+
+	take.sample_rate = rate
+	take.offset = 0
+	comp_clear(list)
+
 	was_playing := engine_tracks_begin_edit(e)
-	_, _ = engine_load_track_from_takes(e, a, track)
+	delete(e.loaded[track])
+	e.loaded[track] = merged
+	e.loaded_rate[track] = rate
 	engine_tracks_end_edit(e, was_playing)
 	if a != nil {
 		a.tracks[track].has_audio = true

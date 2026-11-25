@@ -50,6 +50,9 @@ RENDER_COARSE_STEP_SECONDS :: f32(5.0)
 // Keyboard order of the settings rows. Keep view_settings, app_settings_key
 // and this enum in the same order.
 Settings_Item :: enum u8 {
+	New_Project,
+	Open_Project,
+	Recent_Projects,
 	Project_Name,
 	Path,
 	Browse,
@@ -131,6 +134,8 @@ Command_Kind :: enum {
 	Panic,
 	Undo,
 	Redo,
+	New_Project,
+	Create_Project,
 	Open_Project,
 	Save_As,
 	Rename_Project,
@@ -152,6 +157,9 @@ Command_Kind :: enum {
 	Rescan,
 	Take_Next,
 	Take_Prev,
+	Take_New,    // opt-in: archives active take WAV and opens an empty new take slot
+	Take_Delete, // arms inline delete-take confirmation
+	Delete_Take, // index = track whose active take should be moved to deleted/
 	Comp_Use,
 	Comp_Clear,
 	Settings,
@@ -518,9 +526,14 @@ App :: struct {
 	project_name_draft:     [PROJECT_NAME_MAX]u8,
 	project_name_draft_len: int,
 	project_name_edit:      bool,
+	new_project_open:       bool,
+	new_project_edit:       bool,
+	new_project_draft:      [PROJECT_NAME_MAX]u8,
+	new_project_draft_len:  int,
 	// Inline rename of one track strip (R / double-click the name).
-	td_index:      int, // track the delete dialog is about
-	td_confirm:    bool, // dialog focus: false = KEEP, true = DELETE
+	td_index:       int,  // track the delete dialog is about
+	td_confirm:     bool, // dialog focus: false = KEEP, true = DELETE
+	take_del_track: int,  // track with inline take-delete confirmation armed (-1 = none)
 	track_edit:            bool,
 	track_edit_index:      int,
 	track_name_draft:      [64]u8,
@@ -622,6 +635,7 @@ app_init :: proc(a: ^App, width, height: int) {
 	a.preroll_grid_idx = PREROLL_GRID_DEFAULT_IDX
 	a.view_want = MIN_TRACKS
 	a.fx_focus = -1
+	a.take_del_track = -1
 	status_buf_set(a, "ready")
 	project_buf_set(a, "untitled")
 	project_name_draft_set(a, "untitled")
@@ -653,6 +667,13 @@ app_init :: proc(a: ^App, width, height: int) {
 		t.comp.knee_db = 8
 		t.comp.auto_makeup = true
 	}
+	app_master_reset(a)
+	app_resize(a, width, height)
+	app_history_reset(a)
+}
+
+@(private)
+app_master_reset :: proc(a: ^App) {
 	a.master.comp.enabled = false
 	a.master.comp.threshold_db = -14
 	a.master.comp.ratio = 2.5
@@ -681,8 +702,61 @@ app_init :: proc(a: ^App, width, height: int) {
 	a.master.peak_db = -60
 	a.master.rms_db = -60
 	a.master.gr_db = 0
-	app_resize(a, width, height)
+}
+
+// Resets all per-project state (tracks, takes, master FX, tempo, time sig,
+// marker, undo history) to a clean 4-track slate while keeping machine/studio
+// preferences (audio device, latency, timing mode, pre-roll, a11y, cloud, recents).
+app_reset_project :: proc(a: ^App, name: string) {
+	for i in 0 ..< MAX_TRACKS {
+		app_track_reset(a, i)
+	}
+	a.track_count = MIN_TRACKS
+	a.view_want = MIN_TRACKS
+	a.view_first = 0
+	a.selected = 0
+	a.fx_channel = 0
+	a.fx_focus = -1
+	app_master_reset(a)
+
+	a.sample_rate = 48_000
+	a.bpm = 120
+	a.time_sig_idx = TIME_SIG_DEFAULT_IDX
+	a.metronome = false
+	a.frames = 0
+	a.tape_frames = 0
+	a.tape_cued = false
+	a.marker = 0
+	a.marker_set = false
+	a.audition_end = 0
+	a.record_punch = 0
+	a.record_pre = 0
+	a.take_del_track = -1
+	a.track_edit = false
+	a.project_name_edit = false
+	a.settings_path_edit = false
+	a.cloud_edit = .None
+	a.new_project_open = false
+	a.new_project_edit = false
+	a.new_project_draft_len = 0
+	a.edit_confirm = false
+	a.edit_select_all = false
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	a.mode = .Normal
+	a.dirty = false
+
+	final_name := strings.trim_space(name)
+	if final_name == "" {
+		final_name = "untitled"
+	}
+	project_buf_set(a, final_name)
+	project_name_draft_set(a, final_name)
+	text_history_reset(a)
 	app_history_reset(a)
+	app_layout(a)
+	bump_revision(a)
 }
 
 app_destroy :: proc(a: ^App) {
@@ -1115,6 +1189,7 @@ app_mark_settings_dirty :: proc(a: ^App) {
 
 app_project_begin_edit :: proc(a: ^App, select_all: bool = true) {
 	a.project_name_edit = true
+	a.new_project_edit = false
 	a.settings_path_edit = false
 	a.cloud_edit = .None
 	a.edit_confirm = false
@@ -1179,8 +1254,11 @@ app_settings_open :: proc(a: ^App) {
 	a.project_name_edit = false
 	a.settings_path_edit = false
 	a.cloud_edit = .None
+	a.new_project_open = false
+	a.new_project_edit = false
+	a.new_project_draft_len = 0
 	a.edit_confirm = false
-	a.settings_sel = .Project_Name
+	a.settings_sel = .New_Project
 	project_name_draft_set(a, app_project(a))
 	settings_path_set(a, app_save_dir(a))
 	status_buf_set(a, "settings")
@@ -1203,6 +1281,9 @@ app_settings_close :: proc(a: ^App) {
 	a.project_name_edit = false
 	a.settings_path_edit = false
 	a.cloud_edit = .None
+	a.new_project_open = false
+	a.new_project_edit = false
+	a.new_project_draft_len = 0
 	a.edit_confirm = false
 	a.edit_select_all = false
 	a.cloud_dirty = false
@@ -1219,6 +1300,7 @@ app_settings_close :: proc(a: ^App) {
 
 app_settings_begin_edit :: proc(a: ^App) {
 	a.settings_path_edit = true
+	a.new_project_edit = false
 	a.project_name_edit = false
 	a.cloud_edit = .None
 	a.edit_confirm = false
@@ -1349,8 +1431,105 @@ app_cloud_selected_id :: proc(a: ^App) -> string {
 	return cloud_view_id(&a.cloud_projects[a.cloud_selected])
 }
 
+app_new_project_draft :: proc(a: ^App) -> string {
+	return string(a.new_project_draft[:a.new_project_draft_len])
+}
+
+app_new_project_preview_dir :: proc(a: ^App) -> string {
+	trimmed := strings.trim_space(app_new_project_draft(a))
+	b := strings.builder_make(context.temp_allocator)
+	last_dash := false
+	for raw in transmute([]u8)trimmed {
+		c := raw
+		if c >= 'A' && c <= 'Z' {
+			c += 32
+		}
+		ok := (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'
+		if ok {
+			strings.write_byte(&b, c)
+			last_dash = false
+		} else if !last_dash {
+			strings.write_byte(&b, '-')
+			last_dash = true
+		}
+		if strings.builder_len(b) >= 48 {
+			break
+		}
+	}
+	slug := strings.trim(strings.to_string(b), "-.")
+	if slug == "" {
+		slug = "untitled"
+	}
+	dir := app_save_dir(a)
+	parent := "."
+	if idx := strings.last_index_byte(dir, '/'); idx >= 0 {
+		parent = "/" if idx == 0 else dir[:idx]
+	}
+	if parent == "/" {
+		return fmt.tprintf("/%s", slug)
+	}
+	return fmt.tprintf("%s/%s", parent, slug)
+}
+
+app_new_project_begin :: proc(a: ^App) -> bool {
+	if a.transport != .Stopped {
+		toast(a, "stop transport before creating a new project")
+		status_buf_set(a, "stop transport before creating a new project")
+		return false
+	}
+	if a.mode != .Settings {
+		app_settings_open(a)
+	}
+	a.settings_sel = .New_Project
+	a.new_project_open = true
+	a.new_project_edit = true
+	a.project_name_edit = false
+	a.settings_path_edit = false
+	a.cloud_edit = .None
+	a.edit_confirm = false
+	a.edit_select_all = false
+	a.new_project_draft_len = 0
+	a.text_cursor = 0
+	a.text_anchor = 0
+	a.text_scroll_x = 0
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	text_history_reset(a)
+	status_buf_set(a, "new clean project · enter create · esc cancel")
+	bump_revision(a)
+	return true
+}
+
+app_new_project_cancel :: proc(a: ^App) {
+	a.new_project_open = false
+	a.new_project_edit = false
+	a.new_project_draft_len = 0
+	a.edit_confirm = false
+	a.edit_select_all = false
+	a.text_typing = false
+	a.text_dragging = false
+	a.text_drag_multi = false
+	text_history_reset(a)
+	status_buf_set(a, "new project cancelled")
+	bump_revision(a)
+}
+
+app_new_project_commit :: proc(a: ^App) {
+	if a.transport != .Stopped {
+		toast(a, "stop transport before creating a new project")
+		status_buf_set(a, "stop transport before creating a new project")
+		return
+	}
+	a.last_command = .Create_Project
+	a.last_command_index = 0
+	emit(a, .Create_Project)
+	bump_revision(a)
+}
+
 app_cloud_begin_edit :: proc(a: ^App, field: Cloud_Edit) {
 	a.cloud_edit = field
+	a.new_project_edit = false
 	a.project_name_edit = false
 	a.settings_path_edit = false
 	a.edit_confirm = false
@@ -1812,6 +1991,7 @@ app_resize :: proc(a: ^App, width, height: int) {
 app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 	switch kind {
 	case .Play:
+		a.take_del_track = -1
 		if a.transport == .Recording {
 			toast(a, "recording: Space or r punches out")
 			status_buf_set(a, "recording: Space or r punches out")
@@ -1844,6 +2024,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 	case .Audition:
 		app_audition(a)
 	case .Record_Now:
+		a.take_del_track = -1
 		app_record_start(a, true)
 	case .Preroll_Next:
 		app_preroll_cycle(a)
@@ -1852,6 +2033,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 	case .Time_Sig_Next:
 		app_time_sig_cycle(a)
 	case .Record_Start:
+		a.take_del_track = -1
 		app_record_start(a, a.shift_down)
 	case .Record_Stop:
 		a.audition_end = 0
@@ -1862,6 +2044,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		emit(a, .Record_Stop)
 		bump_revision(a)
 	case .Bounce:
+		a.take_del_track = -1
 		if a.transport == .Recording {
 			toast(a, "stop recording before bounce")
 			status_buf_set(a, "stop recording before bounce")
@@ -1881,10 +2064,12 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 	case .Track_Add:
 		_ = app_track_add(a)
 	case .Track_Remove:
+		a.take_del_track = -1
 		_ = app_track_remove(a)
 	case .Delete_Track:
 		emit(a, .Delete_Track, index)
 	case .Bounce_Tracks:
+		a.take_del_track = -1
 		_ = app_tb_open(a)
 	case .Bounce_To_Track:
 		emit(a, .Bounce_To_Track, index)
@@ -1904,6 +2089,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 			emit(a, .Apply_Project_Name)
 		}
 	case .Render_Mix:
+		a.take_del_track = -1
 		if a.transport == .Recording {
 			toast(a, "stop recording before rendering")
 			status_buf_set(a, "stop recording before rendering")
@@ -1933,6 +2119,11 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		a.last_command = .Load
 		emit(a, .Load)
 		status_buf_set(a, "loading project")
+	case .New_Project:
+		a.take_del_track = -1
+		_ = app_new_project_begin(a)
+	case .Create_Project:
+		app_new_project_commit(a)
 	case .Open_Project:
 		a.last_command = .Open_Project
 		a.last_command_index = 0
@@ -1980,6 +2171,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		status_buf_set(a, "input device selected")
 		bump_revision(a)
 	case .Fx:
+		a.take_del_track = -1
 		project_edit_clear(a)
 		a.mode = .Fx if a.mode != .Fx else .Normal
 		if a.mode != .Fx {
@@ -1988,10 +2180,12 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		status_buf_set(a, "fx rack")
 		bump_revision(a)
 	case .Io:
+		a.take_del_track = -1
 		project_edit_clear(a)
 		a.mode = .Io if a.mode != .Io else .Normal
 		bump_revision(a)
 	case .Settings:
+		a.take_del_track = -1
 		if a.mode == .Settings {
 			app_settings_close(a)
 		} else {
@@ -2025,6 +2219,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		status_buf_set(a, "reset to default folder")
 		bump_revision(a)
 	case .Cloud:
+		a.take_del_track = -1
 		project_edit_clear(a)
 		if a.mode == .Cloud {
 			a.mode = .Normal
@@ -2034,6 +2229,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 			app_execute(a, .Cloud_Open)
 		}
 	case .Cloud_Open:
+		a.take_del_track = -1
 		project_edit_clear(a)
 		a.mode = .Cloud
 		a.cloud_selected = 0
@@ -2098,6 +2294,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		status_buf_set(a, "saving Google credentials")
 		bump_revision(a)
 	case .Recent:
+		a.take_del_track = -1
 		project_edit_clear(a)
 		if a.mode == .Recent {
 			a.mode = .Normal
@@ -2159,12 +2356,21 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		emit(a, .Rescan)
 		status_buf_set(a, "rescanning devices")
 	case .Take_Next, .Take_Prev:
+		a.take_del_track = -1
 		emit(a, kind, a.selected)
 		status_buf_set(a, "take selected")
+	case .Take_New:
+		_ = app_take_new(a, a.selected)
+	case .Take_Delete:
+		_ = app_take_delete_arm(a, a.selected)
+	case .Delete_Take:
+		emit(a, .Delete_Take, index)
 	case .Comp_Use:
+		a.take_del_track = -1
 		emit(a, .Comp_Use, a.selected)
 		status_buf_set(a, "comp: active take")
 	case .Comp_Clear:
+		a.take_del_track = -1
 		emit(a, .Comp_Clear, a.selected)
 		status_buf_set(a, "comp cleared")
 		app_history_note(a, "metronome")
@@ -2200,6 +2406,7 @@ app_execute :: proc(a: ^App, kind: Command_Kind, index: int = 0) {
 		app_history_note(a, "arms")
 		app_touch(a)
 	case .Panic:
+		a.take_del_track = -1
 		project_edit_clear(a)
 		a.audition_end = 0
 		a.transport = .Stopped

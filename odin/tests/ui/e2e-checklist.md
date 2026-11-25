@@ -107,7 +107,8 @@ The − / + glyphs must sit on the vertical centre of the 28px box.
     scroll -48        -> +0.02 gain per notch; scroll 240 -> -5 notches
     dblclick          -> "-2dB" (0.8)
     type K / J        -> ±0.05
-  takes (track with takes): ‹ / › -> "take selected"; COMP -> "comp: active take"
+  takes (1 take): "+ TAKE" -> archives take 1 and opens empty "‹ 2/2 › EMPTY" slot; "DEL" -> inline confirm
+  takes (2+ takes): ‹ / › -> "take selected"; "+" -> new take; "COMP" -> "comp: active take"; "DEL" -> inline "DEL T2? DELETE KEEP" ("T2? DEL NO" compact), DELETE moves WAV to deleted/ and reloads neighbor or clears to EMPTY
   track without takes: "TAKE —  EMPTY"
 ```
 
@@ -158,10 +159,11 @@ The − / + glyphs must sit on the vertical centre of the 28px box.
 ## Recent projects
 
 ```
-  ": recent projects"  -> "Recent projects", mode RECENT, rows from $XDG_CONFIG_HOME/tracker/recent.json
+  ": recent projects"  -> "Recent projects" with "+ NEW PROJECT" button, mode RECENT, rows from recent.json
   key down             -> selection moves
   type projB           -> filtered to the matching row; "zz" -> "No matching project"
   click <row>          -> "project loaded", mode NORMAL
+  click "+ NEW PROJECT"-> opens Settings with inline New clean project composer
   key escape           -> "recent projects closed"
 ```
 
@@ -182,6 +184,8 @@ The − / + glyphs must sit on the vertical centre of the 28px box.
 | I | cycle selected input |
 | ← / → | pan ∓5 % |
 | t / T | next / previous take ("no takes on this track" when empty) |
+| Ctrl+t / Cmd+t | create new empty take slot (opt-in; archives active take WAV; refused when track/take empty or transport running) |
+| Ctrl+Del / Cmd+Del | arm inline delete-take confirm on active take (`y`/`Enter` confirms, `n`/`Esc` cancels, pressing again stays armed; refused when empty, playing, or in comp `C/n` mode) |
 | u / U | undo / redo ("undid arm (takes kept)" / "redid arm") |
 | o / y / c / C / G | monitor, JACK/PipeWire backend, metronome, time signature, Grid/Free timing mode |
 | Space | play / pause in place (resumes from the paused position); while recording punches out and stays put |

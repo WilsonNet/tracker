@@ -1641,7 +1641,9 @@ ui_settings_edits_and_applies_project_folder :: proc(t: ^testing.T) {
 	testing.expect(t, a.mode == .Settings, "settings mode")
 	testing.expect(t, app_settings_path(&a) == "/tmp/tracker-ui-settings", "path seeded from save dir")
 
-	app_key(&a, .Down)
+	for _ in 0 ..< int(Settings_Item.Path) {
+		app_key(&a, .Down)
+	}
 	app_key(&a, .Enter)
 	testing.expect(t, a.settings_path_edit, "enter starts editing")
 	suffix := "/studio"
@@ -1666,8 +1668,14 @@ ui_settings_keyboard_selection_reaches_every_row :: proc(t: ^testing.T) {
 	app_init(&a, 1180, 760)
 	defer app_destroy(&a)
 	app_execute(&a, .Settings)
-	testing.expect(t, a.settings_sel == .Project_Name, "starts on project name")
+	testing.expect(t, a.settings_sel == .New_Project, "starts on new project")
 
+	app_key(&a, .Down)
+	testing.expect(t, a.settings_sel == .Open_Project, "down moves to open project")
+	app_key(&a, .Down)
+	testing.expect(t, a.settings_sel == .Recent_Projects, "down moves to recent projects")
+	app_key(&a, .Down)
+	testing.expect(t, a.settings_sel == .Project_Name, "down moves to project name")
 	app_key(&a, .Down)
 	testing.expect(t, a.settings_sel == .Path, "down moves to path")
 	app_key(&a, .Down)
@@ -1676,6 +1684,10 @@ ui_settings_keyboard_selection_reaches_every_row :: proc(t: ^testing.T) {
 	testing.expect(t, a.settings_sel == .Path, "k moves up")
 	app_key(&a, .Char, 'k')
 	testing.expect(t, a.settings_sel == .Project_Name, "k reaches project name")
+	app_key(&a, .Char, 'k')
+	app_key(&a, .Char, 'k')
+	app_key(&a, .Char, 'k')
+	testing.expect(t, a.settings_sel == .New_Project, "k returns to new project")
 
 	for _ in 0 ..< int(Settings_Item.High_Contrast) {
 		app_key(&a, .Down)
@@ -1692,7 +1704,7 @@ ui_settings_keyboard_selection_reaches_every_row :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, a.settings_sel == .Cloud_Restore, "reached cloud restore")
 	app_key(&a, .Down)
-	testing.expect(t, a.settings_sel == .Project_Name, "selection wraps")
+	testing.expect(t, a.settings_sel == .New_Project, "selection wraps")
 }
 
 @(test)
@@ -1702,7 +1714,9 @@ ui_settings_escape_cancels_path_edit :: proc(t: ^testing.T) {
 	defer app_destroy(&a)
 	app_set_save_dir(&a, "/tmp/tracker-ui-cancel")
 	app_execute(&a, .Settings)
-	app_key(&a, .Down)
+	for _ in 0 ..< int(Settings_Item.Path) {
+		app_key(&a, .Down)
+	}
 	app_key(&a, .Enter)
 	app_key(&a, .Char, 'x')
 	testing.expect(t, app_settings_path(&a) != app_save_dir(&a), "edit changed path")
@@ -1719,7 +1733,9 @@ ui_settings_escape_cancels_path_edit :: proc(t: ^testing.T) {
 	// Closing the overlay while editing must clear the edit flag so the
 	// window stops redrawing the caret.
 	app_execute(&a, .Settings)
-	app_key(&a, .Down)
+	for _ in 0 ..< int(Settings_Item.Path) {
+		app_key(&a, .Down)
+	}
 	app_key(&a, .Enter)
 	testing.expect(t, a.settings_path_edit, "entered edit")
 	app_settings_close(&a)
@@ -1781,7 +1797,9 @@ ui_paste_fills_cloud_and_project_fields :: proc(t: ^testing.T) {
 	app_set_save_dir(&a, "")
 
 	app_execute(&a, .Settings)
-	app_key(&a, .Down)
+	for _ in 0 ..< int(Settings_Item.Path) {
+		app_key(&a, .Down)
+	}
 	app_key(&a, .Enter)
 	app_paste_text(&a, "/tmp/pasted project\n")
 	testing.expect(t, app_settings_path(&a) == "/tmp/pasted project", app_settings_path(&a))
@@ -1820,7 +1838,9 @@ ui_cloud_edit_select_all_replaces_and_backspace_keeps_utf8 :: proc(t: ^testing.T
 	defer app_destroy(&a)
 	app_set_save_dir(&a, "/tmp/café")
 	app_execute(&a, .Settings)
-	app_key(&a, .Down)
+	for _ in 0 ..< int(Settings_Item.Path) {
+		app_key(&a, .Down)
+	}
 
 	app_key(&a, .Enter)
 	testing.expect(t, app_settings_path(&a) == "/tmp/café", app_settings_path(&a))
@@ -1881,7 +1901,9 @@ ui_input_switch_click_tab_preserves_drafts :: proc(t: ^testing.T) {
 	app_execute(&a, .Settings)
 
 	// Click path, then click Client ID: path draft survives and edit switches.
-	app_key(&a, .Down)
+	for _ in 0 ..< int(Settings_Item.Path) {
+		app_key(&a, .Down)
+	}
 	app_key(&a, .Enter)
 	app_select_all_text(&a)
 	app_paste_text(&a, "/tmp/switch-draft")
@@ -1934,7 +1956,9 @@ ui_text_caret_selection_and_word_navigation :: proc(t: ^testing.T) {
 	defer app_destroy(&a)
 	app_set_save_dir(&a, "/home/user/takes")
 	app_execute(&a, .Settings)
-	app_key(&a, .Down)
+	for _ in 0 ..< int(Settings_Item.Path) {
+		app_key(&a, .Down)
+	}
 	app_key(&a, .Enter)
 
 	// Caret starts at the end; plain arrows collapse/move, Shift extends.
@@ -1972,7 +1996,9 @@ ui_text_delete_backspace_and_word_ops :: proc(t: ^testing.T) {
 	defer app_destroy(&a)
 	app_set_save_dir(&a, "/tmp/café/session")
 	app_execute(&a, .Settings)
-	app_key(&a, .Down)
+	for _ in 0 ..< int(Settings_Item.Path) {
+		app_key(&a, .Down)
+	}
 	app_key(&a, .Enter)
 
 	// Delete forward removes a whole UTF-8 rune.
@@ -2008,7 +2034,9 @@ ui_text_copy_cut_paste_undo_redo :: proc(t: ^testing.T) {
 	defer app_destroy(&a)
 	app_set_save_dir(&a, "/tmp/original")
 	app_execute(&a, .Settings)
-	app_key(&a, .Down)
+	for _ in 0 ..< int(Settings_Item.Path) {
+		app_key(&a, .Down)
+	}
 	app_key(&a, .Enter)
 
 	// Copy leaves the buffer alone; cut removes and can be undone.
@@ -2209,7 +2237,10 @@ ui_project_rename_in_settings_and_cloud_overlay :: proc(t: ^testing.T) {
 	defer app_destroy(&a)
 
 	app_execute(&a, .Settings)
-	testing.expect(t, a.settings_sel == .Project_Name, "settings opens on project name")
+	for _ in 0 ..< int(Settings_Item.Project_Name) {
+		app_key(&a, .Down)
+	}
+	testing.expect(t, a.settings_sel == .Project_Name, "settings moves to project name")
 	app_key(&a, .Enter)
 	testing.expect(t, a.project_name_edit, "enter edits project name in settings")
 	app_select_all_text(&a)
@@ -2861,4 +2892,233 @@ ui_playhead_runs_past_the_old_tape_end_while_recording :: proc(t: ^testing.T) {
 	app_key(&a, .Space)
 	app_set_tape_frames(&a, 48_000 * 3)
 	testing.expect(t, a.frames == 48_000 * 3, "after punch-out the tape grows to the take")
+}
+
+@(test)
+ui_take_delete_arm_confirm_cancel :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	clear(&a.commands)
+
+	// Refusals: empty track, comp mode, playing/recording, master selected.
+	a.selected = 0
+	testing.expect(t, !app_take_delete_arm(&a, 0) && a.take_del_track == -1, "empty track refuses")
+	testing.expect(t, len(a.commands) == 0, "no command on empty track")
+
+	a.take_count[0] = 2
+	a.take_active[0] = 0 // comp active
+	testing.expect(t, !app_take_delete_arm(&a, 0) && a.take_del_track == -1, "comp mode refuses")
+
+	a.take_active[0] = 2
+	a.transport = .Playing
+	testing.expect(t, !app_take_delete_arm(&a, 0) && a.take_del_track == -1, "playing refuses")
+	a.transport = .Recording
+	testing.expect(t, !app_take_delete_arm(&a, 0) && a.take_del_track == -1, "recording refuses")
+	a.transport = .Stopped
+
+	a.selected = MAX_TRACKS
+	app_key(&a, .Delete, 0, false, true)
+	testing.expect(t, a.take_del_track == -1 && len(a.commands) == 0, "master refuses")
+
+	// Plain d, double dd, and unmodified Delete/Backspace do nothing.
+	a.selected = 0
+	app_key(&a, .Char, 'd')
+	app_key(&a, .Char, 'd')
+	app_key(&a, .Delete)
+	app_key(&a, .Backspace)
+	testing.expect(t, a.take_del_track == -1 && len(a.commands) == 0, "d/dd and bare Delete/Backspace do not arm")
+
+	// Ctrl+Delete arms -> n / Esc cancels without emitting.
+	app_key(&a, .Delete, 0, false, true)
+	testing.expect(t, a.take_del_track == 0 && len(a.commands) == 0, "Ctrl+Delete arms inline confirm")
+	app_key(&a, .Char, 'n')
+	testing.expect(t, a.take_del_track == -1 && len(a.commands) == 0, "n cancels")
+
+	// Ctrl+Backspace (macOS Cmd+Delete physical key) also arms; Esc cancels.
+	app_key(&a, .Backspace, 0, false, true)
+	testing.expect(t, a.take_del_track == 0, "Ctrl+Backspace arms")
+	app_key(&a, .Escape)
+	testing.expect(t, a.take_del_track == -1 && len(a.commands) == 0, "Esc cancels")
+
+	// Pressing Ctrl+Delete twice stays armed without accidental auto-confirm.
+	app_key(&a, .Delete, 0, false, true)
+	app_key(&a, .Delete, 0, false, true)
+	testing.expect(t, a.take_del_track == 0 && len(a.commands) == 0, "double Ctrl+Delete stays armed")
+	app_key(&a, .Escape)
+
+	// Ctrl+Delete + y / Ctrl+Delete + Enter emits Delete_Take for the armed track.
+	clear(&a.commands)
+	a.take_count[1] = 1
+	a.take_active[1] = 1
+	a.selected = 1
+	app_key(&a, .Delete, 0, false, true)
+	app_key(&a, .Char, 'y')
+	testing.expect(t, a.take_del_track == -1 && len(a.commands) == 1 && a.commands[0].kind == .Delete_Take && a.commands[0].index == 1, "Ctrl+Delete+y emits Delete_Take")
+
+	clear(&a.commands)
+	app_key(&a, .Delete, 0, false, true)
+	app_key(&a, .Enter)
+	testing.expect(t, a.take_del_track == -1 && len(a.commands) == 1 && a.commands[0].kind == .Delete_Take && a.commands[0].index == 1, "Ctrl+Delete+Enter emits Delete_Take")
+
+	// Unrelated key (k) cancels confirm and still moves selection.
+	clear(&a.commands)
+	app_key(&a, .Delete, 0, false, true)
+	testing.expect(t, a.take_del_track == 1, "armed on track 2")
+	app_key(&a, .Char, 'k')
+	testing.expect(t, a.take_del_track == -1 && a.selected == 2 && len(a.commands) == 0, "unrelated key cancels and proceeds")
+
+	// Command palette and F1 help both expose delete take.
+	app_key(&a, .Char, ':')
+	for ch in string("delete take") {
+		app_key(&a, .Char, u8(ch))
+	}
+	found_pal := false
+	for i in 0 ..< a.palette_count {
+		if PALETTE_COMMANDS[a.palette_items[i]].kind == .Take_Delete {
+			found_pal = true
+		}
+	}
+	testing.expect(t, found_pal, "palette lists delete take")
+	app_key(&a, .Escape)
+
+	entries := app_help_entries(&a)
+	found_help := false
+	for e in entries {
+		if e.keys == platform_delete_take_shortcut() && e.desc == "delete active take" {
+			found_help = true
+		}
+	}
+	testing.expect(t, found_help, "F1 help lists delete active take")
+}
+
+@(test)
+ui_new_project_inline_composer_and_reset :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	app_set_save_dir(&a, "/tmp/studio/old-song")
+
+	// Transport running refuses new project creation.
+	a.transport = .Playing
+	testing.expect(t, !app_new_project_begin(&a) && a.mode == .Normal, "refuse while playing")
+	a.transport = .Stopped
+
+	// Settings + n opens inline composer and previews sibling folder slug.
+	app_execute(&a, .Settings)
+	app_key(&a, .Char, 'n')
+	testing.expect(t, a.new_project_open && a.new_project_edit, "n opens inline new project composer")
+	testing.expect(t, app_text_editing(&a), "new_project_edit counts as text editing")
+	for ch in string("Late Night #1") {
+		app_key(&a, .Char, u8(ch))
+	}
+	testing.expect_value(t, app_new_project_draft(&a), "Late Night #1")
+	testing.expect_value(t, app_new_project_preview_dir(&a), "/tmp/studio/late-night-1")
+
+	// Esc cancels composer cleanly and leaves Settings open.
+	app_key(&a, .Escape)
+	testing.expect(t, !a.new_project_open && !a.new_project_edit && a.mode == .Settings, "Esc cancels composer")
+	app_key(&a, .Escape)
+	testing.expect(t, a.mode == .Normal, "second Esc closes Settings")
+
+	// Palette exposes "new project".
+	app_key(&a, .Char, ':')
+	for ch in string("new project") {
+		app_key(&a, .Char, u8(ch))
+	}
+	found_pal := false
+	for i in 0 ..< a.palette_count {
+		if PALETTE_COMMANDS[a.palette_items[i]].kind == .New_Project {
+			found_pal = true
+		}
+	}
+	testing.expect(t, found_pal, "palette lists new project")
+	app_key(&a, .Escape)
+
+	// Enter inside composer emits Create_Project.
+	clear(&a.commands)
+	app_execute(&a, .New_Project)
+	for ch in string("Clean Take") {
+		app_key(&a, .Char, u8(ch))
+	}
+	app_key(&a, .Enter)
+	testing.expect(t, len(a.commands) == 1 && a.commands[0].kind == .Create_Project, "Enter emits Create_Project")
+
+	// app_reset_project wipes project state and keeps machine prefs.
+	names := [?]string{"Scarlett 4i4 USB"}
+	app_set_devices(&a, names[:], 0)
+	app_set_track_count(&a, 6)
+	a.tracks[0].armed = true
+	a.tracks[0].has_audio = true
+	a.take_count[0] = 2
+	a.take_active[0] = 1
+	a.bpm = 148
+	a.marker = 48_000
+	a.marker_set = true
+	a.master.reverb.enabled = true
+	a.high_contrast = true
+	a.latency_ms = 9
+	a.timing_mode = .Free
+
+	app_reset_project(&a, "Clean Take")
+	testing.expect_value(t, app_project(&a), "Clean Take")
+	testing.expect(t, a.track_count == MIN_TRACKS && a.bpm == 120 && !a.marker_set && !a.master.reverb.enabled, "project reset")
+	testing.expect(t, !a.tracks[0].armed && !a.tracks[0].has_audio && a.take_count[0] == 0, "tracks/takes cleared")
+	testing.expect(t, a.high_contrast && a.latency_ms == 9 && a.timing_mode == .Free && app_device(&a) == "Scarlett 4i4 USB", "machine prefs kept")
+}
+
+@(test)
+ui_take_new_guards_shortcut_and_palette :: proc(t: ^testing.T) {
+	a: App
+	app_init(&a, 1180, 760)
+	defer app_destroy(&a)
+	clear(&a.commands)
+
+	// Empty track / master / running transport refuse Take_New.
+	a.selected = 0
+	testing.expect(t, !app_take_new(&a, 0) && len(a.commands) == 0, "empty track refuses new take")
+	testing.expect(t, !app_take_new(&a, MAX_TRACKS) && len(a.commands) == 0, "master refuses new take")
+
+	a.take_count[0] = 1
+	a.take_active[0] = 1
+	a.tracks[0].has_audio = true
+	a.transport = .Playing
+	testing.expect(t, !app_take_new(&a, 0) && len(a.commands) == 0, "playing refuses new take")
+	a.transport = .Stopped
+
+	// Refuses when current take slot is already empty.
+	a.tracks[0].has_audio = false
+	testing.expect(t, !app_take_new(&a, 0) && len(a.commands) == 0, "empty current take refuses another")
+	a.tracks[0].has_audio = true
+
+	// Plain t cycles takes; Ctrl+t emits Take_New.
+	app_key(&a, .Char, 't')
+	testing.expect(t, len(a.commands) == 1 && a.commands[0].kind == .Take_Next && a.commands[0].index == 0, "plain t selects next take")
+	clear(&a.commands)
+
+	app_key(&a, .Char, 't', false, true)
+	testing.expect(t, len(a.commands) == 1 && a.commands[0].kind == .Take_New && a.commands[0].index == 0, "Ctrl+t emits Take_New")
+
+	// Command palette and F1 help expose new take.
+	app_key(&a, .Char, ':')
+	for ch in string("new take") {
+		app_key(&a, .Char, u8(ch))
+	}
+	found_pal := false
+	for i in 0 ..< a.palette_count {
+		if PALETTE_COMMANDS[a.palette_items[i]].kind == .Take_New {
+			found_pal = true
+		}
+	}
+	testing.expect(t, found_pal, "palette lists new take")
+	app_key(&a, .Escape)
+
+	entries := app_help_entries(&a)
+	found_help := false
+	for e in entries {
+		if e.keys == platform_new_take_shortcut() && e.desc == "new take (opt-in)" {
+			found_help = true
+		}
+	}
+	testing.expect(t, found_help, "F1 help lists new take shortcut")
 }

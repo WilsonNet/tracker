@@ -145,6 +145,10 @@ run_ui_window :: proc(args: []string) -> bool {
 	}
 
 	recent_store := recent_config_path()
+	if session_given {
+		delete(recent_store)
+		recent_store = fmt.aprintf("%s/recent.json", e.session_dir)
+	}
 	defer delete(recent_store)
 	ui_load_recent(&a, recent_store)
 
@@ -222,6 +226,11 @@ run_ui_window :: proc(args: []string) -> bool {
 			break
 		}
 		window_synthetic_keys(&a, ctx)
+		// Real SDL key events are consumed above and never reach vinland;
+		// drop synthetic keys/text after routing them so button focus cannot
+		// also fire Enter/Space on the clicked control in the same frame.
+		ctx.input.keys_pressed = {}
+		ctx.input.text = ""
 		// key events are consumed by window_on_event, so vinland's input.mods
 		// never sees modifiers; poll them for fine drags, micro-scrubbing and wheel steps
 		mods_now := sdl.GetModState()
@@ -323,9 +332,12 @@ window_on_event :: proc(va: ^vapp.App, ev: ^sdl.Event) -> bool {
 		}
 		// Outside text fields, Alt or Ctrl + scrub key enters micro-scrubbing;
 		// swallow every other modifier chord so Ctrl+S doesn't solo, Ctrl+R doesn't record.
-		// Ctrl/Alt+r records at once (skips the pre-roll); also pass through
+		// Ctrl/Alt+r records at once (skips the pre-roll); Ctrl+Delete (Cmd+Delete on macOS)
+		// arms active-take deletion; Ctrl+t (Cmd+t) opens a new take slot.
 		record_now_key := ws.a.mode == .Normal && !ui.app_text_editing(ws.a) && key == .Char && ch == 'r'
-		if (ctrl_down || alt_down) && (scrub_key || record_now_key) {
+		take_del_key := ws.a.mode == .Normal && !ui.app_text_editing(ws.a) && (key == .Delete || key == .Backspace)
+		take_new_key := ws.a.mode == .Normal && !ui.app_text_editing(ws.a) && key == .Char && (ch == 't' || ch == 'T')
+		if ((ctrl_down || alt_down) && (scrub_key || record_now_key)) || (ctrl_down && !alt_down && (take_del_key || take_new_key)) {
 			ui.app_set_mods(ws.a, shift, ctrl_down, alt_down)
 			ui.app_key(ws.a, key, ch, shift, true)
 			return true
@@ -642,6 +654,14 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 			}
 			ui.status_buf_set(a, msg)
 			ui.toast(a, msg)
+		case .Delete_Take:
+			ok, msg := engine_take_delete(e, a, cmd.index)
+			if ok {
+				ui_sync_takes(a, e)
+				_ = window_save_project(a, e)
+			}
+			ui.status_buf_set(a, msg)
+			ui.toast(a, msg)
 		case .Render_Mix:
 			ui.app_render_set_duration(a, engine_mix_duration(e, a))
 		case .Render_File:
@@ -740,6 +760,14 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 			} else {
 				ui.status_buf_set(a, "no takes on this track")
 			}
+		case .Take_New:
+			ok, msg := engine_take_new(e, a, cmd.index)
+			if ok {
+				ui_sync_takes(a, e)
+				_ = window_save_project(a, e)
+			}
+			ui.status_buf_set(a, msg)
+			ui.toast(a, msg)
 		case .Comp_Use:
 			if engine_comp_use_active(e, a, cmd.index) {
 				_ = engine_take_select(e, a, cmd.index, e.takes[cmd.index].active)
@@ -755,6 +783,24 @@ window_run_commands :: proc(a: ^ui.App, e: ^Engine, recent_store: string, cloud:
 				ui_sync_takes(a, e)
 				_ = window_save_project(a, e)
 			}
+		case .New_Project:
+			// Handled in UI state (opens Settings inline creator).
+		case .Create_Project:
+			prev_project := strings.clone(e.project_path, context.temp_allocator)
+			draft_name := strings.clone(ui.app_new_project_draft(a), context.temp_allocator)
+			ok, msg := engine_new_project(a, e, draft_name)
+			if ok {
+				ui_sync_takes(a, e)
+				if prev_project != "" && os.exists(prev_project) {
+					ui_add_recent(a, prev_project, recent_store)
+				}
+				ui_add_recent(a, e.project_path, recent_store)
+				ui.app_set_save_dir(a, e.session_dir)
+				ui.app_set_settings_path(a, e.session_dir)
+				ui.app_mark_settings_dirty(a)
+			}
+			ui.status_buf_set(a, msg)
+			ui.toast(a, msg)
 		case .Open_Project:
 			path, picked := pick_project_open()
 			if picked {

@@ -681,13 +681,13 @@ command_hint :: proc(kind: Command_Kind) -> string {
 		return "tracks"
 	case .Save, .Load, .Save_As, .Rename_Project, .Apply_Project_Name:
 		return "project"
-	case .Open_Project, .Recent, .Open_Recent:
+	case .Open_Project, .Recent, .Open_Recent, .New_Project, .Create_Project:
 		return "project"
 	case .Undo, .Redo:
 		return "history"
 	case .Monitor, .Backend, .Rescan, .Latency_Up, .Latency_Down:
 		return "audio"
-	case .Take_Next, .Take_Prev:
+	case .Take_Next, .Take_Prev, .Take_New, .Take_Delete, .Delete_Take:
 		return "take"
 	case .Comp_Use, .Comp_Clear:
 		return "take"
@@ -859,7 +859,7 @@ draw_settings :: proc(a: ^App, c: ^Canvas) {
 	canvas_fill_round(c, r, T.radius.xl, T.color.surface)
 	canvas_stroke_round(c, r, T.radius.xl, T.color.line, 1)
 	canvas_text_px(c, r.x + 24, r.y + 20, "Settings", T.color.ink, T.type.title, .SemiBold)
-	canvas_text_px(c, r.x + 112, r.y + 24, "Machine preferences", T.color.ink_muted, T.type.caption, .Regular)
+	canvas_text_px(c, r.x + 112, r.y + 24, "Project & machine preferences", T.color.ink_muted, T.type.caption, .Regular)
 	canvas_text_px_right(c, r.x + r.w - 24, r.y + 24, "ESC", T.color.ink_muted, T.type.caption, .Medium)
 
 	x := r.x + 24

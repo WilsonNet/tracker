@@ -58,6 +58,7 @@ app_select_step :: proc(a: ^App, delta: int, wrap: bool) {
 		next = clamp(next, 0, count)
 	}
 	a.selected = MAX_TRACKS if next >= count else next
+	a.take_del_track = -1
 	app_view_clamp(a)
 	bump_revision(a)
 }
@@ -128,6 +129,9 @@ app_track_reset :: proc(a: ^App, i: int) {
 	a.take_count[i] = 0
 	a.take_active[i] = 0
 	a.marked[i] = false
+	if a.take_del_track == i {
+		a.take_del_track = -1
+	}
 }
 
 // Sets the live strip count (loader / tests). Strips beyond it return to their
@@ -138,6 +142,7 @@ app_set_track_count :: proc(a: ^App, count: int) {
 		app_track_reset(a, i)
 	}
 	a.track_count = n
+	a.take_del_track = -1
 	if a.selected < MAX_TRACKS {
 		a.selected = clamp(a.selected, 0, n - 1)
 	}
@@ -268,6 +273,7 @@ app_track_delete_apply :: proc(a: ^App, i: int, strip: bool) {
 		a.track_count -= 1
 	}
 	app_mark_clear(a)
+	a.take_del_track = -1
 	a.mode = .Normal
 	a.selected = clamp(i, 0, a.track_count - 1)
 	if a.fx_channel < MAX_TRACKS {
@@ -600,4 +606,91 @@ app_bounce_track_ensure :: proc(a: ^App) -> int {
 	t.name = strings.clone(BOUNCE_TRACK_NAME)
 	a.track_name_owned[i] = true
 	return i
+}
+
+// ---------------------------------------------------------------- take delete
+
+// Arms inline take-delete confirmation on track `idx`; re-arming keeps the
+// bar open without auto-confirming so double-presses never delete by mistake.
+app_take_delete_arm :: proc(a: ^App, idx: int) -> bool {
+	if a.transport != .Stopped {
+		status_buf_set(a, "stop the tape to delete a take")
+		toast(a, "stop the tape to delete a take")
+		return false
+	}
+	if idx < 0 || idx >= a.track_count {
+		toast(a, "select a track first")
+		return false
+	}
+	if a.take_count[idx] <= 0 {
+		status_buf_set(a, "no takes on this track")
+		toast(a, "no takes on this track")
+		return false
+	}
+	if a.take_active[idx] <= 0 {
+		status_buf_set(a, "select a take first (t/T) — comp active")
+		toast(a, "select a take first (t/T) — comp active")
+		return false
+	}
+	if a.take_del_track == idx {
+		return true
+	}
+	a.selected = idx
+	a.take_del_track = idx
+	app_view_clamp(a)
+	status_buf_set(a, fmt.tprintf("delete take %d/%d on %s? y/Enter delete · Esc cancel", a.take_active[idx], a.take_count[idx], a.tracks[idx].name))
+	bump_revision(a)
+	return true
+}
+
+app_take_delete_confirm :: proc(a: ^App) {
+	if a.take_del_track < 0 || a.take_del_track >= a.track_count {
+		a.take_del_track = -1
+		return
+	}
+	track := a.take_del_track
+	a.take_del_track = -1
+	emit(a, .Delete_Take, track)
+	bump_revision(a)
+}
+
+app_take_delete_cancel :: proc(a: ^App, announce: bool = true) {
+	if a.take_del_track < 0 {
+		return
+	}
+	a.take_del_track = -1
+	if announce {
+		status_buf_set(a, "delete take cancelled")
+	}
+	bump_revision(a)
+}
+
+// Opt-in multi-take creation: guards transport, track selection, and whether
+// the current take already has audio before emitting `.Take_New`.
+app_take_new :: proc(a: ^App, idx: int) -> bool {
+	if a.transport != .Stopped {
+		status_buf_set(a, "stop the tape to create a new take")
+		toast(a, "stop the tape to create a new take")
+		return false
+	}
+	if idx < 0 || idx >= a.track_count {
+		toast(a, "select a track first")
+		return false
+	}
+	if a.take_count[idx] <= 0 && !a.tracks[idx].has_audio {
+		status_buf_set(a, "record on this track first")
+		toast(a, "record on this track first")
+		return false
+	}
+	if a.take_count[idx] > 0 && !a.tracks[idx].has_audio && a.take_active[idx] > 0 {
+		status_buf_set(a, "current take is already empty")
+		toast(a, "current take is already empty")
+		return false
+	}
+	a.take_del_track = -1
+	a.selected = idx
+	app_view_clamp(a)
+	emit(a, .Take_New, idx)
+	bump_revision(a)
+	return true
 }

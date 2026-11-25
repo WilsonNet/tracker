@@ -407,3 +407,25 @@ message state:
 - Grid scrubbing snaps magnetically to bar/beat/1/4-beat boundaries (`floor(g + eps) + 1` forward, `ceil(g - eps) - 1` backward) while preserving `Ctrl|Alt + Jog` (`10 ms`) as a micro escape hatch; drag gestures accumulate pointer travel in `View.scrub_accum` (`18 px` detents) so dragging feels stepped like hardware.
 - Adding `Timing_Mode` and `Time_Sig` to `Settings_Item` before `Preroll` shifts keyboard-walk `key down` counts in `tests/ui/window.vt` by +2; remember to free any new string field (`timing_mode`) in both `project_load_doc_free` and `settings_destroy`.
 - Counts now: 306 Linux / 300 macOS unit tests, 29 e2e cases.
+
+### Inline delete take (2026-11-24)
+
+- `engine_take_active` returns the take **id** (`take.id`), whereas the take row displays `take_active/take_count`; use `engine_take_active_ordinal` (1-based position in `list.takes`) in `ui_sync_takes` so deleting Take 1 of `[1, 2]` renders `1/1` instead of `2/1`.
+- `app_execute` defaults `index: int = 0`; route take-row `DEL` clicks straight to `app_take_delete_arm(a, i)` (and keyboard `Ctrl+Delete` / `Cmd+Delete` or palette `.Take_Delete` through `a.selected`) so track selection never snaps back to track 0. Also keep re-arming (`a.take_del_track == idx`) non-confirming and require `y`/`Enter`/click `DELETE` so rapid double-presses never delete accidentally.
+- Avoid `"NO"` or short substring matches when driving `vui-ctl click-text` if `"NORMAL"` is on screen (`click-text` matches substrings case-insensitively, so `"NO"` hits `"NORMAL"` in the header).
+- Counts now: 315 Linux / 309 macOS unit tests, 30 e2e cases.
+
+### Clean new project & unified Settings PROJECT section (2026-11-24)
+
+- Keep `Settings_Item` enum order identical to `view_settings` top-to-bottom layout; adding `.New_Project`, `.Open_Project`, `.Recent_Projects` before `.Project_Name` shifts `window.vt` `key down` walks by +3.
+- `engine_new_project` saves the outgoing project (when dirty, existing, or holding audio) before clearing `Engine.loaded` and `Engine.takes`, creates a unique sibling `<parent>/<slug>[-N]` folder, resets per-project UI/mix/FX/marker state via `ui.app_reset_project`, and preserves machine preferences (`device`, `latency_ms`, `timing_mode`, `preroll`, `high_contrast`, `reduced_motion`, `cloud_*`, `recent_*`).
+- `ui_window.odin` isolates `recent_store` (`<session_dir>/recent.json`) when `session_given` is true, matching `settings.json` and `cloud.json`, so e2e tests (`create a new clean project from settings`) never pollute `~/.config/tracker/recent.json`.
+- Counts now: 318 Linux / 312 macOS unit tests, 31 e2e cases.
+
+### Unbounded metronome, tape-first overwrite & opt-in takes (2026-11-24)
+
+- `Playback.frames` governs track-audio bounds (`pos < i64(p.frames)`), not metronome lifetime: keep `Playback.unbounded = unbounded || !have_audio` (and pass `unbounded = true` from `engine_record_start`) so `playback_callback` keeps advancing `p.cursor` past existing takes and `engine_seek` does not clamp to `p.frames - 1`.
+- Recording overwrites the active take WAV atomically (`<file>.tmp` → rename) via `tape_splice_overwrite` with a short crossfade (~4 ms) on overlapping punch-in/punch-out edges; multi-take creation is opt-in via `engine_take_new` (`+ TAKE` / `+`, `Ctrl+t` / `Cmd+t`, `: new take`), which archives `track{N}.wav` to `track{N}-take{ID}.wav` before opening an empty slot.
+- `window_synthetic_keys` clears `ctx.input.keys_pressed = {}` and `ctx.input.text = ""` right after routing synthetic `vui-ctl` / `vui-test` keys so a previously clicked `vui.button` cannot also fire `Enter`/`Space` inside `vinland` on the same frame. Always use `whitespace-nowrap` on strip counters (`2/2`) and hide secondary badges (`TAKE` word, `COMP` when `!t.has_audio`) in `multi` rows so 4 strips at `900×620` never clip `DEL`.
+- `vui.Key` upstream in `vinland-ui` exposes `.A, .C, .V, .X, .Z, .Y, .K, .Slash, .F1, .F5, .F12` (not `.T`), so `window.vt` tests Ctrl+t via `: new take` while `ui_test.odin` and `window_on_event` cover the real SDL `Ctrl+t` / `Cmd+t` chord.
+- Counts now: 321 Linux / 315 macOS unit tests, 31 e2e cases.

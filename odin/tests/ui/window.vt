@@ -182,6 +182,27 @@ test "delete track asks before removing audio"
   expect-no-text "Delete track?"
   # the with-audio dialog is covered by unit tests (e2e has no recorded takes)
 
+test "delete take guards and palette"
+  type dd
+  expect-no-text "no takes on this track"
+  key delete ctrl
+  expect-text "no takes on this track"
+  type :
+  type "new take"
+  expect-text "new take"
+  key enter
+  expect-text "record on this track first"
+  type :
+  type "delete take"
+  expect-text "delete take"
+  key escape
+  key f1
+  expect-text "Ctrl+Del"
+  expect-text "delete active take"
+  expect-text "Ctrl+t"
+  expect-text "new take (opt-in)"
+  key escape
+
 test "pause, marker and pre-roll"
   expect-text PRE-ROLL
   expect-text "1 BAR"
@@ -243,6 +264,9 @@ test "settings menu edits project folder"
   key down
   key down
   key down
+  key down
+  key down
+  key down
   expect-class APPLY ring-sig
   key up
   key up
@@ -253,10 +277,13 @@ test "settings menu edits project folder"
   expect-text "saving to"
   expect-text e2e
   key escape
-  expect-no-text "Machine preferences"
+  expect-no-text "Project & machine preferences"
 
 test "settings text field selection and secret mask"
   click-text SET
+  key down
+  key down
+  key down
   key down
   key down
   key down
@@ -322,6 +349,9 @@ test "cloud settings and overlay are reachable"
   key down
   key down
   key down
+  key down
+  key down
+  key down
   expect-text "Drive folder"
   key escape
   type g
@@ -342,13 +372,16 @@ test "rename project inline from status bar"
 test "rename project in settings and cloud overlay"
   click-text SET
   expect-text "Project name"
+  key down
+  key down
+  key down
   key enter
   key a ctrl
   type "Studio Session"
   key enter
   expect-text "project named Studio Session"
   key escape
-  expect-no-text "Machine preferences"
+  expect-no-text "Project & machine preferences"
   type g
   expect-text "Studio Session"
   expect-text "RENAME"
@@ -357,6 +390,33 @@ test "rename project in settings and cloud overlay"
   key escape
   expect-no-text EDIT
   expect-text "Studio Session"
+
+test "create a new clean project from settings"
+  type N
+  expect-text "Track 5"
+  type +
+  type 5
+  type R
+  type "Gtr"
+  key enter
+  expect-text "Gtr"
+  expect-text "121"
+  click-text SET
+  click-text "+ NEW PROJECT"
+  expect-text "New clean project"
+  type "Fresh Song"
+  expect-text "fresh-song"
+  key enter
+  expect-no-text "Project & machine preferences"
+  expect-text "Fresh Song"
+  expect-text "120"
+  expect-no-text "Gtr"
+  expect-no-class ARM bg-rec
+  type :
+  type "recent projects"
+  key enter
+  expect-text "+ NEW PROJECT"
+  key escape
 
 test "tape scrubber shuttle jog wheels and modifiers"
   expect-text "SHUTTLE"

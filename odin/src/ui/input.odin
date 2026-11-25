@@ -56,6 +56,7 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"tempo down", .Bpm_Down},
 	{"undo", .Undo},
 	{"redo", .Redo},
+	{"new project", .New_Project},
 	{"open project", .Open_Project},
 	{"save project as", .Save_As},
 	{"recent projects", .Recent},
@@ -68,8 +69,10 @@ PALETTE_COMMANDS := [?]Palette_Command{
 	{"latency down", .Latency_Down},
 	{"next take", .Take_Next},
 	{"previous take", .Take_Prev},
+	{"new take", .Take_New},
 	{"comp active take", .Comp_Use},
 	{"clear comp", .Comp_Clear},
+	{"delete take", .Take_Delete},
 }
 
 // Longest query that still fits the palette input without clipping.
@@ -763,6 +766,12 @@ app_recent_key :: proc(a: ^App, key: Key, ch: u8) -> bool {
 @(private)
 app_settings_activate :: proc(a: ^App) {
 	switch a.settings_sel {
+	case .New_Project:
+		_ = app_new_project_begin(a)
+	case .Open_Project:
+		app_execute(a, .Open_Project)
+	case .Recent_Projects:
+		app_execute(a, .Recent)
 	case .Project_Name:
 		app_project_begin_edit(a, false)
 	case .Path:
@@ -823,7 +832,7 @@ app_text_editing :: proc(a: ^App) -> bool {
 	case .Palette, .Recent:
 		return true
 	case .Settings:
-		return a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None
+		return a.new_project_edit || a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None
 	case .Normal:
 		return a.project_name_edit || a.track_edit
 	case .Fx, .Io, .Bounce, .Cloud, .Render, .Track_Bounce, .Track_Delete:
@@ -895,7 +904,7 @@ app_paste_text :: proc(a: ^App, text: string) {
 				_ = text_paste(a, clean)
 				bump_revision(a)
 			}
-		} else if a.project_name_edit || a.settings_path_edit {
+		} else if a.new_project_edit || a.project_name_edit || a.settings_path_edit {
 			clean := paste_sanitize(text, false)
 			defer delete(clean)
 			if clean != "" {
@@ -979,7 +988,7 @@ settings_text_index :: proc(a: ^App) -> int {
 	case .None:
 	}
 	switch a.settings_sel {
-	case .Project_Name:
+	case .New_Project, .Open_Project, .Recent_Projects, .Project_Name:
 		return 0
 	case .Cloud_Folder:
 		return 2
@@ -1009,7 +1018,7 @@ settings_focus_text :: proc(a: ^App, index: int) {
 		app_cloud_begin_edit(a, .Client_ID)
 	case .Cloud_Client_Secret:
 		app_cloud_begin_edit(a, .Client_Secret)
-	case .Browse, .Apply, .Default, .Inputs, .Backend,
+	case .New_Project, .Open_Project, .Recent_Projects, .Browse, .Apply, .Default, .Inputs, .Backend,
 	     .Latency_Down, .Latency_Up, .Monitor, .Timing_Mode, .Time_Sig, .Preroll, .High_Contrast, .Reduced_Motion,
 	     .Cloud_Connect, .Cloud_Backup, .Cloud_Restore:
 	}
@@ -1025,14 +1034,7 @@ settings_switch_text :: proc(a: ^App, delta: int) {
 
 @(private)
 app_settings_key :: proc(a: ^App, key: Key, ch: u8, shift, ctrl: bool) -> bool {
-	if key == .Tab {
-		settings_switch_text(a, -1 if shift else 1)
-		return true
-	}
-	// Clipboard shortcuts that need no OS callback. Copy/cut are handled by
-	// the window (which owns the desktop clipboard); redo accepts Ctrl+Y and
-	// Ctrl+Shift+Z like a native text field.
-	if ctrl && (a.cloud_edit != .None || a.settings_path_edit || a.project_name_edit) {
+	if ctrl && (a.cloud_edit != .None || a.settings_path_edit || a.project_name_edit || a.new_project_edit) {
 		switch ch {
 		case 'a', 'A':
 			text_select_all(a)
@@ -1055,6 +1057,26 @@ app_settings_key :: proc(a: ^App, key: Key, ch: u8, shift, ctrl: bool) -> bool {
 			// Owned by app_copy_text in the window layer.
 			return true
 		}
+	}
+	if a.new_project_open && a.new_project_edit {
+		#partial switch key {
+		case .Tab:
+			return true
+		case .Escape:
+			app_new_project_cancel(a)
+		case .Enter:
+			app_new_project_commit(a)
+		case:
+			if text_key(a, key, ch, shift, ctrl) {
+				bump_revision(a)
+				return true
+			}
+		}
+		return true
+	}
+	if key == .Tab {
+		settings_switch_text(a, -1 if shift else 1)
+		return true
 	}
 	if a.project_name_edit {
 		#partial switch key {
@@ -1140,6 +1162,14 @@ app_settings_key :: proc(a: ^App, key: Key, ch: u8, shift, ctrl: bool) -> bool {
 			settings_move(a, 1)
 		case 'k':
 			settings_move(a, -1)
+		case 'n':
+			_ = app_new_project_begin(a)
+		case 'o':
+			a.settings_sel = .Open_Project
+			app_execute(a, .Open_Project)
+		case 'p':
+			a.settings_sel = .Recent_Projects
+			app_execute(a, .Recent)
 		case 'b':
 			a.settings_sel = .Browse
 			app_execute(a, .Choose_Save_Dir)
@@ -1691,6 +1721,31 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 		return
 	}
 
+	if a.mode == .Normal && a.take_del_track >= 0 {
+		#partial switch key {
+		case .Escape:
+			app_take_delete_cancel(a, true)
+			return
+		case .Enter:
+			app_take_delete_confirm(a)
+			return
+		case .Delete, .Backspace:
+			if ctrl {
+				return
+			}
+		case .Char:
+			switch ch {
+			case 'y', 'Y':
+				app_take_delete_confirm(a)
+				return
+			case 'n', 'N':
+				app_take_delete_cancel(a, true)
+				return
+			}
+		}
+		app_take_delete_cancel(a, false)
+	}
+
 	#partial switch key {
 	case .Escape:
 		a.fx_focus = -1
@@ -1809,10 +1864,10 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 			app_execute(a, .Backend)
 			return
 		case 't':
-			app_execute(a, .Take_Next, a.selected)
+			app_execute(a, .Take_New if ctrl else .Take_Next, a.selected)
 			return
 		case 'T':
-			app_execute(a, .Take_Prev, a.selected)
+			app_execute(a, .Take_New if ctrl else .Take_Prev, a.selected)
 			return
 		case '+', '=':
 			app_execute(a, .Bpm_Up)
@@ -1952,7 +2007,10 @@ app_key :: proc(a: ^App, key: Key, ch: u8 = 0, shift: bool = false, ctrl: bool =
 			app_touch(a)
 		}
 		return
-	case .Backspace:
+	case .Delete, .Backspace:
+		if ctrl && a.mode == .Normal {
+			app_execute(a, .Take_Delete)
+		}
 		return
 	}
 }
@@ -2257,6 +2315,10 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Open_Project"
 	case .Save_As:
 		return "Save_As"
+	case .New_Project:
+		return "New_Project"
+	case .Create_Project:
+		return "Create_Project"
 	case .Rename_Project:
 		return "Rename_Project"
 	case .Apply_Project_Name:
@@ -2295,6 +2357,12 @@ command_name :: proc(kind: Command_Kind) -> string {
 		return "Take_Next"
 	case .Take_Prev:
 		return "Take_Prev"
+	case .Take_New:
+		return "Take_New"
+	case .Take_Delete:
+		return "Take_Delete"
+	case .Delete_Take:
+		return "Delete_Take"
 	case .Comp_Use:
 		return "Comp_Use"
 	case .Comp_Clear:

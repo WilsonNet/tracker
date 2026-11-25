@@ -420,3 +420,34 @@ RF64/EBU, JACK, XDG, Odin core/vendor).
 | `make check` & `make e2e` | **PASS** (unit tests, `selftest`, 220-action UI tour, offline bounce, `ffprobe`; **29/29** `window.vt` cases on Metal) |
 | Live CoreAudio window playback (`VUI_HIDDEN=1`, 3 s 440 Hz tone) | `Space` play → `PAUSE` advancing cleanly (`001.1.81 \| 00:00.4`), pause, resume, quit (`unknown_classes: []`, `frame_ms: 1.12`); OS period sizes `256×2` on CoreAudio (`platform_darwin.odin`), `512×2` on PipeWire/other (`platform_{linux,other}.odin`) |
 | Linux verification (`linux_amd64`, PipeWire + Scarlett 4i4 USB, 2026-11-24) | `make build` & `-vet` clean; `make test` **313/313** (74 DSP + 152 core + 87 UI; 60 s × 4 tr prepare benchmark **1.321–1.834 ms**); `make check` **PASS** (selftest, 220-action UI tour, offline bounce, `ffprobe`, `sox`); `make e2e` **29/29** (`frame_ms: 3.69`, `help-palette.png` `0.0000%`, max `0.4132%` diff solely from local device name `Scarlett 4i4 USB Analog Surround 5.1`); `./scripts/check.sh --hardware --jack --loopback` **PASS** (loopback 96,000 frames short by 0, `-6.02 dBFS`; Scarlett 4i4 miniaudio 96,000 frames short by 0 + bounce; JACK 6 ports, 24,000 frames short by 0); live offscreen `VUI_HIDDEN=1` `512×2` PipeWire warm playback + `I/O RESCAN` + resume (`001.2.22 \| 00:00.6` → `RESCAN` → `001.3.47 \| 00:01.2`, live track/master meters, `unknown_classes: []`, `frame_ms: 3.89–4.34`, zero audio errors in log) |
+
+## Inline delete take (2026-11-24)
+
+| check | result |
+|---|---|
+| `make build` & `-vet` (Linux) | clean (`linux_amd64`) |
+| `make test` (Linux) | **315/315** passed (**74** DSP + **153** core + **88** UI; +`engine_take_delete_moves_wav_and_reloads_neighbor`, +`ui_take_delete_arm_confirm_cancel`) |
+| `make check` & `make e2e` | **PASS** (selftest, 220-action UI tour, offline bounce, `ffprobe`, `sox`; **30/30** `window.vt` cases with `delete take guards and palette` and refreshed `help-mixer.png`) |
+| Live `vui-ctl` offscreen verification (`VUI_HIDDEN=1`, temp 2-take + 1-take session) | `DEL` → inline `DEL T2? [DELETE] [KEEP]` → `KEEP` cancels; `DEL` → `DELETE` moves `track1.wav` to `deleted/` and updates Track 1 to `1/1`; `k` + `dd` on Track 2 moves `track2.wav` to `deleted/` and clears strip to `— EMPTY`; verified `900×620` (`DEL T1? [DELETE] [KEEP]`) and 6-track compact (`T2? [DEL] [NO]`) with zero clipping; `unknown_classes: []`, `frame_ms: 4.10–4.48`, idles when stopped (`frame 33 → 37` over 1.2 s) |
+| Delete-take shortcut update (`Ctrl+Delete` / `Cmd+Delete` on macOS, 2026-11-24) | `make build` & `-vet` clean; `make test` **318/318** (`74` DSP + `155` core + `89` UI); `make check` **PASS**; `make e2e` **31/31** (`help-mixer.png` updated with `Ctrl+Del`); live `VUI_HIDDEN=1` `vui-ctl` check on 2-take Track 1 confirmed `dd` does nothing, `Ctrl+Delete` arms `DEL T1? [DELETE] [KEEP]` (`y/Enter delete`), repeat `Ctrl+Delete` stays armed without auto-confirm, `Enter` deletes active take to `deleted/` and updates to `1/1`, `F1` lists `Ctrl+Del`, `unknown_classes: []`, `frame_ms: 4.01` |
+| not verified | macOS build/tests (`309` unit tests, `make e2e` Metal) — tracked in `../PLATFORMS.md` |
+
+## Clean new project & unified Settings PROJECT management (2026-11-24)
+
+| check | result |
+|---|---|
+| `make build` & `-vet` (Linux) | clean (`linux_amd64`) |
+| `make test` (Linux) | **318/318** passed (**74** DSP + **155** core + **89** UI; +`project_folder_slug_and_unique_dir`, +`engine_new_project_resets_audio_and_keeps_machine_prefs`, +`ui_new_project_inline_composer_and_reset`, updated Settings keyboard-walk tests) |
+| `make check` & `make e2e` | **PASS** (selftest, 220-action UI tour, offline bounce, `ffprobe`, `sox`; **31/31** `window.vt` cases including `create a new clean project from settings`) |
+| Live `vui-ctl` offscreen verification (`VUI_HIDDEN=1`, dirty 5-track + WAV session → clean new project) | Verified Settings `PROJECT` action bar (`+ NEW PROJECT`, `OPEN…`, `RECENT`, `5 tracks · 1 take`) at `1180×760` and `900×620`, inline `New clean project` composer with live `→ <root>/late-night-1` preview, `Enter` create → fresh 4-track clean mixer (`120` BPM, empty tracks, `Late Night #1`), old project WAV + `project.json` preserved on disk, `Recent projects` listing both `late-night-1` and `old-session` plus `+ NEW PROJECT` button, `--session` isolation of `recent.json`/`settings.json`, `unknown_classes: []`, `frame_ms: 3.90–4.23`, idles when stopped (`frame 122 → 126` over 1.2 s) |
+| not verified | macOS build/tests (`312` unit tests, `make e2e` Metal) — tracked in `../PLATFORMS.md` |
+
+## Unbounded recording metronome, tape-first overwrite & opt-in takes (2026-11-24)
+
+| check | result |
+|---|---|
+| `make build` & `-vet` (Linux) | clean (`linux_amd64`) |
+| `make test` (Linux) | **321/321** passed (**74** DSP + **157** core + **90** UI; +`playback_unbounded_keeps_metronome_clicking_past_audio_end`, updated `engine_tape_length_and_seek`, +`engine_take_new_opt_in_and_tape_overwrite`, updated `engine_punch_in_keeps_audio_before_and_after_the_punch`, +`ui_take_new_guards_shortcut_and_palette`) |
+| `make check` & `make e2e` | **PASS** (selftest, 220-action UI tour, offline bounce, `ffprobe`, `sox`; **31/31** `window.vt` cases with refreshed `help-mixer.png` showing `Ctrl+t   new take (opt-in)` and `Ctrl+Del   delete active take`) |
+| Live `vui-ctl` offscreen verification (`VUI_HIDDEN=1`, temp 1-take `track1.wav` session) | Verified 1-take strip (`1/1` + `+ TAKE` + `DEL`, no `COMP`); clicking `+ TAKE` archives `track1-take1.wav`, clears canonical `track1.wav`, opens `‹ 2/2 › EMPTY` (`+` disabled); `: new take` on empty Take 2 refuses (`"current take is already empty"`); `T` / `t` switches `1/2` ↔ `2/2`; `900×620` (`‹ 2/2 › EMPTY [+] [DEL]`) and 6-track compact (`‹ 2/2 › [+] [DEL]`) render on one line with zero clipping; `Ctrl+Delete` + `Enter` deletes empty Take 2 back to `1/1`; `unknown_classes: []`, `frame_ms: 3.79` |
+| not verified | macOS build/tests (`315` unit tests, `make e2e` Metal) — tracked in `../PLATFORMS.md` |

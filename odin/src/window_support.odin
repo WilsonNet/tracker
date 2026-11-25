@@ -6,7 +6,7 @@ import ui "ui"
 
 ui_sync_takes :: proc(a: ^ui.App, e: ^Engine) {
 	for i in 0 ..< MAX_ENGINE_TRACKS {
-		ui.app_set_takes(a, i, engine_take_count(e, i), engine_take_active(e, i))
+		ui.app_set_takes(a, i, engine_take_count(e, i), engine_take_active_ordinal(e, i))
 	}
 	engine_sync_tape_length(e, a)
 }

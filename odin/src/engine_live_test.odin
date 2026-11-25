@@ -350,6 +350,13 @@ engine_seek_updates_playback_cursor_and_scrub_meters :: proc(t: ^testing.T) {
 	engine_seek(&e, &a)
 	testing.expect(t, sync.atomic_load(&e.play.cursor) == i64(48_000 * 3), "play cursor moved to 3 s")
 	testing.expect(t, sync.atomic_load(&e.play.seek_gen) == 1, "seek_gen incremented")
+
+	// Unbounded playback allows seeking past p.frames without clamping back to the audio end.
+	e.play.unbounded = true
+	a.frames = 48_000 * 8
+	engine_seek(&e, &a)
+	testing.expect(t, sync.atomic_load(&e.play.cursor) == i64(48_000 * 8), "unbounded seek moves cursor past p.frames")
+	e.play.unbounded = false
 	e.play.active = false
 }
 

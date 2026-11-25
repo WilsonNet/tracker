@@ -85,7 +85,7 @@ test -f "$ODIN_ROOT/vendor/stb/lib/stb_truetype.a" || \
 # 3. Build and verify
 cd odin
 make build        # -> bin/tracker-odin
-make test         # 313 unit tests (Linux) / 307 (macOS)
+make test         # 318 unit tests (Linux) / 312 (macOS)
 make check        # unit + headless UI tour + offline end-to-end
 
 # 4. Run the app
@@ -114,9 +114,9 @@ directory is in `XDG_DATA_DIRS`.
 |---|---|
 | `build` | compile `bin/tracker-odin` |
 | `stb` | build the vendored `stb_truetype` archive if missing (auto for `build`/tests) |
-| `test` | unit tests: 74 DSP, 152 core (Linux) / 146 core (macOS), 87 UI = 313 (Linux) / 307 (macOS) |
+| `test` | unit tests: 74 DSP, 155 core (Linux) / 149 core (macOS), 89 UI = 318 (Linux) / 312 (macOS) |
 | `check` | `scripts/check.sh`: unit tests, 220-action UI tour, offline bounce |
-| `e2e` | 29 headless vinland-ui window cases (`tests/ui/window.vt`) |
+| `e2e` | 31 headless vinland-ui window cases (`tests/ui/window.vt`) |
 | `ui` | build and open the native window (`run` is an alias) |
 | `ui-shot` | render one frame; `SHOT=/tmp/ui.png` |
 | `ui-test` | run a harness script; `SCRIPT=... UI_OUT=...` |
@@ -162,13 +162,15 @@ directory is in `XDG_DATA_DIRS`.
   Settings → TIMING changes it and it is saved in `settings.json`), the take
   begins at the punch point, and the REC button counts the pre-roll down
   (`PRE 4` beats in Grid / `PRE 3` s in Free). `Ctrl+r` / `Alt+r`, or
-  Shift+click on REC, records immediately. When the track already has audio, the
-  take is **auto-comped over the old audio only between punch-in and
-  punch-out**: the old take is untouched and shown as `C/2`, before and after
-  the punch keep playing, and `t`/`T` or the take arrows pick a take outright.
-  Punching at Bar 1 Beat 1 (`00:00`) keeps the old behaviour (the new take
-  replaces the track). In Free mode, with nothing to listen to (no audio, no
-  click) there is no pre-roll, and it never reaches before 00:00.
+  shift+click on REC, records immediately. Recording is **tape-first**: overdubs
+  and punch-ins write back into the track's active take WAV in place (with short
+  crossfades where existing audio overlaps), preserving audio before the punch
+  and any un-overwritten tail after punch-out without spawning extra takes.
+  Creating multiple takes is explicitly **opt-in**: click `+ TAKE` (or press
+  `Ctrl+t` / `Cmd+t`, or run `: new take`) to archive the current take WAV and
+  open an empty new take slot; when a track holds 2+ takes, `‹`/`›` (`t`/`T`)
+  and `COMP` switch or audition takes. In Free mode, with nothing to listen to
+  (no audio, no click) there is no pre-roll, and it never reaches before 00:00.
 - **Timing mode, Clicktrack & Tape Scrubber:** **Grid mode** (default) runs an
   **absolute clicktrack** anchored to Bar 1 Beat 1 (frame 0) with accented
   downbeats (`4/4`, `3/4`, `6/8`, `5/4`, `7/8`, `2/4`; cycle with `C`, the
@@ -198,9 +200,15 @@ directory is in `XDG_DATA_DIRS`.
   mode or sub-state (mixer, recording, FX rack, palette, settings, text edit,
   render, bounce-to-track…). `F1` or `Esc` closes it; every other key is ignored
   while it is open.
-- **Takes and mix:** multi-take recording (`T1/2` on each strip), active-take cycling,
-  whole-take comping from the palette, and arbitrary comp regions through the
-  `comp` CLI. `BOUNCE` writes the canonical `bounce.wav` (stereo, full master chain) **and** folds it to mono as a new take on a dedicated `BOUNCE` track (added when missing; the BOUNCE track is left out of its own mix, so repeated bounces never stack); `RENDER…` opens a
+- **Takes and mix:** recording defaults to tape-style in-place overwrite on a
+  single take (`1/1`); opt-in multi-take (`+ TAKE` / `+`, `Ctrl+t` / `Cmd+t`, or
+  `: new take`) archives the active WAV and opens an empty take slot (`‹`/`›` or
+  `t`/`T` to switch, `COMP` to audition comp regions), with inline active-take
+  deletion (`DEL` button or `Ctrl+Delete` / `Cmd+Delete`, confirming with
+  `DELETE`/`y`/`Enter` to move the WAV to `deleted/`, strip its comp regions,
+  and reload a neighboring take — or clear the strip when empty; refused while
+  playing/recording or in comp `C/n` mode). Arbitrary comp regions remain available
+  through the `comp` CLI. `BOUNCE` writes the canonical `bounce.wav` (stereo, full master chain) **and** folds it to mono as a new take on a dedicated `BOUNCE` track (added when missing; the BOUNCE track is left out of its own mix, so repeated bounces never stack); `RENDER…` opens a
   range/format dialog and writes the same full-chain stereo mix to an external
   WAV. Drag either end of the range track (or click the track to move the
   nearest hand); `j/k` selects FROM/TO/FORMAT and `h/l` nudges by 0.5 s
@@ -214,21 +222,24 @@ directory is in `XDG_DATA_DIRS`.
   drag), bypass toggles, ping-pong, response visuals.
 - **I/O panel:** live PipeWire/JACK source list, JACK-backend toggle, latency
   ± controls, rescan and device selection.
-- **Settings:** `,` or the SET button. Edits the **Project name** (`PROJECT`
-  section) and **Project folder** (type, BROWSE…, APPLY, DEFAULT); BROWSE starts
-  in the parent of the current project so sibling projects are visible. Shows the
-  input device/backends, latency and monitoring, and toggles high contrast and
-  reduced motion. `j/k` selects a row and `Enter` runs it. Clicking a text field
-  enters EDIT with a real caret: click/drag or Shift+click select, double-click
-  selects a word, triple-click selects all, arrows/Home/End and Ctrl+word
-  movement work, and `Ctrl+C`/`X`/`V`/`Z`/`Y` use the clipboard and undo.
-  `Enter` applies, `Esc` asks before discarding, and `Tab`/`Shift+Tab` switch
-  inputs without losing drafts. Client secrets render as `*` even while
-  editing. The folder and accessibility choices persist in
-  `~/.config/tracker/settings.json`; changing the folder copies the current
-  takes into it and leaves the old folder as a recovery copy. A folder that
-  already contains `project.json` or any `trackN.wav` (1–24) is refused, so applying
-  cannot overwrite another session.
+- **Settings & Project Management:** `,` or the SET button. Unified **PROJECT**
+  section at the top with `+ NEW PROJECT` (`n` inside Settings or `: new project`
+  from anywhere; also available in `Recent projects`), `OPEN…` (`o`), and
+  `RECENT` (`p`). `+ NEW PROJECT` opens an inline composer with a live
+  `<parent>/<slug>` sibling folder preview; `Enter` saves the outgoing project if
+  dirty/populated, creates a fresh clean 4-track project (empty tracks, default
+  BPM/FX/marker, zero WAVs) in a unique sibling folder (`<slug>`, `<slug>-2`, …),
+  updates `recent.json` and `settings.json`, and keeps machine audio, timing,
+  accessibility, and cloud settings intact. Below it, **Project name** renames the
+  current project and **Project folder** (`BROWSE…` / `APPLY` / `DEFAULT`) copies
+  the current project's takes into another empty folder (leaving the original as a
+  recovery copy and refusing folders that already hold `project.json` or
+  `trackN.wav`). Audio, Timing, Appearance, and Cloud sections follow below. `j/k`
+  selects a row and `Enter` runs it; clicking a text field enters EDIT with a real
+  caret, selection, clipboard, and undo (`Tab`/`Shift+Tab` switches fields without
+  losing drafts). Client secrets render as `*` even while editing. Machine preferences
+  persist in `~/.config/tracker/settings.json` (and `--session DIR` isolates
+  `settings.json`, `recent.json`, and `cloud.json` beside the session).
 - **Project title & Google Drive naming:** Click the project title in the
   bottom status bar, press `n`, run `: rename project`, edit `Project name` in
   Settings, or click `RENAME` inside Cloud projects (`g`). `Enter` trims and
@@ -254,7 +265,7 @@ directory is in `XDG_DATA_DIRS`.
 - **Keyboard:** `F1` key help, `Space` play/pause (punch out while recording), `r` record at the playhead (`Ctrl+r` no pre-roll), `M` marker, `p` audition, `P` cycle pre-roll, `0` stop → marker → start, `b` bounce, `B` render dialog, `1–9` arm track, `j/k`
   select, `J/K` level, `h/l` jog (`±1 beat` in Grid / `±250 ms` in Free; `H/L` `±1/4 beat` / `±50 ms`; `Alt|Ctrl+h/l` micro `±10 ms`), `</>` shuttle (`±1 bar` in Grid / `±5.0 s` in Free), `|◄` return to marker, then zero, `m` mute,
   `s` solo, `a` arm, `n` rename project, `R` rename track, `v`/`V` mark / bounce tracks to a track, `N`/`D` add / delete track, `{ }` zoom, `( )` page, `I` input, `x` FX, `c` click, `C` time signature, `G` grid / free timing mode, `o`
-  monitor, `y` JACK backend, `t`/`T` next/previous take, `u`/`U` undo/redo,
+  monitor, `y` JACK backend, `t`/`T` next/previous take, `Ctrl+t` (`Cmd+t` on macOS) new take (opt-in), `Ctrl+Delete` (`Cmd+Delete` on macOS) delete active take (`y`/`Enter` confirm, `n`/`Esc` cancel), `u`/`U` undo/redo,
   `[`/`]` FX channel, `Tab`/`Shift+Tab` FX focus, `,` settings, `g` cloud projects,
   `:` command palette (`rewind to start`, `shuttle forward/back`, `jog forward/back`),
   `Esc` close. Recent projects and open/save-as live in the palette; the dialogs

@@ -5,6 +5,7 @@ package main
 
 import "core:fmt"
 import "core:os"
+import "core:strings"
 
 import ui "ui"
 
@@ -185,4 +186,120 @@ engine_open_project :: proc(a: ^ui.App, e: ^Engine, path: string) -> bool {
 	ui.app_history_reset(a)
 	ui.status_buf_set(a, "project loaded")
 	return true
+}
+
+// Lowercase filesystem-safe folder name derived from a project title. Falls
+// back to "untitled" when no ASCII alphanumerics/underscores remain.
+project_folder_slug :: proc(name: string, allocator := context.allocator) -> string {
+	trimmed := strings.trim_space(name)
+	b := strings.builder_make(allocator)
+	defer strings.builder_destroy(&b)
+	last_dash := false
+	for raw in transmute([]u8)trimmed {
+		c := raw
+		if c >= 'A' && c <= 'Z' {
+			c += 32
+		}
+		ok := (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'
+		if ok {
+			strings.write_byte(&b, c)
+			last_dash = false
+		} else if !last_dash {
+			strings.write_byte(&b, '-')
+			last_dash = true
+		}
+		if strings.builder_len(b) >= 48 {
+			break
+		}
+	}
+	s := strings.trim(strings.to_string(b), "-.")
+	if s == "" {
+		return strings.clone("untitled", allocator)
+	}
+	return strings.clone(s, allocator)
+}
+
+// Returns a non-existing directory path `<root>/<slug>` (or `<root>/<slug>-2`,
+// `-3`, …). Never reuses or overwrites an existing folder.
+engine_unique_project_dir :: proc(root, slug: string, allocator := context.allocator) -> string {
+	clean_slug := slug if slug != "" else "untitled"
+	cand := fmt.aprintf("%s/%s", root, clean_slug, allocator = allocator)
+	if !os.exists(cand) {
+		return cand
+	}
+	delete(cand, allocator)
+	for k in 2 ..= 999 {
+		numbered := fmt.aprintf("%s/%s-%d", root, clean_slug, k, allocator = allocator)
+		if !os.exists(numbered) {
+			return numbered
+		}
+		delete(numbered, allocator)
+	}
+	return fmt.aprintf("%s/%s-%d", root, clean_slug, os.get_pid(), allocator = allocator)
+}
+
+@(private)
+engine_has_any_audio :: proc(e: ^Engine, a: ^ui.App) -> bool {
+	for i in 0 ..< MAX_ENGINE_TRACKS {
+		if e.loaded[i] != nil || len(e.takes[i].takes) > 0 {
+			return true
+		}
+		if a != nil && a.tracks[i].has_audio {
+			return true
+		}
+	}
+	return false
+}
+
+// Creates a clean 4-track project in a fresh sibling folder beside the
+// current project, saving the current project first when needed and keeping
+// machine/studio preferences intact.
+engine_new_project :: proc(a: ^ui.App, e: ^Engine, name: string) -> (ok: bool, message: string) {
+	if a == nil || e == nil {
+		return false, "no engine"
+	}
+	if e.rec.active || e.play.active || a.transport != .Stopped {
+		return false, "stop transport before creating a new project"
+	}
+	if e.session_dir == "" {
+		return false, "no project folder"
+	}
+
+	// Preserve the outgoing project before clearing live audio and takes.
+	if e.project_path != "" && (a.dirty || os.exists(e.project_path) || engine_has_any_audio(e, a)) {
+		_ = project_save_with_takes(a, e.takes[:], e.project_path)
+	}
+
+	trimmed := strings.trim_space(name)
+	final_name := trimmed if trimmed != "" else "untitled"
+	slug := project_folder_slug(final_name)
+	defer delete(slug)
+
+	root := parent_dir(e.session_dir)
+	new_dir := engine_unique_project_dir(root, slug)
+	defer delete(new_dir)
+	if new_dir == "" || !ensure_dir(new_dir) {
+		return false, "cannot create project folder"
+	}
+	new_project_path := fmt.tprintf("%s/project.json", new_dir)
+
+	engine_preview_stop(e)
+	was_playing := engine_tracks_begin_edit(e)
+	engine_takes_clear(e)
+	for i in 0 ..< MAX_ENGINE_TRACKS {
+		delete(e.loaded[i])
+		e.loaded[i] = nil
+		e.loaded_rate[i] = 0
+	}
+	if !engine_retarget(e, new_dir, new_project_path) {
+		engine_tracks_end_edit(e, was_playing)
+		return false, "cannot use project directory"
+	}
+	e.sample_rate = 48_000
+	engine_tracks_end_edit(e, was_playing)
+
+	ui.app_reset_project(a, final_name)
+	_ = project_save_with_takes(a, e.takes[:], e.project_path)
+	a.dirty = false
+	return true, fmt.tprintf("new project: %s", final_name)
 }

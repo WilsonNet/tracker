@@ -94,6 +94,9 @@ text_active :: proc(a: ^App) -> (buf: []u8, len_out: ^int, ok: bool) {
 	if a.mode != .Settings {
 		return nil, nil, false
 	}
+	if a.new_project_edit {
+		return a.new_project_draft[:], &a.new_project_draft_len, true
+	}
 	if a.settings_path_edit {
 		return a.settings_path[:], &a.settings_path_len, true
 	}
@@ -123,6 +126,9 @@ text_field_index :: proc(a: ^App) -> int {
 	}
 	if a.mode != .Settings {
 		return -1
+	}
+	if a.new_project_edit {
+		return 6
 	}
 	if a.settings_path_edit {
 		return 1
@@ -182,6 +188,25 @@ text_field_begin :: proc(a: ^App, index: int) {
 		a.settings_sel = .Cloud_Client_Secret
 		if a.cloud_edit != .Client_Secret {
 			app_cloud_begin_edit(a, .Client_Secret)
+		}
+	case 6:
+		a.settings_sel = .New_Project
+		if !a.new_project_edit {
+			a.new_project_open = true
+			a.new_project_edit = true
+			a.project_name_edit = false
+			a.settings_path_edit = false
+			a.cloud_edit = .None
+			a.edit_confirm = false
+			a.edit_select_all = false
+			a.text_cursor = a.new_project_draft_len
+			a.text_anchor = a.text_cursor
+			a.text_scroll_x = 0
+			a.text_typing = false
+			a.text_dragging = false
+			a.text_drag_multi = false
+			text_history_reset(a)
+			bump_revision(a)
 		}
 	}
 }

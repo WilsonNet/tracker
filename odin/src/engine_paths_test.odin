@@ -172,3 +172,114 @@ engine_retarget_rejects_transport :: proc(t: ^testing.T) {
 	delete(e.take_path)
 	delete(e.bounce_path)
 }
+
+@(test)
+project_folder_slug_and_unique_dir :: proc(t: ^testing.T) {
+	s1 := project_folder_slug("Midnight Riff #2")
+	defer delete(s1)
+	testing.expect_value(t, s1, "midnight-riff-2")
+
+	s2 := project_folder_slug("../..//..")
+	defer delete(s2)
+	testing.expect_value(t, s2, "untitled")
+
+	s3 := project_folder_slug("   ")
+	defer delete(s3)
+	testing.expect_value(t, s3, "untitled")
+
+	base := "/tmp/tracker-unique-dir"
+	_ = os.remove_all(base)
+	defer _ = os.remove_all(base)
+	_ = os.make_directory_all(base)
+
+	d1 := engine_unique_project_dir(base, "demo")
+	defer delete(d1)
+	testing.expect_value(t, d1, fmt.tprintf("%s/demo", base))
+	_ = os.make_directory_all(d1)
+
+	d2 := engine_unique_project_dir(base, "demo")
+	defer delete(d2)
+	testing.expect_value(t, d2, fmt.tprintf("%s/demo-2", base))
+	_ = os.make_directory_all(d2)
+
+	d3 := engine_unique_project_dir(base, "demo")
+	defer delete(d3)
+	testing.expect_value(t, d3, fmt.tprintf("%s/demo-3", base))
+}
+
+@(test)
+engine_new_project_resets_audio_and_keeps_machine_prefs :: proc(t: ^testing.T) {
+	base := "/tmp/tracker-engine-new-project"
+	_ = os.remove_all(base)
+	defer _ = os.remove_all(base)
+	first_dir := fmt.tprintf("%s/old-song", base)
+	_ = os.make_directory_all(first_dir)
+
+	samples := make([]f32, 256)
+	defer delete(samples)
+	for i in 0 ..< len(samples) {
+		samples[i] = 0.25
+	}
+	testing.expect(t, wav_write(fmt.tprintf("%s/track1.wav", first_dir), 48_000, 1, samples), "seed wav")
+
+	a: ui.App
+	ui.app_init(&a, 1180, 760)
+	defer ui.app_destroy(&a)
+	names := [?]string{"Scarlett 4i4 USB"}
+	ui.app_set_devices(&a, names[:], 0)
+	ui.app_set_project(&a, "Old Song")
+	ui.app_set_track_count(&a, 6)
+	a.bpm = 142
+	a.tracks[0].has_audio = true
+	a.tracks[0].armed = true
+	a.tracks[0].muted = true
+	a.tracks[0].level = 1.2
+	a.master.reverb.enabled = true
+	a.marker = 48_000
+	a.marker_set = true
+	a.high_contrast = true
+	a.latency_ms = 12
+	a.timing_mode = .Free
+	a.dirty = true
+
+	e: Engine
+	testing.expect(t, engine_init(&e, []string{"--session", first_dir}), "engine init")
+	defer engine_destroy(&e)
+	testing.expect(t, engine_load_tracks(&e, &a), "load first project")
+
+	// Transport running must refuse.
+	e.play.active = true
+	ok_play, _ := engine_new_project(&a, &e, "Blocked")
+	testing.expect(t, !ok_play, "refuse while playing")
+	e.play.active = false
+
+	ok, msg := engine_new_project(&a, &e, "Midnight Riff")
+	testing.expectf(t, ok, "new project failed: %s", msg)
+
+	expected_dir := fmt.tprintf("%s/midnight-riff", base)
+	testing.expect_value(t, e.session_dir, expected_dir)
+	testing.expect(t, os.exists(fmt.tprintf("%s/project.json", expected_dir)), "new project.json written")
+	testing.expect(t, !os.exists(fmt.tprintf("%s/track1.wav", expected_dir)), "new project folder has no WAVs")
+	testing.expect(t, os.exists(fmt.tprintf("%s/project.json", first_dir)), "old project saved")
+	testing.expect(t, os.exists(fmt.tprintf("%s/track1.wav", first_dir)), "old WAV untouched")
+
+	// Project state reset cleanly.
+	testing.expect_value(t, ui.app_project(&a), "Midnight Riff")
+	testing.expect_value(t, a.track_count, 4)
+	testing.expect_value(t, a.bpm, 120)
+	testing.expect(t, !a.marker_set && !a.master.reverb.enabled && a.master.limiter.enabled, "marker and master FX reset")
+	testing.expect(t, a.mode == .Normal, "back to mixer")
+	for i in 0 ..< ui.MAX_TRACKS {
+		testing.expect(t, e.loaded[i] == nil && engine_take_count(&e, i) == 0, "engine audio/takes cleared")
+		testing.expect(t, !a.tracks[i].has_audio && !a.tracks[i].armed && !a.tracks[i].muted && a.tracks[i].level == 0.8, "ui track reset")
+	}
+
+	// Machine preferences preserved.
+	testing.expect(t, a.high_contrast && a.latency_ms == 12 && a.timing_mode == .Free, "machine settings preserved")
+	testing.expect_value(t, ui.app_device(&a), "Scarlett 4i4 USB")
+
+	// Creating another project with the same name allocates -2 cleanly.
+	ok2, _ := engine_new_project(&a, &e, "Midnight Riff")
+	testing.expect(t, ok2, "second project with same name")
+	testing.expect_value(t, e.session_dir, fmt.tprintf("%s/midnight-riff-2", base))
+}

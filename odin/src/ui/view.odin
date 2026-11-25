@@ -709,33 +709,71 @@ view_track :: proc(a: ^App, v: ^View, i: int, strip_w: f32) {
 				hist^ = {a, i}
 				vui.canvas("h-8 w-full", history_draw, hist)
 			}
-			if vui.div("flex items-center gap-1.5 text-[10px] tracking-[0.06em] text-ink-muted") {
-				if !compact {
-					vui.text("TAKE")
-				}
-				if a.take_count[i] > 0 {
-					if vui.button_box("rounded-[2px] p-0.5 text-ink-muted hover:bg-panel-raised hover:text-sig") {
-						vui.icon(v.ic_left, "size-3")
-						if vui.clicked() {
-							app_execute(a, .Take_Prev, i)
+			if a.take_count[i] > 0 {
+				act := a.take_active[i]
+				del_armed := a.take_del_track == i && a.transport == .Stopped && act > 0
+				if del_armed {
+					if vui.div("flex items-center gap-1.5 rounded-[2px] border border-rec bg-rec-bg px-1.5 py-0.5 text-[10px] tracking-[0.06em]") {
+						vui.text(fmt.tprintf("T%d?", act) if compact else fmt.tprintf("DEL T%d?", act), "font-semibold tabular-nums text-rec")
+						if vui.div("ml-auto flex items-center gap-1") {
+							if vui.button("DEL" if compact else "DELETE", "rounded-[2px] border border-rec bg-rec px-1.5 py-px text-[9px] font-semibold text-ink hover:bg-rec-hi") {
+								app_take_delete_confirm(a)
+							}
+							if vui.button("NO" if compact else "KEEP", "rounded-[2px] border border-line px-1.5 py-px text-[9px] font-semibold text-ink-dim hover:border-ink-dim hover:bg-panel-hover hover:text-ink") {
+								app_take_delete_cancel(a, true)
+							}
+						}
+					}
+				} else if vui.div(vui.cx("flex items-center text-[10px] tracking-[0.06em] text-ink-muted", compact ? "gap-1" : "gap-1.5")) {
+					multi := a.take_count[i] > 1
+					can_new := a.transport == .Stopped && t.has_audio
+					if !compact && !multi {
+						vui.text("TAKE")
+					}
+					if multi {
+						if vui.button_box("rounded-[2px] p-0.5 text-ink-muted hover:bg-panel-raised hover:text-sig") {
+							vui.icon(v.ic_left, "size-3")
+							if vui.clicked() {
+								a.selected = i
+								app_execute(a, .Take_Prev, i)
+							}
 						}
 					}
 					// take ids are 1-based; 0 means the comp / no take is active
-					act := a.take_active[i]
-					vui.text(fmt.tprintf("%d/%d", act, a.take_count[i]) if act > 0 else fmt.tprintf("C/%d", a.take_count[i]), "tabular-nums text-ink-dim")
-					if vui.button_box("rounded-[2px] p-0.5 text-ink-muted hover:bg-panel-raised hover:text-sig") {
-						vui.icon(v.ic_right, "size-3")
-						if vui.clicked() {
-							app_execute(a, .Take_Next, i)
+					vui.text(fmt.tprintf("%d/%d", act, a.take_count[i]) if act > 0 else fmt.tprintf("C/%d", a.take_count[i]), "tabular-nums text-ink-dim whitespace-nowrap")
+					if multi {
+						if vui.button_box("rounded-[2px] p-0.5 text-ink-muted hover:bg-panel-raised hover:text-sig") {
+							vui.icon(v.ic_right, "size-3")
+							if vui.clicked() {
+								a.selected = i
+								app_execute(a, .Take_Next, i)
+							}
 						}
 					}
-					if !compact && vui.button("COMP", "ml-auto rounded-[2px] border border-line px-1.5 py-px text-[9px] font-semibold text-ink-muted hover:border-sig-dim hover:text-sig") {
-						app_execute(a, .Comp_Use, i)
+					if !compact && !t.has_audio && act > 0 {
+						vui.text("EMPTY", "text-[9px] text-ink-muted whitespace-nowrap")
 					}
-				} else {
-					vui.text("—", "text-ink-muted")
-					vui.text("EMPTY" if !t.has_audio else "AUDIO", "ml-auto text-[9px]" if !compact else "text-[9px]")
+					if vui.div("ml-auto flex items-center gap-1") {
+						new_lbl := "+" if (compact || multi) else "+ TAKE"
+						if vui.button(new_lbl, vui.cx("rounded-[2px] border px-1.5 py-px text-[9px] font-semibold transition-colors duration-150 whitespace-nowrap", can_new ? "border-line text-ink-dim hover:border-sig hover:bg-sig-bg hover:text-sig" : "border-line-subtle text-ink-muted/35"), {} if can_new else {.Disabled}) {
+							_ = app_take_new(a, i)
+						}
+						if !compact && multi && t.has_audio && vui.button("COMP", "rounded-[2px] border border-line px-1.5 py-px text-[9px] font-semibold text-ink-muted hover:border-sig-dim hover:text-sig whitespace-nowrap") {
+							a.selected = i
+							app_execute(a, .Comp_Use, i)
+						}
+						can_del := a.transport == .Stopped && act > 0
+						if vui.button("DEL", vui.cx("rounded-[2px] border px-1.5 py-px text-[9px] font-semibold transition-colors duration-150 whitespace-nowrap", can_del ? "border-line text-ink-muted hover:border-rec hover:bg-rec-bg hover:text-rec" : "border-line-subtle text-ink-muted/35"), {} if can_del else {.Disabled}) {
+							_ = app_take_delete_arm(a, i)
+						}
+					}
 				}
+			} else if vui.div("flex items-center gap-1.5 text-[10px] tracking-[0.06em] text-ink-muted") {
+				if !compact {
+					vui.text("TAKE")
+				}
+				vui.text("—", "text-ink-muted")
+				vui.text("EMPTY" if !t.has_audio else "AUDIO", "ml-auto text-[9px]" if !compact else "text-[9px]")
 			}
 		}
 	}
@@ -1391,7 +1429,7 @@ view_status :: proc(a: ^App) {
 	if vui.div("flex shrink-0 items-center gap-2 border-t border-line bg-panel px-4 py-1 text-[11px] text-ink-muted") {
 		mode, mcls := status_mode(a)
 		vui.text(mode if a.mode != .Palette else ":", vui.cx("rounded-[2px] px-2 py-px text-[10px] font-bold leading-[1.5] tracking-[0.08em]", mcls))
-		if (a.mode == .Settings && (a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None)) ||
+		if (a.mode == .Settings && (a.new_project_edit || a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None)) ||
 		   (a.mode == .Normal && (a.project_name_edit || a.track_edit)) {
 			vui.text("EDIT", "rounded-[2px] bg-sig px-2 py-px text-[10px] font-bold leading-[1.5] tracking-[0.08em] text-canvas")
 		}
@@ -1435,12 +1473,14 @@ view_status :: proc(a: ^App) {
 		case .Settings:
 			if a.edit_confirm {
 				hint = "unsaved: enter apply · esc again discard"
+			} else if a.new_project_edit {
+				hint = "type: project name  enter: create  esc: cancel"
 			} else if a.project_name_edit {
 				hint = "type: project name  enter: save  esc: leave…"
 			} else if a.cloud_edit != .None {
 				hint = "type: edit credential  enter: save  esc: leave…"
 			} else {
-				hint = "type: edit path  enter: apply  esc: leave…" if a.settings_path_edit else "j/k: select  enter: run  b: browse  esc: close"
+				hint = "type: edit path  enter: apply  esc: leave…" if a.settings_path_edit else "j/k: select  enter: run  n: new  o: open  esc: close"
 			}
 		case .Cloud:
 			hint = "enter: restore  u: back up  n: rename  r: refresh  esc: close"
@@ -1886,7 +1926,10 @@ view_recent :: proc(a: ^App) {
 		if vui.pressable(PANEL) {
 			if vui.div("flex items-center") {
 				vui.text("Recent projects", "text-[14px] font-semibold text-ink")
-				vui.text("ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
+				if vui.button("+ NEW PROJECT", "ml-auto mr-2 rounded-[2px] border border-line-sig bg-sig-bg px-2 py-0.5 text-[10px] font-semibold tracking-[0.06em] text-sig hover:border-sig hover:text-sig-hi") {
+					app_execute(a, .New_Project)
+				}
+				vui.text("ESC", "text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
 			}
 			if vui.div("flex cursor-text items-center gap-2 rounded-[2px] border border-sig-dim bg-canvas px-3 py-2 text-[13px]") {
 				vui.text("/", "font-bold text-sig")
@@ -1896,7 +1939,7 @@ view_recent :: proc(a: ^App) {
 			if a.recent_filtered == 0 {
 				vui.text("No recent projects" if a.recent_count == 0 else "No matching project", "px-2 pt-3 text-[13px] text-ink-muted")
 				if a.recent_count == 0 {
-					vui.text("Use : open project to browse.", "px-2 pb-2 text-[11px] text-ink-dim")
+					vui.text("Click + NEW PROJECT or use : open project to browse.", "px-2 pb-2 text-[11px] text-ink-dim")
 				}
 			}
 			for i in 0 ..< min(a.recent_filtered, MAX_RECENT) {
@@ -1946,13 +1989,75 @@ view_settings :: proc(a: ^App, v: ^View) {
 			panel_id := vui.current_id()
 			if vui.div("flex items-baseline gap-3") {
 				vui.text("Settings", "text-[14px] font-semibold text-ink")
-				vui.text("Machine preferences", "text-[11px] text-ink-muted")
+				vui.text("Project & machine preferences", "text-[11px] text-ink-muted")
 				vui.text("ESC", "ml-auto text-[10px] font-semibold tracking-[0.06em] text-ink-muted")
 			}
 
 			// ── project ───────────────────────────────────────────────
 			vui.text("PROJECT", "text-[10px] font-semibold tracking-[0.12em] text-ink-muted")
-			vui.text("Project name", "text-[12px] font-medium text-ink")
+			total_takes := 0
+			for i in 0 ..< a.track_count {
+				total_takes += a.take_count[i]
+			}
+			if vui.div("flex flex-wrap items-center gap-2") {
+				if vui.button("+ NEW PROJECT", settings_item_class(a, .New_Project, vui.cx(BBTN, "border-line-sig bg-sig-bg text-sig hover:border-sig hover:text-sig-hi"))) {
+					a.settings_sel = .New_Project
+					if a.new_project_open {
+						app_new_project_cancel(a)
+					} else {
+						_ = app_new_project_begin(a)
+					}
+				}
+				if vui.button("OPEN…", settings_item_class(a, .Open_Project, vui.cx(BBTN, "border-line text-ink-dim hover:bg-panel-hover hover:text-ink"))) {
+					a.settings_sel = .Open_Project
+					app_execute(a, .Open_Project)
+				}
+				recent_label := fmt.tprintf("RECENT (%d)", a.recent_count) if a.recent_count > 0 else "RECENT"
+				if vui.button(recent_label, settings_item_class(a, .Recent_Projects, vui.cx(BBTN, "border-line text-ink-dim hover:bg-panel-hover hover:text-ink"))) {
+					a.settings_sel = .Recent_Projects
+					app_execute(a, .Recent)
+				}
+				summary := fmt.tprintf("%d tracks · %d take%s", a.track_count, total_takes, "" if total_takes == 1 else "s") if total_takes > 0 else fmt.tprintf("%d tracks · empty", a.track_count)
+				vui.text(summary, "ml-auto text-[10px] tabular-nums text-ink-muted")
+			}
+			if a.new_project_open {
+				if vui.div("flex flex-col gap-2 rounded-[2px] border border-line-sig bg-panel-raised p-3") {
+					if vui.div("flex items-baseline gap-2") {
+						vui.text("New clean project", "text-[12px] font-semibold text-ink")
+						vui.text("4 empty tracks · clean mix", "ml-auto text-[10px] text-ink-muted")
+					}
+					new_editing := a.new_project_edit
+					if vui.div(vui.cx("flex w-full cursor-text items-center gap-2 rounded-[2px] border bg-canvas px-3 py-2 text-left", new_editing ? "border-sig" : "border-line hover:border-sig-dim")) {
+						if vui.div("relative min-w-0 flex-1 cursor-text overflow-hidden") {
+							text_field_view(a, 6, app_new_project_draft(a), false, new_editing, "untitled", vui.prev_rect())
+						}
+						new_editing = a.new_project_edit
+						if new_editing {
+							vui.text("ALL" if a.edit_select_all else "EDIT", "text-[9px] font-semibold tracking-[0.08em] text-sig")
+						} else {
+							vui.text("EDIT", "text-[9px] font-semibold tracking-[0.08em] text-ink-muted")
+						}
+						if vui.clicked() && !new_editing {
+							text_field_begin(a, 6)
+						}
+					}
+					if vui.div("flex items-center gap-1.5 text-[10px]") {
+						vui.text("→", "font-bold text-sig")
+						vui.text(app_new_project_preview_dir(a), "min-w-0 flex-1 truncate text-ink-dim")
+					}
+					vui.text("Saves current project first · keeps audio, timing & cloud settings.", "text-[10px] text-ink-muted")
+					if vui.div("flex items-center gap-2 pt-0.5") {
+						if vui.button("CREATE", vui.cx(BBTN, "border-sig bg-sig text-ink hover:bg-sig-hi")) {
+							app_new_project_commit(a)
+						}
+						if vui.button("CANCEL", vui.cx(BBTN, "border-line text-ink-dim hover:bg-panel-hover hover:text-ink")) {
+							app_new_project_cancel(a)
+						}
+						vui.text("Enter create · Esc cancel", "ml-auto text-[10px] text-ink-muted")
+					}
+				}
+			}
+			vui.text("Project name", "border-t border-line-subtle pt-2.5 text-[12px] font-medium text-ink")
 			name_editing := a.project_name_edit
 			name_changed := app_project_draft(a) != app_project(a)
 			name_selected := a.settings_sel == .Project_Name
@@ -1978,9 +2083,10 @@ view_settings :: proc(a: ^App, v: ^View) {
 				vui.text("Edited · press Enter to save.", "text-[10px] text-sig")
 			}
 
-			// ── storage ───────────────────────────────────────────────
-			vui.text("STORAGE", SETTINGS_HEAD)
-			vui.text("Project folder", "text-[12px] font-medium text-ink")
+			if vui.div("flex items-baseline gap-2 pt-1") {
+				vui.text("Project folder", "text-[12px] font-medium text-ink")
+				vui.text("copy / move current project", "ml-auto text-[10px] text-ink-muted")
+			}
 			editing := a.settings_path_edit
 			changed := app_settings_path(a) != app_save_dir(a)
 			path_selected := a.settings_sel == .Path
@@ -2005,7 +2111,7 @@ view_settings :: proc(a: ^App, v: ^View) {
 					}
 				}
 			}
-			vui.text("project.json, per-track WAVs, takes and bounce.wav are written here.", "text-[10px] text-ink-muted")
+			vui.text("Copies current project.json & takes into another empty folder; original stays untouched.", "text-[10px] text-ink-muted")
 			if changed && !editing {
 				vui.text("Edited · APPLY copies the current takes into the new folder.", "text-[10px] text-sig")
 			}

@@ -87,6 +87,9 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 | pause in place, return marker, pre-roll, punch-in, audition (2026-11-24) | done: Space = play/pause (punches out while recording), STOP → marker → start, `M` marker (saved in `project.json` `markerFrame`), pre-roll (`OFF / 2 BT / 1 BAR / 2 BAR / 4 BAR` in Grid with Bar-1 count-in, `0/1/2/3/5/10 s` in Free; `settings.json` `prerollGrid`/`prerollS`, REC chip / Settings, Ctrl+r skips), record from the playhead auto-comps only the punched range, `p` auditions the lead-in |
 | musical Grid mode vs Free tape mode (2026-11-24) | done: Grid default (absolute clicktrack anchored to frame 0, accented beat 1, `4/4, 3/4, 6/8, 5/4, 7/8, 2/4`, `001.1.00 \| 00:00.0` readout, magnetic bar/beat/16th scrub + `10 ms` micro-nudge); Free opt-in in Settings → TIMING, `: timing mode`, `G` (relative click, seconds scrub/pre-roll, quiet `FREE` chip); persisted in `project.json` + `settings.json` |
 | track rename (`R` / double-click the name; empty = default; saved in `project.json`, survives Drive backup/restore) | done |
+| inline delete take (`DEL` button / `Ctrl+Delete` (`Cmd+Delete` on macOS) → inline confirm `DELETE`/`KEEP` or `y`/`Enter`, moves WAV to `deleted/`, strips comp regions, reloads neighbor or clears slot; 2026-11-24) | done (`engine_takes.odin`, `ui/tracks.odin`, `ui/view.odin`) |
+| tape-first in-place overwrite + opt-in multi-take (`+ TAKE` / `Ctrl+t` / `: new take`) & unbounded recording metronome fix (2026-11-24) | done (`engine_takes.odin`, `engine.odin`, `ui/tracks.odin`, `ui/view.odin`) |
+| clean new project & unified Settings PROJECT management (`+ NEW PROJECT`, `OPEN…`, `RECENT`, inline `<parent>/<slug>` composer, full 4-track/audio/FX/marker reset keeping machine prefs, `--session` recent isolation; 2026-11-24) | done (`engine_paths.odin`, `ui/app.odin`, `ui/view.odin`) |
 | `F1` contextual key sheet (`ui/help.odin`) | done; covers every mode and sub-state |
 | not done | removing a track that holds audio (refused on purpose), undo of a bounce (the target's previous take stays selectable with `t`/`T`), stereo bounce targets, headless Cairo/soft canvas overlays for the help sheet and bounce dialog |
 
@@ -94,8 +97,8 @@ Verification: `odin/VERIFICATION.md`, `odin/PERF.md`, and
 
 | check | result |
 |---|---|
-| unit tests | **313** Linux / **307** macOS (74 DSP, 152/146 core/engine/project/cloud, 87 UI) |
-| UI e2e | 29 headless vinland-ui cases |
+| unit tests | **321** Linux / **315** macOS (74 DSP, 157/151 core/engine/project/cloud, 90 UI) |
+| UI e2e | 31 headless vinland-ui cases |
 | UI tour | 220 actions, 17 screenshots |
 | clean build | ~0.8 s |
 | hardware capture | 96,000 frames / 2.000 s |

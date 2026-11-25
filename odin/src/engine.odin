@@ -68,6 +68,7 @@ Playback :: struct {
 	cursor:               i64,
 	rate:                 u32,
 	silent:               bool,
+	unbounded:            bool,
 	use_live_mixer:       bool,
 	mute_armed:           bool,
 	tracks:               [MAX_ENGINE_TRACKS][]f32,
@@ -892,7 +893,7 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 		start_pos := i64(e.rec_punch - e.rec_pre)
 		countin_only := e.rec_pre > 0 && !a.metronome && start_pos < 0
 		if overdub || a.metronome || countin_only {
-			_ = engine_play(e, a, true, start_pos, true, 0, countin_only)
+			_ = engine_play(e, a, true, start_pos, true, 0, countin_only, true)
 		}
 		ui.status_buf_set(a, fmt.tprintf("recording %d ch via JACK @ %d Hz%s", requested, e.jack.rate, " · overdub" if overdub else ""))
 		return true
@@ -1049,7 +1050,7 @@ engine_record_start :: proc(e: ^Engine, a: ^ui.App) -> bool {
 	// slow part of an overdub and must not become recorded pre-roll that
 	// shifts the new performance out of alignment with the existing tracks.
 	if want_playback {
-		if !playback_prepare(e, a, true, start_pos, true, 0, countin_only) {
+		if !playback_prepare(e, a, true, start_pos, true, 0, countin_only, true) {
 			recorder_release(e, true, true)
 			_ = os.remove(e.take_path)
 			ui.status_buf_set(a, "cannot start playback")
@@ -1442,12 +1443,19 @@ playback_callback :: proc "c" (device: ^ma.device, output, input: rawptr, frame_
 			out[f * channels + c] = (l + r) * 0.5 if channels == 1 else (l if c % 2 == 0 else r)
 		}
 	}
-	// Saturate instead of wrapping if a callback arrives after the end.
+	// Saturate at `p.frames` for finite preview playback so a late callback
+	// after the end does not wrap; during unbounded playback (recording
+	// overdub/click or standalone metronome) keep advancing so the clicktrack
+	// stays locked to the grid past the length of existing takes.
 	next := cursor
-	end := i64(p.frames)
-	if next < end {
-		remaining := end - next
-		next = end if i64(frames) >= remaining else next + i64(frames)
+	if p.unbounded {
+		next = cursor + i64(frames)
+	} else {
+		end := i64(p.frames)
+		if next < end {
+			remaining := end - next
+			next = end if i64(frames) >= remaining else next + i64(frames)
+		}
 	}
 	sync.atomic_store(&p.cursor, next)
 
@@ -1563,10 +1571,10 @@ engine_seek :: proc(e: ^Engine, a: ^ui.App) {
 		return
 	}
 	if e.play.active {
-		if e.play.frames <= 0 {
+		if !e.play.unbounded && e.play.frames <= 0 {
 			return
 		}
-		target := clamp(a.frames, 0, i64(e.play.frames) - 1)
+		target := max(a.frames, 0) if e.play.unbounded else clamp(a.frames, 0, i64(e.play.frames) - 1)
 		a.frames = target
 		sync.atomic_store(&e.play.cursor, target)
 		if !e.play.click_absolute {
@@ -1959,6 +1967,7 @@ playback_prepare :: proc(
 	has_start: bool = false,
 	countin_click_until: i64 = 0,
 	countin_click_active: bool = false,
+	unbounded: bool = false,
 ) -> bool {
 	engine_stop_playback(e)
 	engine_sync_play_tracks(e)
@@ -1992,6 +2001,7 @@ playback_prepare :: proc(
 	p.mute_armed = mute_armed
 	p.frames = total_frames
 	p.silent = !have_audio
+	p.unbounded = unbounded || !have_audio
 	p.rate = rate
 	sig := ui.app_time_sig(a)
 	p.click_enabled = a.metronome
@@ -2058,8 +2068,9 @@ engine_play :: proc(
 	has_start: bool = false,
 	countin_click_until: i64 = 0,
 	countin_click_active: bool = false,
+	unbounded: bool = false,
 ) -> bool {
-	if !playback_prepare(e, a, mute_armed, start_frame, has_start, countin_click_until, countin_click_active) {
+	if !playback_prepare(e, a, mute_armed, start_frame, has_start, countin_click_until, countin_click_active, unbounded) {
 		return false
 	}
 	return playback_start(e)
@@ -2077,6 +2088,7 @@ engine_stop_playback :: proc(e: ^Engine) {
 	e.play.active = false
 	e.play.cursor = 0
 	e.play.frames = 0
+	e.play.unbounded = false
 	e.play.use_live_mixer = false
 	if sync.atomic_load(&e.play.interrupt) != 0 {
 		playback_release_device(e)
@@ -2230,7 +2242,7 @@ engine_update :: proc(e: ^Engine, a: ^ui.App) {
 			}
 		}
 		cursor := sync.atomic_load(&e.play.cursor)
-		if cursor >= i64(e.play.frames) {
+		if !e.play.unbounded && cursor >= i64(e.play.frames) {
 			engine_stop_playback(e)
 			ui.app_force_stopped(a, "preview finished")
 			return

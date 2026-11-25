@@ -16,7 +16,7 @@ app_help_toggle :: proc(a: ^App) {
 // Short label for the sheet header: where the user is right now.
 app_help_context :: proc(a: ^App) -> string {
 	if (a.mode == .Normal && (a.project_name_edit || a.track_edit)) ||
-	   (a.mode == .Settings && (a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None)) {
+	   (a.mode == .Settings && (a.new_project_edit || a.project_name_edit || a.settings_path_edit || a.cloud_edit != .None)) {
 		return "Editing text"
 	}
 	if a.transport == .Recording && a.mode == .Normal {
@@ -72,6 +72,8 @@ app_help_entries :: proc(a: ^App) -> []Help_Entry {
 		help_text_edit(&out, "save name (empty = default)", "cancel")
 	case a.mode == .Normal && a.project_name_edit:
 		help_text_edit(&out, "save name", "cancel")
+	case a.mode == .Settings && a.new_project_edit:
+		help_text_edit(&out, "create clean project", "cancel")
 	case a.mode == .Settings && a.project_name_edit:
 		help_text_edit(&out, "save name", "ask, then discard")
 		head(&out, "Fields")
@@ -84,6 +86,9 @@ app_help_entries :: proc(a: ^App) -> []Help_Entry {
 		head(&out, "Settings")
 		row(&out, "j k / ↑ ↓", "select row")
 		row(&out, "Enter", "run selected row")
+		row(&out, "n", "new clean project")
+		row(&out, "o", "open project")
+		row(&out, "p", "recent projects")
 		row(&out, "b", "browse for folder")
 		row(&out, "a", "apply folder")
 		row(&out, "r", "reset to default")
@@ -206,6 +211,8 @@ help_normal :: proc(out: ^[dynamic]Help_Entry, a: ^App) {
 		row(out, "a", "arm selected")
 		row(out, "I", "cycle input channel")
 		row(out, "t T", "next / prev take")
+		row(out, platform_new_take_shortcut(), "new take (opt-in)")
+		row(out, platform_delete_take_shortcut(), "delete active take")
 	}
 
 	head(out, "Track count")

@@ -16,3 +16,11 @@ platform_audio_sources_subtitle :: proc() -> string {
 platform_supports_jack :: proc() -> bool {
 	return true
 }
+
+platform_delete_take_shortcut :: proc() -> string {
+	return "Ctrl+Del"
+}
+
+platform_new_take_shortcut :: proc() -> string {
+	return "Ctrl+t"
+}

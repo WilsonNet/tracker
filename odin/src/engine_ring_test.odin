@@ -366,6 +366,80 @@ playback_clicktrack_absolute_relative_countin_and_accents :: proc(t: ^testing.T)
 }
 
 @(test)
+playback_unbounded_keeps_metronome_clicking_past_audio_end :: proc(t: ^testing.T) {
+	// Existing recorded take is 1 s (48_000 frames = 2 beats at 120 BPM 4/4).
+	// Unbounded playback must stop reading audio at p.frames while keeping the
+	// cursor advancing so grid and free metronome clicks never stop.
+	p: Playback
+	p.frames = 48_000
+	p.samples = make([]f32, p.frames * 2)
+	defer delete(p.samples)
+	for i in 0 ..< len(p.samples) {
+		p.samples[i] = 0.25
+	}
+	p.rate = 48_000
+	p.silent = false
+	p.unbounded = true
+	p.click_enabled = true
+	p.click_absolute = true
+	p.bpm = 120
+	p.sig_num = 4
+	p.sig_den = 4
+
+	dev: ma.device
+	dev.pUserData = &p
+	dev.playback.channels = 2
+
+	// Cross p.frames (48_000 = Bar 1 Beat 3): first 2 samples carry audio (0.25),
+	// samples past p.frames drop track audio to 0 and sound Beat 3 click (950 Hz),
+	// and cursor advances to 48_002 instead of saturating at 48_000.
+	sync.atomic_store(&p.cursor, 47_998)
+	buf: [16]f32
+	playback_callback(&dev, raw_data(buf[:]), nil, 4)
+	testing.expectf(t, sync.atomic_load(&p.cursor) == 48_002, "cursor must advance past p.frames, got %d", sync.atomic_load(&p.cursor))
+	testing.expectf(t, abs(buf[0] - 0.25) < 1e-6 && abs(buf[2] - 0.25) < 1e-6, "frames before p.frames play track audio: %v", buf[0:4])
+	testing.expectf(t, buf[4] == 0 && buf[6] != 0 && abs(p.click_freq - 950.0) < 1.0, "beat 3 triggers right at p.frames with no out-of-bounds audio: %v freq=%v", buf[4:8], p.click_freq)
+
+	// Once click decay finishes past p.frames, output returns cleanly to silence.
+	p.click_left = 0
+	sync.atomic_store(&p.cursor, 50_000)
+	buf = {}
+	playback_callback(&dev, raw_data(buf[:]), nil, 4)
+	testing.expect(t, buf[0] == 0 && buf[2] == 0 && buf[4] == 0 && buf[6] == 0, "past p.frames between beats is silent")
+
+	// Beat 4 (72_000) and Bar 2 Beat 1 (96_000, accented 1500 Hz) keep firing cleanly.
+	sync.atomic_store(&p.cursor, 71_999)
+	buf = {}
+	playback_callback(&dev, raw_data(buf[:]), nil, 4)
+	testing.expectf(t, sync.atomic_load(&p.cursor) == 72_003 && buf[4] != 0 && abs(p.click_freq - 950.0) < 1.0, "beat 4 fires at 72000")
+
+	p.click_left = 0
+	sync.atomic_store(&p.cursor, 95_999)
+	buf = {}
+	playback_callback(&dev, raw_data(buf[:]), nil, 4)
+	testing.expectf(t, buf[4] != 0 && abs(p.click_freq - 1500.0) < 1.0, "bar 2 beat 1 fires accented past p.frames, freq=%v", p.click_freq)
+
+	// Starting a punch-in directly at/past p.frames still advances and clicks.
+	p.click_left = 0
+	p.has_last_beat = false
+	sync.atomic_store(&p.cursor, 48_000)
+	buf = {}
+	playback_callback(&dev, raw_data(buf[:]), nil, 4)
+	testing.expectf(t, sync.atomic_load(&p.cursor) == 48_004 && buf[2] != 0, "starting at p.frames clicks immediately")
+
+	// Free/relative timing mode also continues clicking past p.frames.
+	p.click_absolute = false
+	p.click_origin = 0
+	p.click_left = 0
+	p.has_last_beat = false
+	p.last_beat_idx = 0
+	sync.atomic_store(&p.cursor, 71_999)
+	buf = {}
+	playback_callback(&dev, raw_data(buf[:]), nil, 4)
+	testing.expectf(t, sync.atomic_load(&p.cursor) == 72_003 && buf[4] != 0, "free mode keeps clicking past p.frames")
+}
+
+@(test)
 playback_callback_live_mixer_updates_seeks_and_ramps_to_idle :: proc(t: ^testing.T) {
 	p: Playback
 	rate: u32 = 48_000

@@ -243,7 +243,7 @@ engine_punch_in_keeps_audio_before_and_after_the_punch :: proc(t: ^testing.T) {
 	testing.expect(t, engine_load_tracks(&e, &a), "load")
 	testing.expect(t, len(e.loaded[0]) == 4800, "old audio loaded")
 
-	// punch in at frame 1200 with 1200 frames of -0.5
+	// punch in at frame 1200 with 1200 frames of -0.5 -> tape overwrite in place on take 1
 	nw := make([]f32, 1200)
 	for i in 0 ..< len(nw) {
 		nw[i] = -0.5
@@ -251,17 +251,16 @@ engine_punch_in_keeps_audio_before_and_after_the_punch :: proc(t: ^testing.T) {
 	e.rec_punch = 1200
 	e.rec_pre = 0
 	testing.expect(t, engine_commit_recorded_take(&e, &a, 0, 48_000, nw), "commit punch")
-	testing.expect(t, engine_take_count(&e, 0) == 2, "old take kept, punch take added")
-	testing.expect(t, len(e.takes[0].comp) == 3, "comp: before / punch / after")
+	testing.expect(t, engine_take_count(&e, 0) == 1, "tape overwrite keeps single take")
+	testing.expect(t, len(e.takes[0].comp) == 0, "no comp regions created by default overwrite")
 	testing.expectf(t, len(e.loaded[0]) == 4800, "length unchanged, got %d", len(e.loaded[0]))
 	if len(e.loaded[0]) == 4800 {
 		testing.expect(t, abs(e.loaded[0][600] - 0.25) < 1e-4, "before the punch: old audio")
 		testing.expect(t, abs(e.loaded[0][1800] + 0.5) < 1e-4, "inside the punch: new audio")
 		testing.expect(t, abs(e.loaded[0][3600] - 0.25) < 1e-4, "after the punch: old audio")
 	}
-	testing.expect(t, e.takes[0].takes[1].offset == 1200, "punch take remembers its timeline offset")
 
-	// the project round-trips: reload from disk and the comp still renders
+	// the project round-trips: reload from disk and the spliced tape audio persists
 	a2: ui.App
 	ui.app_init(&a2, 1180, 760)
 	defer ui.app_destroy(&a2)
@@ -271,16 +270,31 @@ engine_punch_in_keeps_audio_before_and_after_the_punch :: proc(t: ^testing.T) {
 	defer engine_destroy(&e2)
 	testing.expect(t, project_load_with_takes(&a2, base, e2.project_path, e2.takes[:]), "load project")
 	testing.expect(t, engine_load_tracks(&e2, &a2), "load tracks")
-	testing.expect(t, len(e2.loaded[0]) == 4800 && abs(e2.loaded[0][1800] + 0.5) < 1e-4, "reloaded punch comp")
+	testing.expect(t, len(e2.loaded[0]) == 4800 && abs(e2.loaded[0][1800] + 0.5) < 1e-4, "reloaded tape overwrite")
 
-	// punch 0 keeps the classic behaviour: the new take simply replaces the track
+	// punch 0 with a shorter pass overwrites [0, 1000) in place while preserving the tail past 1000
 	nw2 := make([]f32, 1000)
 	for i in 0 ..< len(nw2) {
 		nw2[i] = 0.1
 	}
 	e.rec_punch = 0
 	testing.expect(t, engine_commit_recorded_take(&e, &a, 0, 48_000, nw2), "commit from zero")
-	testing.expect(t, len(e.loaded[0]) == 1000, "plain take loaded as before")
+	testing.expect(t, engine_take_count(&e, 0) == 1 && len(e.loaded[0]) == 4800, "short overwrite preserves tail")
+	testing.expect(t, abs(e.loaded[0][400] - 0.1) < 1e-4 && abs(e.loaded[0][1800] + 0.5) < 1e-4 && abs(e.loaded[0][3600] - 0.25) < 1e-4, "three regions intact in single wav")
+
+	// Opt-in + TAKE archives Take 1 and lets a fresh pass record cleanly on Take 2
+	ok_new, msg_new := engine_take_new(&e, &a, 0)
+	testing.expectf(t, ok_new, "opt-in new take: %s", msg_new)
+	testing.expect(t, engine_take_count(&e, 0) == 2 && engine_take_active(&e, 0) == 2, "take 2 active")
+	nw3 := make([]f32, 1000)
+	for i in 0 ..< len(nw3) {
+		nw3[i] = 0.75
+	}
+	e.rec_punch = 0
+	testing.expect(t, engine_commit_recorded_take(&e, &a, 0, 48_000, nw3), "commit take 2")
+	testing.expect(t, len(e.loaded[0]) == 1000 && abs(e.loaded[0][500] - 0.75) < 1e-4, "take 2 has only new recording")
+	testing.expect(t, engine_take_select(&e, &a, 0, 1), "switch back to take 1")
+	testing.expect(t, len(e.loaded[0]) == 4800 && abs(e.loaded[0][3600] - 0.25) < 1e-4, "take 1 audio archived safely")
 }
 
 @(test)
